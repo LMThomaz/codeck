@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Gera brand/logo.svg (marca com gradiente, sem fundo) e brand/icon.svg (ícone do app).
 
-A marca: a branch principal recebe o ramo da PR (o merge, em verde) e segue numa curva de decolagem até o avião —
-PR → merge → release. Tudo sai como <path> PREENCHIDO de polígonos (traços e círculos viram contorno aqui): o
+A marca: um grafo do git que forma o "P" de PR Pilot — a branch principal é a haste; uma branch sai dela, ganha um
+commit e volta num merge (em verde) no topo, desenhando a barriga do P. Tudo sai como <path> PREENCHIDO de polígonos (traços e círculos viram contorno aqui): o
 ThomSoft Setup desenha o logo com um renderizador que não aceita filtros e é instável com stroke, e quando falha
 mostra o logo de demonstração (foi o que aconteceu com o primeiro logo).
 
@@ -12,7 +12,7 @@ import math
 import os
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-W = 56  # espessura dos ramos
+W = 68  # espessura dos ramos
 
 
 def bezier(p0, p1, p2, p3, n=48):
@@ -41,27 +41,15 @@ def circle(cx, cy, r, n=72):
     return [(cx + r * math.cos(2 * math.pi * i / n), cy + r * math.sin(2 * math.pi * i / n)) for i in range(n)]
 
 
-def plane(cx, cy, scale, deg):
-    """Avião visto de cima, desenhado com o bico para cima e girado no sentido horário."""
-    outline = bezier((0, -132), (18, -132), (30, -114), (30, -90), 8) + [
-        (30, -40), (150, 22), (150, 54), (30, 24), (26, 82), (62, 106), (62, 128), (0, 116),
-        (-62, 128), (-62, 106), (-26, 82), (-30, 24), (-150, 54), (-150, 22), (-30, -40)] + \
-        bezier((-30, -90), (-30, -114), (-18, -132), (0, -132), 8)[:-1]
-    t = math.radians(deg)
-    return [(cx + scale * (x * math.cos(t) - y * math.sin(t)), cy + scale * (x * math.sin(t) + y * math.cos(t)))
-            for x, y in outline]
-
-
 # desenho livre; o encaixe no quadrado de 512 vem depois
-S, P, M = (150, 470), (310, 470), (150, 318)   # início da branch principal, ramo da PR, ponto do merge
+S, J, R, T = (150, 466), (150, 306), (382, 188), (150, 70)   # 1º commit, saída da branch, commit da branch, merge
 shapes = [
-    thick([S, M]),                                                  # branch principal
-    thick(bezier(P, (310, 404), (196, 352), M)),                    # ramo da PR entrando no merge
-    thick(bezier(M, (150, 250), (236, 262), (300, 200))),           # curva de decolagem até a cauda
-    plane(350, 150, 0.95, 45),                                      # o release decolando
-    circle(*S, 48), circle(*P, 48),                                 # commits de origem
+    thick([S, T]),                                                   # branch principal (a haste do P)
+    thick(bezier(J, (240, 306), (382, 282), R)),                     # a branch saindo…
+    thick(bezier(R, (382, 96), (240, 70), T)),                      # …e voltando no merge (a barriga do P)
+    circle(*S, 58), circle(*R, 58),                                  # commits
 ]
-merge_ring, merge_dot = circle(*M, 44), circle(*M, 17)
+merge_ring, merge_dot = circle(*T, 64), circle(*T, 25)
 
 
 def fit(polys, margin):
