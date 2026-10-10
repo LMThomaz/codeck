@@ -48,6 +48,7 @@ sealed class MainForm : Form
     readonly string dataDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Commitdeck");
     readonly HttpClient http = new() { Timeout = TimeSpan.FromSeconds(4) };
     readonly WebView2 web = new() { Dock = DockStyle.Fill };
+    CoreWebView2Environment? envWv;   // o mesmo ambiente serve às janelas de projeto
     readonly NotifyIcon tray = new();
     readonly ToolStripMenuItem autostartItem = new("Iniciar com o Windows");
     readonly System.Windows.Forms.Timer timer = new() { Interval = 15000 };
@@ -195,7 +196,7 @@ sealed class MainForm : Form
     {
         try
         {
-            var envWv = await CoreWebView2Environment.CreateAsync(null, Path.Combine(
+            envWv = await CoreWebView2Environment.CreateAsync(null, Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Commitdeck", "WebView2"));
             await web.EnsureCoreWebView2Async(envWv);
         }
@@ -385,6 +386,13 @@ sealed class MainForm : Form
             var type = msg.GetProperty("type").GetString();
             if (type == "pickFolder") { PickFolder(msg.GetProperty("id").GetString() ?? "", msg.TryGetProperty("title", out var t) ? t.GetString() : null); return; }
             if (type == "theme") { ApplyTheme(msg.TryGetProperty("mode", out var m) && m.GetString() == "light"); return; }
+            if (type == "openWindow" && envWv != null)
+            {
+                var hash = msg.GetProperty("hash").GetString() ?? "";
+                var title = msg.TryGetProperty("title", out var tt) ? tt.GetString() ?? "Commitdeck" : "Commitdeck";
+                new ProjectWindow(envWv, baseUrl, token, hash, title, Icon, BackColor).Show();
+                return;
+            }
             if (type != "install") return;
             var path = Path.GetFullPath(msg.GetProperty("path").GetString() ?? "");
             var updates = Path.GetFullPath(Path.Combine(dataDir, "updates")) + Path.DirectorySeparatorChar;
@@ -439,6 +447,33 @@ sealed class MainForm : Form
 }
 
 /// Job Object com KILL_ON_JOB_CLOSE: quando o app sai (ou cai), o Windows encerra o backend junto.
+/// Um projeto numa janela só dele (ex.: outro monitor): mesma chave, mesmo servidor; a tela entra no modo "solo".
+sealed class ProjectWindow : Form
+{
+    readonly WebView2 view = new() { Dock = DockStyle.Fill };
+
+    public ProjectWindow(CoreWebView2Environment env, string baseUrl, string token, string hash, string title, Icon? icon, Color back)
+    {
+        Text = title;
+        Icon = icon;
+        BackColor = back;
+        Size = new Size(1280, 820);
+        MinimumSize = new Size(760, 520);
+        StartPosition = FormStartPosition.CenterScreen;
+        Controls.Add(view);
+        Load += async (_, _) =>
+        {
+            await view.EnsureCoreWebView2Async(env);
+            var core = view.CoreWebView2;
+            core.Settings.IsStatusBarEnabled = false;
+            await core.AddScriptToExecuteOnDocumentCreatedAsync(
+                $"window.COMMITDECK_TOKEN = {JsonSerializer.Serialize(token)}; window.COMMITDECK_PLATFORM = 'windows';");
+            core.NewWindowRequested += (_, e) => { e.Handled = true; Process.Start(new ProcessStartInfo(e.Uri) { UseShellExecute = true }); };
+            core.Navigate(baseUrl + "#" + hash);
+        };
+    }
+}
+
 static class Job
 {
     [StructLayout(LayoutKind.Sequential)]

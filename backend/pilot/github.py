@@ -273,6 +273,9 @@ class GitHub:
             raise ValueError("No GitHub não dá para remover a revisão pelo app — abra a PR no navegador")
         self.req("POST", f"repos/{full_name}/pulls/{number}/reviews", {"event": event, "body": body})
 
+    def comment(self, full_name, number, text):
+        self.req("POST", f"repos/{full_name}/issues/{number}/comments", {"body": text})
+
     def pr_approved_by_me(self, full_name, number):
         me = self.identity()["login"]
         last = None

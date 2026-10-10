@@ -20,13 +20,14 @@ export interface Session {
   model: string | null; cost: number | null; context: { used: number | null; size: number | null; tokens: number | null } | null;
   events: { at: string; event: string; message?: string }[]; title?: string; statusAt?: number;
 }
+export interface Resumable { sid: string; account: string; provider: Provider; title: string; cliSession: string; updated: string }
 export interface Task {
   id: string; title: string; slug: string; branch: string; base: string; path: string; repoId: string; createdAt: string;
-  status: string; prompt: string; exists: boolean; terms: TermInfo[]; workItem?: any; pr?: any; copied: string[]; group?: string | null;
+  status: string; prompt: string; exists: boolean; terms: TermInfo[]; workItem?: any; pr?: any; copied: string[]; group?: string | null; resumable?: Resumable[];
 }
 export interface Project {
   id: string; name: string; path: string; provider?: string | null; slug?: string | null; webUrl?: string | null;
-  settings: { copy: string[]; setup: string; worktreeRoot: string }; tasks: Task[]; terms: TermInfo[];
+  settings: { copy: string[]; setup: string; worktreeRoot: string; shell?: string; addDirs?: string[] }; tasks: Task[]; terms: TermInfo[]; resumable?: Resumable[];
 }
 
 class Work {

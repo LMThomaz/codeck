@@ -445,6 +445,12 @@ class Org:
                 })
         return out
 
+    def comment(self, project, repo_id, pr_id, text):
+        """Comentário geral na PR (thread nova, status ativo)."""
+        proj = urllib.parse.quote(project)
+        self.req("POST", f"{proj}/_apis/git/repositories/{repo_id}/pullRequests/{pr_id}/threads?{API}",
+                 {"comments": [{"parentCommentId": 0, "content": text, "commentType": 1}], "status": 1})
+
     def vote(self, project, repo_id, pr_id, vote):
         me = self.identity()
         proj = urllib.parse.quote(project)

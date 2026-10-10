@@ -55,13 +55,16 @@ def state():
         if not r:
             continue
         p = _proj(d, rid)
+        live = {x["meta"].get("sid") for x in terminals.list_all(project=rid)}
         tasks = []
         for t in p["tasks"]:
             tasks.append({**t, "exists": os.path.isdir(t["path"]),
-                          "terms": [x for x in terminals.list_all(task=t["id"])]})
+                          "terms": [x for x in terminals.list_all(task=t["id"])],
+                          "resumable": agents.resumable(rid, t["id"], live)})
         out.append({"id": rid, "name": r["name"], "path": r["path"], "provider": r.get("provider"), "slug": r.get("slug"),
                     "webUrl": r.get("webUrl"), "settings": p["settings"], "tasks": tasks,
-                    "terms": [x for x in terminals.list_all(project=rid) if not x["meta"].get("task")]})
+                    "terms": [x for x in terminals.list_all(project=rid) if not x["meta"].get("task")],
+                    "resumable": agents.resumable(rid, None, live)})
     return {"projects": out, "active": d.get("active"), "sessions": agents.all_sessions()}
 
 
@@ -107,6 +110,10 @@ def save_settings(repo_id, body):
         s["setup"] = str(body.get("setup") or "")[:2000]
     if "worktreeRoot" in body:
         s["worktreeRoot"] = os.path.expanduser(str(body.get("worktreeRoot") or "").strip())
+    if "shell" in body:
+        s["shell"] = str(body.get("shell") or "").strip()[:300]
+    if isinstance(body.get("addDirs"), list):
+        s["addDirs"] = [os.path.abspath(os.path.expanduser(str(x))) for x in body["addDirs"] if str(x).strip()][:20]
     _save(d)
     return s
 
@@ -191,32 +198,23 @@ def create_task(repo_id, body):
     slug = slugify(body.get("slug") or title)
     branch = body.get("branch") or f"{kind}/{slug}"
     git._check_branch(branch)
-    base = body.get("base") or ""
-    if not base:
-        try:
-            base = git.run(repo["path"], "symbolic-ref", "--short", "refs/remotes/origin/HEAD").strip()
-        except Exception:  # noqa: BLE001
-            base = git.status(repo_id)["branch"] or "HEAD"
-    path = os.path.join(_worktree_root(repo, p["settings"]), slug)
-    if os.path.exists(path):
-        path = f"{path}-{uuid.uuid4().hex[:4]}"
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    _exclude_from_enclosing_repo(os.path.dirname(os.path.dirname(path)))
-    try:
-        git.run(repo["path"], "fetch", "origin", "--prune", timeout=180, auth=git.auth_for(repo))
-    except Exception:  # noqa: BLE001 — sem rede: segue com o que tem
-        pass
-    exists = git.run(repo["path"], "branch", "--list", branch).strip()
-    if exists:
-        git.run(repo["path"], "worktree", "add", path, branch, timeout=120)
-    else:
-        git.run(repo["path"], "worktree", "add", "-b", branch, path, git._check_ref(base), timeout=120)
-    copied = _copy_untracked(repo["path"], path, p["settings"].get("copy") or [])
-    _exclude_copied(path, copied)
-    wt = git.add_repo(path)
+    base = body.get("base") or _default_base(repo)
+    path, copied, wt = _make_worktree(repo, p["settings"], slug, branch, base)
+    # mesma tarefa em outros repositórios (ex.: entidades → infra → API): mesmo slug e branch, base padrão de cada um
+    linked = []
+    for lid in body.get("linked") or []:
+        if lid == repo_id:
+            continue
+        lrepo = git.get_repo(lid)
+        lp, _lc, lwt = _make_worktree(lrepo, _proj(d, lid)["settings"], slug, branch, _default_base(lrepo))
+        linked.append({"repoId": lid, "name": lrepo["name"], "path": lp, "wtRepoId": lwt["id"]})
+    prompt = body.get("prompt") or ""
+    if linked:
+        prompt += "\n\nEsta tarefa atravessa repositórios — cada um tem um worktree na branch " + branch + ":\n" + \
+            "\n".join([f"- {repo['name']}: {path} (este)"] + [f"- {x['name']}: {x['path']}" for x in linked])
     task = {"id": uuid.uuid4().hex[:10], "title": title, "slug": slug, "branch": branch, "base": base, "path": path,
             "repoId": wt["id"], "createdAt": now_iso(), "status": "open", "workItem": body.get("workItem"),
-            "prompt": body.get("prompt") or "", "copied": copied, "group": body.get("group")}
+            "prompt": prompt, "copied": copied, "group": body.get("group"), "linked": linked, "reviewOf": body.get("reviewOf")}
     p["tasks"].append(task)
     _save(d)
     if (p["settings"].get("setup") or "").strip():
@@ -225,6 +223,32 @@ def create_task(repo_id, body):
     for aid in agent_ids:
         start_agent(repo_id, task["id"], aid, task["prompt"] or title, body.get("mode"))
     return task
+
+
+def _default_base(repo):
+    try:
+        return git.run(repo["path"], "symbolic-ref", "--short", "refs/remotes/origin/HEAD").strip()
+    except Exception:  # noqa: BLE001
+        return git.status(repo["id"])["branch"] or "HEAD"
+
+
+def _make_worktree(repo, settings, slug, branch, base):
+    path = os.path.join(_worktree_root(repo, settings), slug)
+    if os.path.exists(path):
+        path = f"{path}-{uuid.uuid4().hex[:4]}"
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    _exclude_from_enclosing_repo(os.path.dirname(os.path.dirname(path)))
+    try:
+        git.run(repo["path"], "fetch", "origin", "--prune", timeout=180, auth=git.auth_for(repo))
+    except Exception:  # noqa: BLE001 — sem rede: segue com o que tem
+        pass
+    if git.run(repo["path"], "branch", "--list", branch).strip():
+        git.run(repo["path"], "worktree", "add", path, branch, timeout=120)
+    else:
+        git.run(repo["path"], "worktree", "add", "-b", branch, path, git._check_ref(base), timeout=120)
+    copied = _copy_untracked(repo["path"], path, settings.get("copy") or [])
+    _exclude_copied(path, copied)
+    return path, copied, git.add_repo(path)
 
 
 def _task(d, repo_id, task_id):
@@ -261,6 +285,18 @@ def remove_task(repo_id, task_id, force=False, delete_branch=False):
         git.remove_repo(t["repoId"])
     except Exception:  # noqa: BLE001
         pass
+    for x in t.get("linked") or []:
+        try:
+            lr = git.get_repo(x["repoId"])
+            if os.path.isdir(x["path"]):
+                git.run(lr["path"], "worktree", "remove", *(["--force"] if force else []), x["path"], timeout=120)
+            git.run(lr["path"], "worktree", "prune")
+            git.remove_repo(x["wtRepoId"])
+            if delete_branch:
+                git.run(lr["path"], "branch", "-D" if force else "-d", t["branch"], check=False)
+        except Exception as e:  # noqa: BLE001
+            if not force:
+                raise ValueError(f"{x['name']}: {e}") from None
     if delete_branch:
         try:
             git.run(repo["path"], "branch", "-D" if force else "-d", t["branch"])
@@ -277,20 +313,37 @@ def _cwd(repo_id, task_id=None):
     return git.get_repo(repo_id)["path"]
 
 
+def _settings(repo_id):
+    return _proj(_load(), repo_id)["settings"]
+
+
 def start_shell(repo_id, task_id=None, title=None, command=None):
     meta = {"project": repo_id, **({"task": task_id} if task_id else {})}
-    return terminals.create(_cwd(repo_id, task_id), title or "terminal", command, "shell", meta).info()
+    return terminals.create(_cwd(repo_id, task_id), title or "terminal", command, "shell", meta,
+                            shell=_settings(repo_id).get("shell") or None).info()
 
 
-def start_agent(repo_id, task_id, account_id, prompt=None, mode=None, title=None):
+def start_agent(repo_id, task_id, account_id, prompt=None, mode=None, title=None, resume_sid=None):
     a = agents.get_account(account_id)
+    resume = None
+    if resume_sid:   # retomar a conversa de uma sessão anterior (o app foi fechado): mesma sessão da CLI
+        rec = agents._resume_db().get(resume_sid) or {}
+        resume, account_id = rec.get("cliSession"), rec.get("account") or account_id
+        a = agents.get_account(account_id)
+        agents.forget_resume(resume_sid)
     sid = uuid.uuid4().hex[:12]
-    command, env = agents.launch_spec(account_id, prompt, mode, sid)
+    extra = list(_settings(repo_id).get("addDirs") or [])
+    if task_id:
+        extra += [x["path"] for x in _task(_load(), repo_id, task_id).get("linked") or []]   # tarefa em vários repos
+    command, env = agents.launch_spec(account_id, prompt, mode, sid, extra_dirs=extra, resume=resume)
     meta = {"project": repo_id, "account": account_id, "provider": a["provider"], "sid": sid,
             **({"task": task_id} if task_id else {})}
     label = title or f"{agents.PROVIDERS[a['provider']]['label']} · {a['name']}"
     t = terminals.create(_cwd(repo_id, task_id), label, command, "agent", meta, env)
     agents.set_title(sid, label)
+    agents.set_meta(sid, projectName=git.get_repo(repo_id)["name"], project=repo_id, task=task_id)
+    agents.remember(sid, account=account_id, provider=a["provider"], project=repo_id, task=task_id, title=label,
+                    cliSession=resume, started=now_iso())
     return t.info()
 
 
@@ -324,7 +377,7 @@ def read_file(repo_id, rel, task_id=None):
     if b"\0" in raw[:8000]:
         return {"path": rel, "size": size, "binary": True}
     return {"path": rel, "size": size, "text": raw.decode("utf-8", errors="replace"), "mtime": os.path.getmtime(full),
-            "crlf": b"\r\n" in raw[:20000]}
+            "crlf": b"\r\n" in raw[:20000], "root": _root(repo_id, task_id)}
 
 
 def write_file(repo_id, rel, text, task_id=None, mtime=None):
@@ -374,3 +427,40 @@ def diff_summary(repo_id, task_id):
     ahead = git.run(t["path"], "rev-list", "--count", f"{mb}..HEAD").strip()
     return {"base": base, "mergeBase": mb, "files": files_, "commits": int(ahead or 0), "status": git.status(path=t["path"])}
 
+
+
+def base_file(repo_id, task_id, rel):
+    """Conteúdo do arquivo no ponto em que a tarefa saiu da base (merge-base) — o lado "antes" da revisão."""
+    t = _task(_load(), repo_id, task_id)
+    _safe(os.path.realpath(t["path"]), rel)
+    try:
+        mb = git.run(t["path"], "merge-base", "HEAD", t["base"]).strip()
+    except Exception:  # noqa: BLE001
+        mb = t["base"]
+    try:
+        text = git.run(t["path"], "show", f"{mb}:{rel}", timeout=30)
+        return {"path": rel, "text": text, "exists": True}
+    except Exception:  # noqa: BLE001 — arquivo novo na tarefa
+        return {"path": rel, "text": "", "exists": False}
+
+
+def changed_files(repo_id, task_id):
+    """Tudo que a tarefa mudou em relação à base: commits + alterações ainda sem commit + arquivos novos."""
+    d = diff_summary(repo_id, task_id)
+    t = _task(_load(), repo_id, task_id)
+    out = git.run(t["path"], "diff", "--numstat", d["mergeBase"], timeout=60)   # base × árvore de trabalho
+    files = []
+    for line in out.splitlines():
+        a, b, f = (line.split("\t") + ["", "", ""])[:3]
+        files.append({"path": f, "add": int(a) if a.isdigit() else None, "del": int(b) if b.isdigit() else None, "status": "M"})
+    names = {f["path"] for f in files}
+    for u in d["status"]["untracked"]:
+        if u["path"] not in names:
+            files.append({"path": u["path"], "add": None, "del": None, "status": "A"})
+    deleted = set(git.run(t["path"], "diff", "--name-only", "--diff-filter=D", d["mergeBase"]).split())
+    for f in files:
+        if f["path"] in deleted:
+            f["status"] = "D"
+        elif not git.run(t["path"], "cat-file", "-t", f"{d['mergeBase']}:{f['path']}", check=False).strip():
+            f["status"] = "A"
+    return {"files": sorted(files, key=lambda x: x["path"]), "base": t["base"], "mergeBase": d["mergeBase"]}

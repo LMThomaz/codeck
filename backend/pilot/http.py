@@ -13,7 +13,7 @@ import time
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from . import accounts, agents, analytics, azure, catalogs, engine, git, github, library, rules, terminals, update, workspace, ws
+from . import accounts, agents, analytics, azure, catalogs, engine, git, github, library, lsp, rules, terminals, update, workspace, ws
 from .core import (APP_BUILD, APP_PLATFORM, APP_VERSION, ARCHIVE_FILE, CONFIG_FILE, DATA, DEFAULT_PORT, PRODUCT, RULES_FILE, OfflineError,
                    STATIC_DIR, TOKEN, ctx, load_json, lock, log_activity, log_build, log_deploy, notifications, notify_seq,
                    now_iso, pr_summary, read_activity, save_json, state, wake)
@@ -121,6 +121,28 @@ def post_vote(qs, body):
         pr["myVote"] = vote
     log_activity("manual", "vote", pr, vote=vote)
     return {"ok": True}
+
+
+@route("POST", "/api/pr/comment")
+def post_pr_comment(qs, body):
+    text = (body.get("text") or "").strip()
+    if not text:
+        raise ValueError("Comentário vazio")
+    pr = find_item("pr", body.get("key"))
+    if not pr:
+        raise ValueError("PR não está mais na lista — atualize")
+    acc = engine.account_for_item(pr)
+    if pr.get("provider") == "github":
+        acc.comment(pr["project"], pr["prId"], text)
+    else:
+        acc.comment(pr["project"], pr["repoId"], pr["prId"], text)
+    log_activity("manual", "comment", pr)
+    return {"ok": True}
+
+
+@route("GET", "/api/ws/agent/last")
+def get_ws_agent_last(qs, body):
+    return {"text": agents.last_message(q1(qs, "sid"))}
 
 
 @route("POST", "/api/archive")
@@ -533,6 +555,16 @@ def get_ws_task_diff(qs, body):
     return workspace.diff_summary(q1(qs, "repoId"), q1(qs, "taskId"))
 
 
+@route("GET", "/api/ws/task/changes")
+def get_ws_task_changes(qs, body):
+    return workspace.changed_files(q1(qs, "repoId"), q1(qs, "taskId"))
+
+
+@route("GET", "/api/ws/task/base-file")
+def get_ws_task_base_file(qs, body):
+    return workspace.base_file(q1(qs, "repoId"), q1(qs, "taskId"), q1(qs, "path"))
+
+
 @route("POST", "/api/ws/shell")
 def post_ws_shell(qs, body):
     return workspace.start_shell(body.get("repoId"), body.get("taskId"), body.get("title"), body.get("command"))
@@ -541,7 +573,7 @@ def post_ws_shell(qs, body):
 @route("POST", "/api/ws/agent")
 def post_ws_agent(qs, body):
     return workspace.start_agent(body.get("repoId"), body.get("taskId"), body.get("accountId"), body.get("prompt"),
-                                 body.get("mode"), body.get("title"))
+                                 body.get("mode"), body.get("title"), body.get("resume"))
 
 
 @route("GET", "/api/ws/files")
@@ -569,6 +601,16 @@ def get_ws_search(qs, body):
 def get_ai(qs, body):
     agents.refresh_codex()
     return agents.accounts()
+
+
+@route("GET", "/api/lsp")
+def get_lsp(qs, body):
+    return {"servers": {k: v["name"] for k, v in lsp.available().items()}, "known": {k: [c[0] for c in v] for k, v in lsp.SERVERS.items()}}
+
+
+@route("GET", "/api/ai/usage")
+def get_ai_usage(qs, body):
+    return agents.usage_report(int(q1(qs, "days", "30") or 30))
 
 
 @route("GET", "/api/ai/detect")
@@ -693,6 +735,8 @@ class Handler(BaseHTTPRequestHandler):
         path = urllib.parse.urlparse(self.path).path
         if path.startswith("/ws/term/"):
             return self.terminal_socket(path[len("/ws/term/"):])
+        if path.startswith("/ws/lsp/"):
+            return self.lsp_socket(path[len("/ws/lsp/"):])
         if not path.startswith("/api/"):
             return self.static(path)
         if not self.authorized():
@@ -751,6 +795,34 @@ class Handler(BaseHTTPRequestHandler):
             return self.send(403, {"error": "forbidden"})
         except (ValueError, json.JSONDecodeError):
             return self.send(400, {"error": "JSON inválido"})
+
+    def lsp_socket(self, lang):
+        """WebSocket de um servidor de linguagem na pasta do projeto/tarefa (?repoId=…&taskId=…)."""
+        offered = ws.WebSocket.offered_protocols(self)
+        proto = next((p for p in offered if p.startswith("commitdeck.")), "")
+        if TOKEN and not hmac.compare_digest(proto[len("commitdeck."):], TOKEN):
+            return self.send(401, {"error": "abra pelo app"})
+        qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+        try:
+            root = workspace._root(q1(qs, "repoId"), q1(qs, "taskId"))
+        except Exception as e:  # noqa: BLE001
+            return self.send(400, {"error": str(e)})
+        sock = ws.WebSocket.accept(self, proto or None)
+        try:
+            bridge = lsp.Bridge(lang, root, sock)
+        except LookupError as e:
+            sock.send_text(json.dumps({"commitdeck": "unavailable", "message": str(e)}))
+            sock.close()
+            return
+        try:
+            while True:
+                op, data = sock.recv()
+                bridge.send(data.decode("utf-8", "replace"))
+        except (ws.Closed, OSError):
+            pass
+        finally:
+            bridge.close()
+            sock.closed = True
 
     def do_POST(self):
         if self.path.startswith("/hook/"):

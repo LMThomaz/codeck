@@ -28,6 +28,7 @@ from .core import DATA, DEFAULT_PORT, ctx, load_json, notify, now_iso, save_json
 
 ACCOUNTS_FILE = os.path.join(DATA, "ai-accounts.json")
 USAGE_FILE = os.path.join(DATA, "ai-usage.json")   # última leitura de limites por conta (sobrevive ao reinício)
+HISTORY_FILE = os.path.join(DATA, "ai-sessions.json")   # uma linha por sessão: dia, projeto, conta, custo, tokens
 HOME = os.path.expanduser("~")
 
 PROVIDERS = {
@@ -161,7 +162,7 @@ def _hook_cmd(sid, secret):
         f"curl.exe -s -m 2 -X POST -H \"Content-Type: application/json\" --data-binary @- {url}"
 
 
-def launch_spec(aid, prompt=None, mode=None, sid=None):
+def launch_spec(aid, prompt=None, mode=None, sid=None, extra_dirs=None, resume=None):
     """Comando + variáveis de ambiente para abrir o agente desta conta. `sid` = id da sessão (para a telemetria)."""
     a = get_account(aid)
     prov, spec = a["provider"], PROVIDERS[a["provider"]]
@@ -179,9 +180,16 @@ def launch_spec(aid, prompt=None, mode=None, sid=None):
         args += ["--settings", json.dumps(settings)]
         if mode in ("plan", "acceptEdits", "default"):
             args += ["--permission-mode", mode]
+        for d in extra_dirs or []:
+            if os.path.isdir(d):
+                args += ["--add-dir", d]
     elif prov == "codex" and mode == "readonly":
         args += ["--sandbox", "read-only"]
-    if prompt:
+    if resume and prov == "claude":
+        args += ["--resume", resume]
+    elif resume and prov == "codex":
+        args = [spec["bin"], "resume", resume]
+    if prompt and not resume:
         args.append(prompt)
     command = " ".join(shlex.quote(x) for x in args) if os.name != "nt" else subprocess.list2cmdline(args)
     with _lock:
@@ -213,12 +221,18 @@ def hook(sid, secret, payload):
                             "tokens": sum(v for k, v in cu.items() if isinstance(v, (int, float)) and "input" in k) if cu else None}
             s["cost"] = (payload.get("cost") or {}).get("total_cost_usd")
             s["claudeSession"] = payload.get("session_id") or s.get("claudeSession")
+            s["transcript"] = payload.get("transcript_path") or s.get("transcript")
             rl = payload.get("rate_limits")
             if rl:
                 lim = _norm_claude_limits(rl)
                 if lim:
                     _usage[s["account"]] = {"rateLimits": lim, "updated": now_iso(), "source": "claude"}
                     save_json(USAGE_FILE, _usage)
+                    _check_alerts(s["account"], lim)
+            _record(sid, s)
+    if s.get("claudeSession") and s.get("_remembered") != s["claudeSession"]:
+        s["_remembered"] = s["claudeSession"]
+        remember(sid, cliSession=s["claudeSession"])
     if ev == "Notification":
         notify("Agente precisa de você", s.get("title") or "", (payload.get("message") or "")[:140], target=f"term/{sid}")
     elif ev == "Stop":
@@ -259,6 +273,7 @@ def _codex_scan(a, since=0):
                     p = o.get("payload") or {}
                     if o.get("type") == "session_meta":
                         cwd = p.get("cwd")
+                        a["_lastCodexSession"] = p.get("id") or p.get("session_id")
                     elif p.get("type") == "token_count":
                         last = p
         except (OSError, ValueError):
@@ -295,11 +310,18 @@ def refresh_codex():
             _usage[a["id"]] = {"rateLimits": limits, "updated": now_iso(), "source": "codex",
                                "plan": (tc.get("rate_limits") or {}).get("plan_type")}
             save_json(USAGE_FILE, _usage)
+            _check_alerts(a["id"], limits)
         info = tc.get("info") or {}
         for s in (v for v in _sessions.values() if v["account"] == a["id"] and v["started"] - 5 <= mtime):
             last, win = (info.get("last_token_usage") or {}).get("input_tokens"), info.get("model_context_window")
             if last and win:
                 s["context"] = {"used": round(100 * last / win, 1), "size": win, "tokens": last}
+            s["tokensTotal"] = (info.get("total_token_usage") or {}).get("total_tokens")
+            _record_sid_of(s)
+            sid = next((k for k, v in _sessions.items() if v is s), None)
+            if sid and a.get("_lastCodexSession") and s.get("_remembered") != a["_lastCodexSession"]:
+                s["_remembered"] = a["_lastCodexSession"]
+                remember(sid, cliSession=a["_lastCodexSession"])
 
 
 def session_info(sid):
@@ -320,3 +342,154 @@ def forget(sid):
 def set_title(sid, title):
     if sid in _sessions:
         _sessions[sid]["title"] = title
+
+
+# ---------------------------------------------------------------- alertas de limite e histórico de uso
+_alerted = load_json(os.path.join(DATA, "ai-alerts.json"), {})
+
+
+def _check_alerts(aid, limits):
+    """Avisa (uma vez por janela) quando uma conta passa de 80% e de 95% de um limite."""
+    try:
+        a = get_account(aid)
+    except LookupError:
+        return
+    for w in limits:
+        used = w.get("used") or 0
+        for th in (95, 80):
+            if used >= th:
+                key = f"{aid}|{w['window']}|{th}|{w.get('resetsAt')}"
+                if key not in _alerted:
+                    _alerted[key] = now_iso()
+                    save_json(os.path.join(DATA, "ai-alerts.json"), dict(list(_alerted.items())[-200:]))
+                    reset = ""
+                    if w.get("resetsAt"):
+                        try:
+                            import calendar
+                            reset = " — reseta " + time.strftime("%d/%m %H:%M", time.localtime(calendar.timegm(time.strptime(w["resetsAt"], "%Y-%m-%dT%H:%M:%SZ"))))
+                        except ValueError:
+                            pass
+                    notify(f"{a['name']}: limite {w['window']} em {round(used)}%", PROVIDERS[a["provider"]]["label"],
+                           ("Perto do fim — considere outra conta para tarefas novas" if th == 80 else "Quase esgotado") + reset, target="settings/ai")
+                break
+
+
+_hist = None
+_hist_lock = threading.Lock()
+
+
+def _history():
+    global _hist
+    if _hist is None:
+        _hist = load_json(HISTORY_FILE, {})
+    return _hist
+
+
+def set_meta(sid, **meta):
+    with _lock:
+        if sid in _sessions:
+            _sessions[sid].update(meta)
+
+
+def _record(sid, s):
+    """Guarda (com folga) o consumo da sessão: dia, projeto, conta, custo e tokens — a base da página de uso."""
+    rec = {"day": time.strftime("%Y-%m-%d", time.localtime(s["started"])), "account": s["account"], "provider": s["provider"],
+           "project": s.get("projectName"), "model": s.get("model"), "cost": s.get("cost"),
+           "tokens": (s.get("context") or {}).get("tokens"), "tokensTotal": s.get("tokensTotal"), "updated": now_iso()}
+    with _hist_lock:
+        h = _history()
+        prev = h.get(sid)
+        h[sid] = rec
+        if not prev or prev.get("cost") != rec["cost"] or s.get("status") == "done":
+            if len(h) > 5000:
+                for k in sorted(h, key=lambda k: h[k]["updated"])[: len(h) - 5000]:
+                    h.pop(k, None)
+            save_json(HISTORY_FILE, h)
+
+
+def _record_sid_of(s):
+    sid = next((k for k, v in _sessions.items() if v is s), None)
+    if sid:
+        _record(sid, s)
+
+
+def usage_report(days=30):
+    """Consumo por dia, por conta e por projeto (custo informado pela CLI; tokens quando ela não informa custo)."""
+    since = time.strftime("%Y-%m-%d", time.localtime(time.time() - days * 86400))
+    rows = [r for r in _history().values() if r["day"] >= since]
+    acc = {a["id"]: a["name"] for a in _load()["accounts"]}
+    def group(key):
+        out = {}
+        for r in rows:
+            k = key(r) or "—"
+            g = out.setdefault(k, {"cost": 0.0, "sessions": 0, "tokens": 0})
+            g["cost"] += r.get("cost") or 0
+            g["sessions"] += 1
+            g["tokens"] += r.get("tokensTotal") or r.get("tokens") or 0
+        return out
+    return {"days": group(lambda r: r["day"]), "accounts": {acc.get(k, k): v for k, v in group(lambda r: r["account"]).items()},
+            "projects": group(lambda r: r.get("project")), "total": sum((r.get("cost") or 0) for r in rows), "sessions": len(rows)}
+
+
+# ---------------------------------------------------------------- sessões retomáveis (sobrevivem ao fechar o app)
+RESUME_FILE = os.path.join(DATA, "ai-resume.json")
+
+
+def _resume_db():
+    return load_json(RESUME_FILE, {})
+
+
+def remember(sid, **info):
+    """Guarda o que é preciso para retomar a conversa depois (id da sessão da CLI, conta, projeto, tarefa, pasta)."""
+    db = _resume_db()
+    rec = db.get(sid, {})
+    rec.update({k: v for k, v in info.items() if v is not None}, updated=now_iso())
+    db[sid] = rec
+    if len(db) > 400:
+        for k in sorted(db, key=lambda k: db[k].get("updated", ""))[: len(db) - 400]:
+            db.pop(k, None)
+    save_json(RESUME_FILE, db)
+
+
+def resumable(project=None, task=None, live_sids=()):
+    out = []
+    for sid, r in _resume_db().items():
+        if sid in live_sids or not r.get("cliSession") or r.get("project") != project or (r.get("task") or None) != (task or None):
+            continue
+        out.append({"sid": sid, **r})
+    return sorted(out, key=lambda r: r.get("updated", ""), reverse=True)[:6]
+
+
+def forget_resume(sid):
+    db = _resume_db()
+    if db.pop(sid, None) is not None:
+        save_json(RESUME_FILE, db)
+
+
+def last_message(sid):
+    """Última resposta do agente (texto), para publicar uma revisão na PR. Claude: o transcript da sessão; Codex: o log."""
+    s = _sessions.get(sid) or {}
+    path = s.get("transcript")
+    if s.get("provider") == "codex" and not path:
+        a = get_account(s["account"])
+        files = sorted(glob.glob(os.path.join(a["dir"], "sessions", "*", "*", "*", "*.jsonl")), key=os.path.getmtime, reverse=True)[:1]
+        path = files[0] if files else None
+    if not path or not os.path.exists(path):
+        raise LookupError("Ainda não há resposta desta sessão")
+    last = None
+    with open(path, encoding="utf-8", errors="replace") as f:
+        for line in f:
+            try:
+                o = json.loads(line)
+            except ValueError:
+                continue
+            if o.get("type") == "assistant":   # Claude Code: {"type":"assistant","message":{"content":[{"type":"text","text":…}]}}
+                parts = [c.get("text", "") for c in (o.get("message") or {}).get("content", []) if c.get("type") == "text"]
+                if any(p.strip() for p in parts):
+                    last = "\n".join(parts).strip()
+            p = o.get("payload") or {}
+            if p.get("type") == "agent_message" and p.get("message"):   # Codex
+                last = p["message"].strip()
+    if not last:
+        raise LookupError("Ainda não há resposta desta sessão")
+    return last

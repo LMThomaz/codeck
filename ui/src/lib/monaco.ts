@@ -23,6 +23,8 @@ export function loadMonaco(): Promise<typeof Monaco> {
         return new editorW.default();
       },
     };
+    // o Monaco cancela buscas em andamento quando o arquivo troca (rejeita com "Canceled"): é esperado, não é erro
+    window.addEventListener("unhandledrejection", e => { if (e.reason?.name === "Canceled" || e.reason?.message === "Canceled") e.preventDefault(); });
     // o TypeScript embutido não conhece o projeto (sem node_modules): sem erros falsos de import
     monaco.languages.typescript.typescriptDefaults.setDiagnosticsOptions({ noSemanticValidation: true, noSyntaxValidation: false });
     monaco.languages.typescript.javascriptDefaults.setDiagnosticsOptions({ noSemanticValidation: true, noSyntaxValidation: false });

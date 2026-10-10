@@ -12,9 +12,10 @@
   import ProviderIcon from "../ProviderIcon.svelte";
   import Segmented from "../Segmented.svelte";
   import AgentIcon from "./AgentIcon.svelte";
+  import { repos } from "../../lib/repos.svelte";
 
   let { project, preset = null, onclose, oncreated }:
-    { project: Project; preset?: { title?: string; prompt?: string; kind?: string; workItem?: any; base?: string } | null; onclose: () => void; oncreated: (taskIds: string[]) => void } = $props();
+    { project: Project; preset?: { title?: string; prompt?: string; kind?: string; workItem?: any; base?: string; reviewOf?: any } | null; onclose: () => void; oncreated: (taskIds: string[]) => void } = $props();
 
   let title = $state(untrack(() => preset?.title || ""));
   let kind = $state(untrack(() => preset?.kind || "feature"));
@@ -25,6 +26,11 @@
   let branches = $state<string[]>([]);
   let busy = $state(false);
   let workItem = $state<any>(untrack(() => preset?.workItem || null));
+  let linked = $state<string[]>([]);
+  let linkQ = $state("");
+  // outros repositórios para a mesma tarefa (sem os worktrees, que também ficam registrados)
+  const others = $derived(repos.local.filter(r => r.exists && r.id !== project.id && !/[\\/]\.worktrees[\\/]/.test(r.path)
+    && (!linkQ || r.name.toLowerCase().includes(linkQ.toLowerCase()))).slice(0, 30));
   const slug = $derived(title.normalize("NFKD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 48) || "tarefa");
   const items = $derived((store.s?.issues || []).filter(i => !project.provider || i.provider === project.provider).slice(0, 60));
 
@@ -55,7 +61,7 @@
         const t = await post<any>("ws/task", { repoId: project.id, title: title.trim() + (sfx ? ` (${acc!.label} · ${acc!.name})` : ""),
           kind, slug: slug + sfx, base, prompt: prompt.trim() || title.trim(), agents: aid ? [aid] : [], mode,
           workItem: workItem ? { number: workItem.number, title: workItem.title, url: workItem.url, provider: workItem.provider } : null,
-          group: chosen.length > 1 ? slug : null });
+          group: chosen.length > 1 ? slug : null, linked, reviewOf: preset?.reviewOf || null });
         ids.push(t.id);
       }
       prog.done(chosen.length > 1 ? `${ids.length} agentes trabalhando em paralelo` : "Tarefa criada");
@@ -83,6 +89,14 @@
       </details>
     {/if}
 
+    <details class="wi" open={linked.length > 0}>
+      <summary>{linked.length ? `Também em: ${linked.map(id => repos.byId(id)?.name).join(", ")}` : "Mesma tarefa em outros repositórios (opcional)"}</summary>
+      <p class="small muted">Um worktree em cada, na mesma branch — o agente enxerga todos (ex.: entidades → infra → API).</p>
+      <input class="input" bind:value={linkQ} placeholder="filtrar repositórios…" />
+      <div class="wil">{#each others as r (r.id)}<button class:on={linked.includes(r.id)} onclick={() => (linked = linked.includes(r.id) ? linked.filter(x => x !== r.id) : [...linked, r.id])}>
+        <ProviderIcon provider={r.provider || null} size={12} /> <b>{r.name}</b> <span class="tiny muted ell">{r.path.replace(/^\/Users\/[^/]+/, "~")}</span></button>{/each}</div>
+    </details>
+
     <label class="label">Prompt para o agente <span class="muted">(vazio = o título)</span>
       <textarea class="input" rows="5" bind:value={prompt} placeholder="Contexto, critérios de aceite, arquivos importantes…"></textarea></label>
 
@@ -96,6 +110,12 @@
         </button>
       {:else}<div class="small muted">Nenhuma CLI de IA encontrada. Instale o Claude Code ou o Codex e configure em Contas e ajustes → IA.</div>{/each}
     </div>
+    {#each chosen.map(id => work.account(id)).filter(a => a && (a.usage?.rateLimits || []).some(w => (w.used || 0) >= 85)) as a (a!.id)}
+      {@const alt = work.ai.filter(x => x.installed && x.provider === a!.provider && x.id !== a!.id && !chosen.includes(x.id))
+        .sort((x, y) => Math.max(...(x.usage?.rateLimits || []).map(w => w.used || 0), 0) - Math.max(...(y.usage?.rateLimits || []).map(w => w.used || 0), 0))[0]}
+      <div class="limwarn small">⚠ <b>{a!.name}</b> está em {Math.round(Math.max(...(a!.usage?.rateLimits || []).map(w => w.used || 0)))}% do limite.
+        {#if alt}<button class="btn sm" onclick={() => (chosen = [...chosen.filter(x => x !== a!.id), alt.id])}>Usar {alt.name}</button>{/if}</div>
+    {/each}
     <div class="row2">
       <span class="small muted">Modo</span>
       <Segmented size="sm" bind:value={mode} options={[{ value: "default", label: "Pergunta antes" }, { value: "acceptEdits", label: "Aceita edições" }, { value: "plan", label: "Só planejar" }]} />
@@ -129,4 +149,6 @@
     font: 12.5px var(--font); text-align: left; cursor: pointer; min-width: 0; }
   .wil button:hover, .wil button.on { background: var(--accent-soft); color: var(--text); }
   .spacer { flex: 1; }
+  .limwarn { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 9px; background: var(--warn-soft); color: var(--text-2); }
+  .limwarn .btn { margin-left: auto; }
 </style>

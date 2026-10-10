@@ -14,7 +14,7 @@
 
   function reviewWithAi() {
     work.startTask({ provider: pr.provider, org: pr.provider === "github" ? pr.project.split("/")[0] : pr.org, repo: pr.provider === "github" ? pr.project : pr.repo }, {
-      title: `Revisar PR #${pr.prId} ${pr.title}`, kind: "review", base: `origin/${pr.source}`,
+      title: `Revisar PR #${pr.prId} ${pr.title}`, kind: "review", base: `origin/${pr.source}`, reviewOf: { key: pr.key, prId: pr.prId, url: pr.url },
       prompt: `Revise a pull request #${pr.prId} "${pr.title}" (${pr.source} → ${pr.target}).\n${pr.url}\n\n` +
         `Veja o que mudou com: git diff origin/${pr.target}...HEAD\n` +
         `Aponte bugs, riscos, regressões e o que fere as convenções do projeto (CLAUDE.md/AGENTS.md), citando arquivo e linha. ` +

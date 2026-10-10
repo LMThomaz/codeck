@@ -1,7 +1,7 @@
 <script lang="ts">
   // Painel da direita: o agente selecionado (estado, modelo, contexto, custo, o que ele fez), a tarefa (branch, o que
   // mudou, PR) e os limites das contas de IA com a contagem para o reset.
-  import { ExternalLink, GitBranch, GitCommitHorizontal, GitPullRequestCreate, Send, Trash2 } from "@lucide/svelte";
+  import { ExternalLink, GitBranch, GitCommitHorizontal, GitCompareArrows, MessageSquareShare, GitPullRequestCreate, Send, Trash2 } from "@lucide/svelte";
   import { get, post } from "../../lib/api";
   import { repos } from "../../lib/repos.svelte";
   import { go } from "../../lib/router.svelte";
@@ -11,8 +11,8 @@
   import AgentIcon from "./AgentIcon.svelte";
   import { typeInto } from "./Terminal.svelte";
 
-  let { project, task = null, term = null, onremoved }:
-    { project: Project; task?: Task | null; term?: TermInfo | null; onremoved?: () => void } = $props();
+  let { project, task = null, term = null, onremoved, onreview }:
+    { project: Project; task?: Task | null; term?: TermInfo | null; onremoved?: () => void; onreview?: () => void } = $props();
   const s = $derived(work.session(term));
   const acc = $derived(work.account(term?.meta.account));
   let prompt = $state("");
@@ -43,6 +43,17 @@
     typeInto(term.id, prompt.trim() + "\r");
     prompt = "";
     ui.toast("Prompt enviado ao agente");
+  }
+  /** Revisão feita pelo agente → comentário na PR (você confere e edita o texto antes). */
+  async function publishReview() {
+    const ag = term?.kind === "agent" ? term : task?.terms.find(x => x.kind === "agent") || null;
+    if (!ag?.meta.sid || !task) return ui.toast("Nenhum agente nesta tarefa", "info");
+    let text = "";
+    try { text = (await get<{ text: string }>("ws/agent/last", { sid: ag.meta.sid })).text; } catch (e) { return ui.error(e); }
+    const final = await ui.ask({ title: `Publicar na PR #${(task as any).reviewOf.prId}`, input: { label: "Comentário (confira antes de publicar)", value: text, multiline: true, required: true }, confirm: "Publicar" });
+    if (!final) return;
+    const prog = ui.progress("Publicando a revisão…");
+    try { await post("pr/comment", { key: (task as any).reviewOf.key, text: final }); prog.done("Revisão publicada na PR"); } catch (e) { prog.fail(e); }
   }
   async function removeTask() {
     if (!task) return;
@@ -95,6 +106,9 @@
       <div class="ttl">{task.title}</div>
       <div class="kv"><span>Branch</span><b class="mono ell"><GitBranch size={11} /> {task.branch}</b></div>
       <div class="kv"><span>Base</span><b class="mono ell">{task.base}</b></div>
+      {#each (task as any).linked || [] as x (x.repoId)}
+        <div class="kv"><span>Também em</span><button class="lnk" onclick={() => go("/repo/" + x.wtRepoId)}>{x.name}</button></div>
+      {/each}
       {#if task.workItem}<div class="kv"><span>Work item</span><a class="ell" href={task.workItem.url} target="_blank" rel="noopener">#{task.workItem.number}</a></div>{/if}
       {#if diff}
         <div class="kv"><span>Commits na branch</span><b>{diff.commits}</b></div>
@@ -102,7 +116,9 @@
         {#if diff.status.unstaged.length + diff.status.staged.length + diff.status.untracked.length}<div class="kv"><span>Sem commit</span><span class="pill warn">{diff.status.unstaged.length + diff.status.staged.length + diff.status.untracked.length} arquivo(s)</span></div>{/if}
       {/if}
       <div class="acts">
-        <button class="btn sm" onclick={() => go("/repo/" + task!.repoId)}><GitCommitHorizontal size={13} /> Revisar e commitar</button>
+        {#if (task as any).reviewOf}<button class="btn sm brand" onclick={publishReview}><MessageSquareShare size={13} /> Publicar revisão na PR</button>{/if}
+        <button class="btn sm" onclick={() => onreview?.()}><GitCompareArrows size={13} /> Revisar</button>
+        <button class="btn sm" onclick={() => go("/repo/" + task!.repoId)}><GitCommitHorizontal size={13} /> Commitar</button>
         {#if diff?.commits}<button class="btn sm brand" onclick={() => { repos.prIntent = task!.repoId; go("/repo/" + task!.repoId); }}><GitPullRequestCreate size={13} /> Criar PR</button>{/if}
         <button class="btn sm ghost" title="Abrir no editor externo" onclick={() => post("open", { id: task!.repoId, target: "editor" }).catch(e => ui.error(e))}><ExternalLink size={13} /></button>
         <button class="btn sm ghost danger-text" title="Remover tarefa (worktree)" onclick={removeTask}><Trash2 size={13} /></button>
@@ -166,4 +182,5 @@
   .num { width: 34px; text-align: right; font-variant-numeric: tabular-nums; }
   .reset { padding-left: 66px; margin-top: -3px; }
   a { color: var(--accent); }
+  .lnk { border: 0; background: none; color: var(--accent); font: 600 12.5px var(--font); cursor: pointer; padding: 0; }
 </style>

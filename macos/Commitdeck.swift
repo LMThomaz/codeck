@@ -24,6 +24,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKUI
     WKScriptMessageHandler, UNUserNotificationCenterDelegate, NSMenuDelegate {
     var window: NSWindow!
     var web: WKWebView!
+    var projectWindows: [NSWindow] = []   // projetos abertos em janela própria (Projetos → "Abrir em janela")
     var statusItem: NSStatusItem!
     var loginMenuItem: NSMenuItem!
     var server: Process?
@@ -193,6 +194,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKUI
         poll()
     }
 
+    /// Um projeto numa janela só dele (ex.: outro monitor). Mesma chave, mesmo servidor; a tela entra no modo "solo".
+    func openProjectWindow(hash: String, title: String) {
+        let config = WKWebViewConfiguration()
+        config.websiteDataStore = .default()
+        let js = "window.COMMITDECK_TOKEN = \(jsString(token)); window.COMMITDECK_PLATFORM = 'macos';"
+        config.userContentController.addUserScript(WKUserScript(source: js, injectionTime: .atDocumentStart, forMainFrameOnly: true))
+        config.userContentController.add(self, name: "commitdeck")
+        let wv = WKWebView(frame: .zero, configuration: config)
+        wv.uiDelegate = self
+        wv.navigationDelegate = self
+        wv.setValue(false, forKey: "drawsBackground")
+        let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1280, height: 820),
+                         styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
+        w.title = title
+        w.minSize = NSSize(width: 760, height: 520)
+        w.contentView = wv
+        w.isReleasedWhenClosed = false
+        w.tabbingMode = .disallowed
+        w.appearance = window.appearance
+        w.backgroundColor = window.backgroundColor
+        w.setFrameAutosaveName("CommitdeckProject-\(title)")
+        if !w.setFrameUsingName("CommitdeckProject-\(title)") { w.center() }
+        var comps = URLComponents(url: baseURL, resolvingAgainstBaseURL: false)!
+        comps.fragment = hash
+        wv.load(URLRequest(url: comps.url!))
+        w.makeKeyAndOrderFront(nil)
+        projectWindows.removeAll { !$0.isVisible }
+        projectWindows.append(w)
+    }
+
     @objc func showWindow() {
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
@@ -318,6 +349,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKUI
         guard let body = message.body as? [String: Any] else { return }
         if body["type"] as? String == "pickFolder", let id = body["id"] as? String {
             return pickFolder(id: id, title: body["title"] as? String ?? "Escolha uma pasta")
+        }
+        if body["type"] as? String == "openWindow", let hash = body["hash"] as? String {
+            return openProjectWindow(hash: hash, title: body["title"] as? String ?? "Commitdeck")
         }
         if body["type"] as? String == "theme" {
             // a tela manda o tema RESOLVIDO; a barra de título e o fundo da janela acompanham

@@ -12,6 +12,7 @@
 
 <script lang="ts">
   import { get, post } from "../../lib/api";
+  import { attach, gotoDefinition } from "../../lib/lsp";
   import { loadMonaco, monacoTheme } from "../../lib/monaco";
   import { ui } from "../../lib/ui.svelte";
 
@@ -21,6 +22,7 @@
   let monaco: typeof Monaco | null = null;
   let note = $state<string | null>(null);
   let loading = $state(true);
+  let lsp = $state("");
   const key = $derived(keyOf(repoId, taskId, path));
 
   async function openDoc(k: string, rel: string): Promise<Doc | null> {
@@ -33,6 +35,7 @@
     const d: Doc = { model, mtime: f.mtime, saved: model.getAlternativeVersionId(), view: null };
     model.onDidChangeContent(() => { dirty[k] = model.getAlternativeVersionId() !== d.saved; });
     docs.set(k, d);
+    attach(monaco!, model, { repoId, taskId, root: f.root, rel }, s => { if (key === k) lsp = s; });
     return d;
   }
 
@@ -82,6 +85,11 @@
         bracketPairColorization: { enabled: true }, renderWhitespace: "selection", scrollBeyondLastLine: false, stickyScroll: { enabled: true },
         padding: { top: 8 }, fixedOverflowWidgets: true });
       editor.addCommand(m.KeyMod.CtrlCmd | m.KeyCode.KeyS, () => save());
+      // ir para a definição pelo servidor de linguagem — inclusive em outro arquivo, que abre numa aba
+      editor.addCommand(m.KeyCode.F12, () => { const pos = editor!.getPosition(); if (pos) gotoDefinition(editor!, pos); });
+      editor.onMouseDown(e => {
+        if ((e.event.metaKey || e.event.ctrlKey) && e.target.position) gotoDefinition(editor!, e.target.position);
+      });
       loading = false;
     });
     const obs = new MutationObserver(() => monaco?.editor.setTheme(monacoTheme()));
@@ -111,6 +119,7 @@
 <div class="ed">
   {#if note}<div class="note">{note}</div>{/if}
   <div class="host" class:hidden={!!note} bind:this={host}></div>
+  {#if lsp}<div class="lsp" class:ok={lsp === "ativo"} title="Servidor de linguagem">{lsp === "ativo" ? "● servidor de linguagem ativo" : lsp}</div>{/if}
   {#if loading}<div class="loading"><span class="shim"></span><span class="shim"></span><span class="shim"></span></div>{/if}
 </div>
 
@@ -119,6 +128,8 @@
   .host { position: absolute; inset: 0; }
   .host.hidden { visibility: hidden; }
   .note { position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted); font-size: 13px; }
+  .lsp { position: absolute; right: 18px; bottom: 6px; z-index: 3; font-size: 11px; color: var(--muted); background: var(--surface-2); padding: 2px 8px; border-radius: 99px; pointer-events: none; }
+  .lsp.ok { color: var(--good); }
   .loading { position: absolute; inset: 16px; display: grid; gap: 10px; align-content: start; }
   .loading .shim { height: 12px; }
   .loading .shim:nth-child(2) { width: 70%; }

@@ -30,7 +30,7 @@
 
   const views: Record<string, any> = {
     inbox: Inbox, prs: PullRequests, builds: Builds, deploys: Deploys, issues: Issues, repos: Repositories, repo: RepoDetail,
-    automation: Automation, analytics: Analytics, history: History, settings: Settings, work: Work,
+    automation: Automation, analytics: Analytics, history: History, settings: Settings, work: Work, solo: Work,
   };
   const View = $derived(views[router.view] || Inbox);
 
@@ -55,12 +55,12 @@
   });
   $effect(() => {
     // 1ª execução sem nenhuma conta: vai direto para Contas
-    if (store.s && !store.s.configured && !["settings", "work"].includes(router.view)) go("/settings/accounts");
+    if (store.s && !store.s.configured && !["settings", "work", "solo"].includes(router.view)) go("/settings/accounts");
   });
 </script>
 
 <div class="shell">
-  <Sidebar />
+  {#if router.view !== "solo"}<Sidebar />{/if}
   <main>
     <TopProgress />
     <OfflineBanner />

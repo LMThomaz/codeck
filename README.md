@@ -42,6 +42,17 @@ O app não é assinado por certificado comercial (decisão da ThomSoft):
 - **Quadro** de todas as tarefas por estado. Atalhos: "Revisar com IA" na PR, "Corrigir com IA" no build quebrado (com
   o log), "Começar tarefa" na issue/work item.
 - Os terminais não herdam a chave do app nem segredos: um agente não consegue chamar a API local nem ler os PATs.
+- **Revisão** de cada tarefa: diff editável por arquivo (a seta da margem desfaz um trecho) e comentários em linhas
+  que viram um prompt para o agente. Tarefas de revisão de PR publicam o resultado como comentário na PR.
+- **Tarefa em vários repositórios** (ex.: entidades → infra → API): um worktree em cada, na mesma branch; o agente
+  enxerga todos (`--add-dir` no Claude). Ajustes por projeto: arquivos copiados, preparação, pasta dos worktrees,
+  pastas extras e shell.
+- **Retomar** a conversa de um agente depois de fechar o app; dividir a tela (clique direito na aba → Abrir ao lado);
+  abrir um projeto em **janela própria** (clique direito na aba do projeto).
+- **Limites**: aviso ao passar de 80% e 95%, sugestão de outra conta ao criar tarefa e página de uso por dia,
+  conta e projeto (Contas e ajustes → IA).
+- **Servidores de linguagem** no editor (autocompletar, erros, hover, F12/⌘-clique): usa o que estiver instalado —
+  typescript-language-server, pyright, csharp-ls, gopls, rust-analyzer…
 
 
 **Revisão e entrega**

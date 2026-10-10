@@ -11,6 +11,13 @@
 
   let found = $state<{ provider: string; dir: string; name: string; email?: string }[]>([]);
   let adding = $state<{ provider: string; name: string; dir: string } | null>(null);
+  let usage = $state<any>(null);
+  let days = $state(30);
+  $effect(() => { const d = days; get("ai/usage", { days: d }).then(u => (usage = u)).catch(() => {}); });
+  const money = (n: number) => `US$ ${n.toFixed(2)}`;
+  const tok = (n: number) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${Math.round(n / 1e3)}k` : String(n));
+  const dayList = $derived(usage ? Object.entries(usage.days as Record<string, any>).sort(([a], [b]) => a.localeCompare(b)) : []);
+  const maxDay = $derived(Math.max(1, ...dayList.map(([, v]) => v.cost)));
   $effect(() => { work.loadAi(); });
   const home = (p: string) => p.replace(/^\/Users\/[^/]+|^C:\\Users\\[^\\]+/i, "~");
   const scopes = $derived(["*", ...(store.s?.orgs || []).map(o => `azure:${o}`), ...(store.s?.githubAccounts || []).map(a => `github:${a.login}`)]);
@@ -75,6 +82,19 @@
   </div>
 {/each}
 
+<div class="card org usage">
+  <div class="gh"><b>Uso</b><span class="muted small">custo informado pela CLI (numa assinatura é referência, não cobrança)</span><span class="spacer"></span>
+    <select class="input mini" bind:value={days}><option value={7}>7 dias</option><option value={30}>30 dias</option><option value={90}>90 dias</option></select></div>
+  {#if usage && usage.sessions}
+    <div class="tot"><div><b>{money(usage.total)}</b><span>no período</span></div><div><b>{usage.sessions}</b><span>sessões</span></div></div>
+    <div class="days">{#each dayList as [d, v] (d)}<div class="d" title={`${d}: ${money(v.cost)} · ${v.sessions} sessão(ões)`}><span style="height:{Math.max(3, 100 * v.cost / maxDay)}%"></span></div>{/each}</div>
+    <div class="two">
+      <div><h5>Por conta</h5>{#each Object.entries(usage.accounts as Record<string, any>).sort((a, b) => b[1].cost - a[1].cost) as [k, v] (k)}<div class="kv"><span>{k}</span><b>{money(v.cost)}</b><span class="tiny muted">{v.sessions} · {tok(v.tokens)} tk</span></div>{/each}</div>
+      <div><h5>Por projeto</h5>{#each Object.entries(usage.projects as Record<string, any>).sort((a, b) => b[1].cost - a[1].cost) as [k, v] (k)}<div class="kv"><span>{k}</span><b>{money(v.cost)}</b><span class="tiny muted">{v.sessions}</span></div>{/each}</div>
+    </div>
+  {:else}<div class="small muted">Ainda sem sessões registradas — o uso aparece quando você usa agentes em Projetos.</div>{/if}
+</div>
+
 <style>
   .head { display: flex; align-items: flex-start; gap: 8px; }
   .head h2 { margin: 0 0 4px; }
@@ -88,4 +108,14 @@
   .row3.end { justify-content: flex-end; }
   .mini { width: 140px; height: 27px; font-size: 12px; flex: none; }
   .found { border-color: var(--accent-line); }
+  .tot { display: flex; gap: 10px; }
+  .tot div { display: grid; padding: 10px 14px; border-radius: 10px; background: var(--surface-2); }
+  .tot b { font-size: 18px; } .tot span { font-size: 11.5px; color: var(--muted); }
+  .days { display: flex; align-items: flex-end; gap: 3px; height: 70px; padding: 4px 0; }
+  .d { flex: 1; height: 100%; display: flex; align-items: flex-end; }
+  .d span { width: 100%; border-radius: 4px 4px 1px 1px; background: var(--accent); min-height: 3px; transition: height 0.5s var(--ease-out); }
+  .d:hover span { background: var(--accent-2); }
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  h5 { margin: 0 0 6px; font: 650 10.5px/1 var(--font); text-transform: uppercase; letter-spacing: 0.07em; color: var(--muted); }
+  .kv { display: grid; grid-template-columns: 1fr auto auto; gap: 8px; font-size: 12.5px; padding: 3px 0; align-items: center; }
 </style>

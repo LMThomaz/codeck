@@ -33,16 +33,18 @@ def clean_env(extra=None):
     return env
 
 
-def default_shell():
+def default_shell(override=None):
+    if override:
+        return shutil.which(override) or override
     if IS_WIN:
         return shutil.which("pwsh") or shutil.which("powershell") or "powershell.exe"
     return os.environ.get("SHELL") or ("/bin/zsh" if sys.platform == "darwin" else "/bin/bash")
 
 
-def shell_argv(command=None):
+def shell_argv(command=None, shell=None):
     """Shell de login (PATH do usuário, nvm, etc.). Com `command`, roda o comando e, quando ele sai, fica no shell."""
-    sh = default_shell()
-    if IS_WIN:
+    sh = default_shell(shell)
+    if IS_WIN or os.path.basename(sh).lower().startswith(("pwsh", "powershell")):
         base = [sh, "-NoLogo"]
         return base + (["-NoExit", "-Command", command] if command else [])
     if not command:
@@ -328,11 +330,11 @@ _terms = {}
 _lock = threading.Lock()
 
 
-def create(cwd, title=None, command=None, kind="shell", meta=None, env=None, cols=120, rows=32):
+def create(cwd, title=None, command=None, kind="shell", meta=None, env=None, cols=120, rows=32, shell=None):
     cwd = os.path.abspath(os.path.expanduser(cwd or os.path.expanduser("~")))
     if not os.path.isdir(cwd):
         raise ValueError("Pasta não encontrada")
-    t = Terminal(shell_argv(command), cwd, title or os.path.basename(cwd), kind, meta, env, cols, rows)
+    t = Terminal(shell_argv(command, shell), cwd, title or os.path.basename(cwd), kind, meta, env, cols, rows)
     with _lock:
         _terms[t.id] = t
     return t
