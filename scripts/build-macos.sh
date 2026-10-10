@@ -10,6 +10,13 @@ line="$(sed -nE 's/^([0-9]+\.[0-9]+\.[0-9]+)\+([0-9]+)$/\1 \2/p' "$ROOT/VERSION"
 [ -n "$line" ] || { echo "VERSION precisa ser x.y.z+N" >&2; exit 1; }
 read -r VERSION BUILD <<< "$line"
 
+# interface (Svelte) → backend/static
+if [ "${SKIP_UI:-}" != 1 ]; then
+  echo "Compilando a interface…"
+  (cd "$ROOT/ui" && { [ -d node_modules ] || npm ci --no-audit --no-fund; } && npm run build --silent)
+fi
+[ -f "$ROOT/backend/static/index.html" ] || { echo "backend/static vazio — rode sem SKIP_UI=1" >&2; exit 1; }
+
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources/backend"
 echo "Compilando $VERSION ($BUILD)…"
@@ -22,7 +29,8 @@ done
 lipo -create "$tmp/PRPilot-arm64" "$tmp/PRPilot-x86_64" -output "$APP/Contents/MacOS/PR Pilot"
 rm -rf "$tmp"
 sed -e "s/__VERSION__/$VERSION/" -e "s/__BUILD__/$BUILD/" "$ROOT/macos/Info.plist" > "$APP/Contents/Info.plist"
-cp "$ROOT/backend/server.py" "$ROOT/backend/index.html" "$APP/Contents/Resources/backend/"
+cp "$ROOT/backend/server.py" "$APP/Contents/Resources/backend/"
+rsync -a --exclude __pycache__ "$ROOT/backend/pilot" "$ROOT/backend/static" "$APP/Contents/Resources/backend/"
 cp "$ROOT/macos/AppIcon.icns" "$APP/Contents/Resources/"
 codesign --force --deep --sign - "$APP" >/dev/null 2>&1   # assinatura ad-hoc (o app não é notarizado)
 codesign --verify --deep --strict "$APP"

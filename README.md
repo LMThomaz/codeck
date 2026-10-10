@@ -1,8 +1,9 @@
 # PR Pilot
 
-App de desktop (**macOS e Windows**) para o dia a dia de dev no Azure DevOps. Junta numa fila só as PRs, os builds,
-as aprovações de release e as permissões de pipeline de várias organizações e contas, com regras de automação.
-Você não precisa mais trocar de conta no navegador.
+Central de versionamento de desktop (**macOS e Windows**) para **GitHub e Azure DevOps**. Junta numa fila só as
+PRs, builds/Actions, deploys, issues e work items de várias contas e organizações, com regras de automação, e traz
+um cliente Git completo: catálogos de repositórios, graph de commits, stage/commit, branches, stash, cherry-pick,
+criação de PR. Você não precisa mais trocar de conta no navegador nem de ferramenta.
 
 ## Instalar
 
@@ -22,30 +23,55 @@ O app não é assinado por certificado comercial (decisão da ThomSoft):
 
 ## O que faz
 
-- **Fila**: tudo que espera você.
-  - PRs aguardando o seu voto, com conflito e build em destaque.
-  - Releases aguardando aprovação.
-  - Pipelines travados em *"needs permission to access a resource"*.
-- **Minhas PRs**: o que trava as suas PRs (conflito, build vermelho, voto contra, revisor obrigatório). Avisa quando algo acontece.
-- **Builds**: execuções recentes com filtro (rodando, falharam, branch protegida, só os meus).
-  - No build que falhou, mostra a task, o erro e as últimas linhas do log.
-  - Botões *Tentar de novo* (só o que falhou), *Rodar de novo* e *Cancelar*.
-- **Releases**: o que está parado e as releases recentes, com o status de cada estágio.
-- **Automação**: regras de prioridade.
-  - PR: criador → branch → aprovar, arquivar ou notificar.
-  - Release: pipeline → estágio → branch, com *"só se eu já aprovei a PR de origem"*.
-  - Permissão: pipeline → recurso.
-  - Cada regra mostra uma prévia do que ela pegaria.
-- **Análise**, **Histórico** e **Ambiente** (contas e PATs, com teste de conexão).
+**Revisão e entrega**
+- **Fila**: tudo que espera você — PRs aguardando o seu voto (conflito e build em destaque), deploys aguardando
+  aprovação (releases clássicas, environments YAML e *pending deployments* do GitHub) e pipelines travados em
+  *"needs permission to access a resource"*.
+- **Pull requests** dos dois provedores: para revisar, minhas (com o que as trava), todas e arquivadas. Aprovar,
+  pedir mudança e comentar sem sair do app.
+- **Builds e Actions**: execuções recentes com filtros; no que falhou, o job, as anotações e o trecho do log em volta
+  do erro. *Tentar de novo* (só o que falhou), *Rodar de novo* e *Cancelar*.
+- **Issues e tarefas**: issues do GitHub e work items do Azure atribuídos a você ou que mencionam você.
+- **Automação**: regras por prioridade — PR (criador → branch → aprovar/arquivar/notificar), deploy (pipeline →
+  estágio → branch, com *"só se eu já aprovei a PR de origem"*) e permissão (pipeline → recurso), com prévia do que
+  cada regra pegaria.
+- **Análise** (lead time, aprovações, criadores, repositórios) e **Histórico** de tudo que você e o piloto fizeram.
+
+**Repositórios e Git**
+- **Catálogos**: agrupe repositórios (ex.: "Cifal" = a organização inteira do Azure ou um owner do GitHub), filtre
+  por clonado/não clonado, clone um ou todos de uma vez. Clones que já existem na pasta são reconhecidos sozinhos.
+- **Limpar repositório local** (manda para a Lixeira) — desabilitado quando há algo não commitado, stash, operação
+  em andamento ou commit que não subiu.
+- **Repositório**: graph de commits no estilo GitKraken (faixas coloridas, avatar do autor, branches e tags),
+  alterações com diff, stage/unstage/descartar, commit/amend, pull/push/fetch, branches locais e remotas, merge,
+  cherry-pick, revert, reset, stash, tags e **Criar PR** direto para o GitHub ou o Azure.
+- Abrir no **VS Code/Cursor/Rider**, no **Finder/Explorer**, no terminal ou no navegador.
+- **⌘K / Ctrl+K**: paleta de comandos para ir a qualquer tela, repositório ou ação.
+
+**No sistema**
 - **Notificações nativas** (Central de Notificações no Mac, bandeja no Windows): clicar abre o item.
 - **Contador** de pendências no Dock e na barra de menus (Mac) ou na bandeja e na barra de tarefas (Windows).
+
+## Contas
+
+| Provedor | Como conectar | O que usa |
+|---|---|---|
+| **Azure DevOps** | PAT por organização (Configurações → Azure DevOps), com teste de cada permissão | PRs, builds, releases, environments, work items, repositórios |
+| **GitHub** | *Entrar com GitHub* (device flow), o login do `gh` CLI ou um token | contas pessoais, organizações e repositórios de terceiros a que o perfil tem acesso |
+
+O *Entrar com GitHub* precisa de um OAuth App com **device flow** habilitado: defina o client id em
+`backend/pilot/github.py` (`GITHUB_CLIENT_ID`), na variável `PR_PILOT_GITHUB_CLIENT_ID` ou em `githubClientId` no
+`config.json`. Sem ele, o botão fica desabilitado e as outras duas formas funcionam.
+
+O Git local usa as mesmas credenciais (por variável de ambiente, nunca na linha de comando) para clonar, buscar e
+enviar por HTTPS; remotos SSH usam as suas chaves.
 
 ## Segurança
 
 - **O PAT nunca fica em texto.**
   - No macOS vai para o **Keychain**. A gravação é feita pelo stdin do `security`, então ele não aparece na lista de processos.
   - No Windows é cifrado com **DPAPI**: só a sua conta do Windows decifra.
-  - O `config.json` guarda apenas a referência, e a tela nunca recebe o PAT de volta.
+  - O `config.json` guarda apenas a referência, e a tela nunca recebe o PAT de volta. Tokens do GitHub seguem o mesmo caminho.
 - O backend atende só em `127.0.0.1:47821` e exige uma **chave nova a cada execução**, que só o app conhece. Outros programas da máquina não leem a fila nem agem por você.
 - O backend encerra junto com o app (watchdog do processo-pai; no Windows também um Job Object).
 - Dados por usuário, fora do repositório:
@@ -55,30 +81,39 @@ O app não é assinado por certificado comercial (decisão da ThomSoft):
 ## Como é feito
 
 ```
-backend/   server.py (Python, só biblioteca padrão) + index.html — a lógica e a tela, iguais nas duas plataformas
-brand/     make-logo.py gera logo.svg (marca: grafo de commit + merge formando o "P") e icon.svg; make-icons.sh gera .icns e .ico
-macos/     PRPilot.swift — janela nativa (AppKit + WebKit), Dock, barra de menus, notificações, troca do .app
-windows/   PRPilot (C# .NET 8, WinForms + WebView2) — janela, bandeja, notificações, atualização pelo ThomSoft Setup
-scripts/   build-macos.sh · release-macos.sh · set-required.sh
-.github/   release-windows.yml — gera, testa e publica o instalador do Windows
-VERSION    x.y.z+N — a versão das duas plataformas
+backend/        server.py + pacote pilot/ (Python, só biblioteca padrão) — igual nas duas plataformas
+  pilot/        http (rotas) · engine (leitura periódica) · azure · github · git · catalogs · rules · secrets · update
+  static/       a interface compilada (gerada, não versionada)
+ui/             interface em Svelte 5 + Vite + TypeScript (npm run build → backend/static)
+brand/          make-logo.py gera logo.svg e icon.svg; make-icons.sh gera .icns e .ico
+macos/          PRPilot.swift — janela nativa (AppKit + WebKit), Dock, barra de menus, notificações, troca do .app
+windows/        PRPilot (C# .NET 8, WinForms + WebView2) — janela, bandeja, notificações, atualização pelo ThomSoft Setup
+scripts/        build-macos.sh · release-macos.sh · set-required.sh
+.github/        release-windows.yml — gera, testa e publica o instalador do Windows
+VERSION         x.y.z+N — a versão das duas plataformas
 ```
 
 O app nativo sobe o backend escondido e mostra a tela dele. Não é Electron: o macOS usa o WebKit do sistema e o
 Windows usa o WebView2 (Edge). O instalador do Windows leva um Python embutido (com hash fixo); no Mac o app usa o
-`python3` das Command Line Tools.
+`python3` das Command Line Tools. O Git é o da máquina (`git` no PATH).
+
+**Novo provedor** (GitLab, Bitbucket…): um módulo em `backend/pilot/` com a mesma forma de `github.py` — listar
+repositórios, PRs, execuções e issues devolvendo itens com `provider` e `key` — registrado em `engine.py`, mais o
+reconhecimento do remoto em `git.parse_remote`. A interface já trata os itens pelo `provider`.
 
 ## Desenvolver
 
-No VS Code ou no Cursor, dê ▶ em **PR Pilot (dev, macOS)** ou **PR Pilot (dev, Windows)**.
+No VS Code ou no Cursor, dê ▶ em **PR Pilot (dev, macOS)**, **PR Pilot (dev, Windows)** ou
+**PR Pilot (dev, interface no navegador)** — esta última sobe o Vite (porta `47823`, recarrega ao salvar).
 
 - O backend sobe em depuração (porta `47822`, dados em `data-sandbox/`) e o app nativo se conecta a ele.
+- `cd ui && npm run check` confere os tipos; `npm run build` gera `backend/static/`.
 - Não toca no app instalado nem nas suas contas reais.
 - **Instalar o app no meu Mac** (`scripts/build-macos.sh`) compila o app universal (Apple Silicon e Intel) e o instala em `/Applications`.
 
 Requisitos:
-- **macOS:** Command Line Tools (`xcode-select --install`).
-- **Windows:** .NET 8 SDK e Python 3.
+- **macOS:** Command Line Tools (`xcode-select --install`) e Node.js 20+.
+- **Windows:** .NET 8 SDK, Python 3 e Node.js 20+.
 
 ## Publicar uma versão
 
@@ -90,3 +125,7 @@ Requisitos:
 As credenciais do FTP do site são as mesmas do Chefinho.
 - **Mac:** `~/.config/thomsoft/downloads.env` com a senha no Keychain (`thomsoft-downloads-ftp`).
 - **GitHub:** secrets `DOWNLOADS_FTP_SERVER`, `DOWNLOADS_FTP_USER` e `DOWNLOADS_FTP_PASSWORD`.
+
+## Licença
+
+MIT — veja [LICENSE](LICENSE).

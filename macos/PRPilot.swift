@@ -291,8 +291,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKUI
     // MARK: atualização — o backend baixou e conferiu o SHA-256; aqui o .app é trocado
 
     func userContentController(_ ucc: WKUserContentController, didReceive message: WKScriptMessage) {
-        guard let body = message.body as? [String: Any], body["type"] as? String == "install", let path = body["path"] as? String else { return }
+        guard let body = message.body as? [String: Any] else { return }
+        if body["type"] as? String == "pickFolder", let id = body["id"] as? String {
+            return pickFolder(id: id, title: body["title"] as? String ?? "Escolha uma pasta")
+        }
+        guard body["type"] as? String == "install", let path = body["path"] as? String else { return }
         do { try installUpdate(dmg: path) } catch { alert("Não consegui atualizar", error.localizedDescription) }
+    }
+
+    // MARK: seletor de pasta — devolve o caminho para a tela por window.__nativeResolve(id, path|null)
+
+    func pickFolder(id: String, title: String) {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.canCreateDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.message = title
+        panel.prompt = "Escolher"
+        panel.beginSheetModal(for: window) { [weak self] resp in
+            guard let self else { return }
+            let path = resp == .OK ? panel.url?.path : nil
+            self.web.evaluateJavaScript("window.__nativeResolve && window.__nativeResolve(\(self.jsString(id)), \(path.map(self.jsString) ?? "null"))")
+        }
     }
 
     func installUpdate(dmg: String) throws {

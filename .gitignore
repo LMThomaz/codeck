@@ -13,3 +13,6 @@ __pycache__/
 dist/
 windows/**/bin/
 windows/**/obj/
+# interface compilada (gerada por `npm run build` em ui/) e dependências
+backend/static/
+ui/node_modules/

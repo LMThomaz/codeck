@@ -1,6 +1,7 @@
 {
   // ▶ "PR Pilot (dev)": sobe o backend em depuração (porta 47822, dados em data-sandbox/) e abre o app nativo
-  // conectado nele — sem tocar no app instalado nem nas suas contas reais.
+  // conectado nele — sem tocar no app instalado nem nas suas contas reais. "interface no navegador" sobe o Vite
+  // (porta 47823, hot reload) apontando para esse backend: o jeito mais rápido de mexer na tela.
   "version": "0.2.0",
   "configurations": [
     {
@@ -34,6 +35,13 @@
       "env": { "PR_PILOT_ATTACH": "1", "PR_PILOT_PORT": "47822" }
     },
     {
+      "name": "Interface (Vite, recarrega ao salvar)",
+      "type": "node-terminal",
+      "request": "launch",
+      "cwd": "${workspaceFolder}/ui",
+      "command": "npm install --no-audit --no-fund && npm run dev -- --open"
+    },
+    {
       "name": "Instalar o app no meu Mac",
       "type": "node-terminal",
       "request": "launch",
@@ -42,6 +50,7 @@
   ],
   "compounds": [
     { "name": "PR Pilot (dev, macOS)", "configurations": ["Backend (depurar)", "App macOS (conecta no backend em depuração)"], "stopAll": true },
+    { "name": "PR Pilot (dev, interface no navegador)", "configurations": ["Backend (depurar)", "Interface (Vite, recarrega ao salvar)"], "stopAll": true },
     { "name": "PR Pilot (dev, Windows)", "configurations": ["Backend (depurar)", "App Windows (conecta no backend em depuração)"], "stopAll": true }
   ]
 }

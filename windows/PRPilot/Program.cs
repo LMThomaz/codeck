@@ -381,7 +381,9 @@ sealed class MainForm : Form
         try
         {
             var msg = JsonDocument.Parse(json).RootElement;
-            if (msg.GetProperty("type").GetString() != "install") return;
+            var type = msg.GetProperty("type").GetString();
+            if (type == "pickFolder") { PickFolder(msg.GetProperty("id").GetString() ?? "", msg.TryGetProperty("title", out var t) ? t.GetString() : null); return; }
+            if (type != "install") return;
             var path = Path.GetFullPath(msg.GetProperty("path").GetString() ?? "");
             var updates = Path.GetFullPath(Path.Combine(dataDir, "updates")) + Path.DirectorySeparatorChar;
             // o backend baixou e conferiu o SHA-256; aqui só aceita o que está na pasta dele
@@ -394,6 +396,17 @@ sealed class MainForm : Form
         {
             MessageBox.Show($"Não consegui atualizar: {ex.Message}", "PR Pilot");
         }
+    }
+
+    // Seletor de pasta: devolve o caminho para a tela por window.__nativeResolve(id, path|null)
+    void PickFolder(string id, string? title)
+    {
+        BeginInvoke(async () =>
+        {
+            using var dlg = new FolderBrowserDialog { Description = title ?? "Escolha uma pasta", UseDescriptionForTitle = true, ShowNewFolderButton = true };
+            var path = dlg.ShowDialog(this) == DialogResult.OK ? dlg.SelectedPath : null;
+            await Js($"window.__nativeResolve && window.__nativeResolve({JsonSerializer.Serialize(id)}, {JsonSerializer.Serialize(path)})");
+        });
     }
 
     static string Splash(string text) => $$"""

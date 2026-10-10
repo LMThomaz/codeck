@@ -146,6 +146,19 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: "8.0.x"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      - name: Interface (Svelte → backend/static)
+        working-directory: ui
+        run: |
+          npm ci --no-audit --no-fund
+          if ($LASTEXITCODE -ne 0) { throw 'npm ci falhou' }
+          npm run build
+          if ($LASTEXITCODE -ne 0) { throw 'build da interface falhou' }
 
       - uses: actions/download-artifact@v4
         with:
@@ -175,7 +188,10 @@ jobs:
           if ($got -ne $env:PYTHON_EMBED_SHA256) { throw "Python embutido com hash inesperado ($got)" }
           Expand-Archive python.zip -DestinationPath build/app/python
           New-Item -ItemType Directory -Force build/app/backend | Out-Null
-          Copy-Item backend/server.py, backend/index.html build/app/backend/
+          Copy-Item backend/server.py build/app/backend/
+          Copy-Item -Recurse backend/pilot, backend/static build/app/backend/
+          Get-ChildItem build/app/backend -Recurse -Directory -Filter __pycache__ | Remove-Item -Recurse -Force
+          if (-not (Test-Path build/app/backend/static/index.html)) { throw 'interface não compilada' }
           # o backend sobe e responde com o Python embutido (sem token: só nesta conferência)
           $p = Start-Process build/app/python/python.exe -ArgumentList 'build/app/backend/server.py' -PassThru -NoNewWindow `
             -Environment @{ PR_PILOT_PORT = '47899'; PR_PILOT_DATA = "$env:RUNNER_TEMP\prpilot-data" }
