@@ -158,6 +158,15 @@ Requisitos:
 - **macOS:** Command Line Tools (`xcode-select --install`) e Node.js 20+.
 - **Windows:** .NET 8 SDK, Python 3 e Node.js 20+.
 
+## Testar o app de desktop
+
+`scripts/test-desktop.sh` compila o app do Mac, monta repositórios Git de verdade numa pasta temporária e roda
+`tests/desktop/selftest.js` **dentro da janela do app** (dados e porta próprios — não mexe na sua instalação):
+navegação, tema e barra de título, repositórios, favoritos/tags, terminal (digitação real), editor e ⌘S, servidor de
+linguagem, tarefas em worktree, revisão, tela dividida, quadro, ajustes, janela própria e remoção. Com
+`AGENT_ACCOUNT=<conta> TRUSTED_DIR=<pasta>` inclui um agente Claude de verdade. No Windows, o mesmo roteiro roda no
+`Commitdeck.exe` dentro do build do GitHub Actions, e o build só publica se todas as etapas passarem.
+
 ## Publicar uma versão
 
 1. Suba o `+N` do arquivo `VERSION`, faça commit e push na `main`.
