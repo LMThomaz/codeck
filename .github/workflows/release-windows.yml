@@ -209,7 +209,7 @@ jobs:
           $out = "dist/PR-Pilot-$env:BUILD_NAME-$env:BUILD_NUMBER-setup.exe"
           pwsh kit/tools/package-installer.ps1 `
             -Setup kit/setup -App build/app -Redist build/redist -Manifest build/setup.json -Ops kit/ops/setup-ops.ps1 `
-            -Logo macos/icon.svg -Icon windows/PRPilot/app.ico -Out $out
+            -Logo brand/logo.svg -Icon windows/PRPilot/app.ico -Out $out
           if ($LASTEXITCODE -ne 0) { throw 'pacote' }
           pwsh kit/tools/smoke-installer.ps1 -Installer $out -Manifest build/setup.json
           if ($LASTEXITCODE -ne 0) { throw 'o instalador não passou no teste' }

@@ -56,6 +56,7 @@ O app não é assinado por certificado comercial (decisão da ThomSoft):
 
 ```
 backend/   server.py (Python, só biblioteca padrão) + index.html — a lógica e a tela, iguais nas duas plataformas
+brand/     logo.svg (marca, também a do instalador) · icon.svg → make-icons.sh gera os ícones do Mac e do Windows
 macos/     PRPilot.swift — janela nativa (AppKit + WebKit), Dock, barra de menus, notificações, troca do .app
 windows/   PRPilot (C# .NET 8, WinForms + WebView2) — janela, bandeja, notificações, atualização pelo ThomSoft Setup
 scripts/   build-macos.sh · release-macos.sh · set-required.sh

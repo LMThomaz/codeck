@@ -485,8 +485,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKUI
     static let splash = """
     <html><body style="margin:0;height:100vh;display:grid;place-items:center;font:15px -apple-system,sans-serif;
     background:#f4f5f7;color:#4a5160"><style>@media(prefers-color-scheme:dark){body{background:#0f1115!important;color:#b4bac6!important}}</style>
-    <div style="text-align:center;max-width:520px;padding:0 24px"><div style="width:44px;height:44px;border-radius:11px;background:#2a78d6;color:#fff;
-    display:grid;place-items:center;margin:0 auto 14px;font-weight:700">PR</div>Iniciando…</div></body></html>
+    <div style="text-align:center;max-width:520px;padding:0 24px"><div style="margin:0 auto 14px;width:56px"><svg width="56" height="56" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M476 36L36 226L218 290L476 36Z" fill="url(#wing)"/><path d="M476 36L234 306L300 476L476 36Z" fill="url(#body)"/><path d="M218 290L234 306L250 382L210 338L218 290Z" fill="url(#body)"/><path d="M150 362C150 379.673 135.673 394 118 394C100.327 394 86 379.673 86 362C86 344.327 100.327 330 118 330C135.673 330 150 344.327 150 362Z" fill="url(#wing)"/><path d="M90 436C90 449.255 79.2548 460 66 460C52.7452 460 42 449.255 42 436C42 422.745 52.7452 412 66 412C79.2548 412 90 422.745 90 436Z" fill="url(#wing)"/><path d="M44 488C44 496.837 36.8366 504 28 504C19.1634 504 12 496.837 12 488C12 479.163 19.1634 472 28 472C36.8366 472 44 479.163 44 488Z" fill="url(#wing)"/><defs><linearGradient id="wing" x1="12" y1="504" x2="476" y2="36" gradientUnits="userSpaceOnUse"><stop stop-color="#7B5CFA"/><stop offset="1" stop-color="#3F95F2"/></linearGradient><linearGradient id="body" x1="234" y1="476" x2="476" y2="36" gradientUnits="userSpaceOnUse"><stop stop-color="#4B2FD0"/><stop offset="1" stop-color="#2A6FD6"/></linearGradient></defs></svg></div>Iniciando…</div></body></html>
     """
 }
 
