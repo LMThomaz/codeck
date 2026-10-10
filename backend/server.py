@@ -318,7 +318,7 @@ class Org:
                 # PAT inválido/expirado: o Azure responde 203 com a página HTML de login, não 401.
                 if resp.status == 203 or (not raw and "json" not in resp.headers.get("Content-Type", "")):
                     raise RuntimeError("PAT inválido ou expirado (Azure devolveu página de login)")
-                data = resp.read(2_000_000)
+                data = resp.read(2_000_000) if raw else resp.read()  # limite só para texto (logs); JSON vem inteiro
                 if raw:
                     return data.decode(errors="replace")
                 return json.loads(data) if data else None
@@ -418,11 +418,14 @@ class Org:
         out = []
         for p in self.projects():
             proj = urllib.parse.quote(p["name"])
-            data = self.req("GET", f"{proj}/_apis/git/pullrequests?searchCriteria.status=completed&$top=1000&{API}")
-            for raw in data["value"]:
-                closed = parse_dt(raw.get("closedDate"))
-                if closed and closed >= since:
-                    out.append(self._shape(p, raw))
+            # o Azure devolve no máximo 1000 por página: pagina até sair da janela pedida (mais novas primeiro)
+            for page in range(20):
+                batch = self.req("GET", f"{proj}/_apis/git/pullrequests?searchCriteria.status=completed"
+                                        f"&$top=500&$skip={page * 500}&{API}")["value"]
+                recent = [raw for raw in batch if (parse_dt(raw.get("closedDate")) or since) >= since]
+                out.extend(self._shape(p, raw) for raw in recent)
+                if len(batch) < 500 or not recent:
+                    break
         return out
 
     # ------------------------------------------------------------ releases / pipelines
@@ -1251,8 +1254,20 @@ def normalize_org_url(url):
     return url
 
 
+# Cada teste de ESCRITA manda um pedido inválido de propósito para um recurso que não existe (ou uma lista vazia):
+# com o escopo certo o Azure autoriza e recusa o pedido (400/404) — nada é alterado; sem o escopo, responde 401/403.
+# Medido em 2026-10-10 nas duas organizações: POST pullrequests {} → 400, PATCH builds/0 → 404,
+# PATCH approvals/0 → 400 (VS402960) e PATCH pipelinePermissions com "pipelines": [] → 200 sem alterar nada
+# (GET antes e depois iguais). Não medido: o texto exato do Azure para PAT sem o escopo — a tela mostra o que vier.
+SCOPE_HINT = {
+    "code-read": "Code → Read", "code-write": "Code → Read & write", "build-read": "Build → Read",
+    "build-exec": "Build → Read & execute", "release-read": "Release → Read",
+    "release-manage": "Release → Read, write, execute & manage", "vg": "Variable Groups → Read, create & manage",
+}
+
+
 def test_org(body):
-    """Testa uma organização (nova ou salva) sem gravar nada. PAT vazio = usa o já salvo."""
+    """Testa uma organização (nova ou salva) sem gravar nada no Azure nem no app. PAT vazio = usa o já salvo."""
     url = normalize_org_url(body.get("url"))
     cfg = {"id": "teste", "name": body.get("name") or "teste", "url": url, "pat": (body.get("pat") or "").strip()}
     if not cfg["pat"]:
@@ -1261,26 +1276,93 @@ def test_org(body):
             raise ValueError("Informe o PAT")
         cfg = {**saved, "url": url, "name": cfg["name"]}
     org = Org(cfg)
-    checks = []
+    checks, ctx = [], {}
 
-    def check(label, fn):
+    def add(group, label, status, detail, scope=None):
+        checks.append({"group": group, "label": label, "status": status, "detail": detail,
+                       "fix": f"Inclua o escopo {SCOPE_HINT[scope]} no PAT" if status == "fail" and scope else None})
+
+    def read(group, label, scope, fn):
         try:
-            checks.append({"label": label, "ok": True, "detail": fn()})
+            add(group, label, "ok", fn())
             return True
         except Exception as e:  # noqa: BLE001
-            checks.append({"label": label, "ok": False, "detail": str(e)[:240]})
+            add(group, label, "fail", azure_message(e), scope)
             return False
 
-    if not check("Conectar e identificar a conta", lambda: (lambda m: f"{m['name']} · {m['email']}")(org.identity())):
-        return {"ok": False, "checks": checks}
+    def write(group, label, scope, method, path, payload, ok_codes=(200, 400, 404, 409)):
+        try:
+            org.req(method, path, payload)
+            add(group, label, "ok", "autorizado (teste sem efeito)")
+        except Exception as e:  # noqa: BLE001
+            code = http_code(e)
+            if code in ok_codes:
+                add(group, label, "ok", "autorizado (teste sem efeito)")
+            elif code in (401, 403):
+                add(group, label, "fail", azure_message(e), scope)
+            else:
+                add(group, label, "warn", azure_message(e))
+
+    t0 = time.monotonic()
+    if not read("Conta", "Conectar com o PAT", None, lambda: (lambda m: f"{m['name']}" + (f" · {m['email']}" if m["email"] and m["email"] != m["name"] else ""))(org.identity())):
+        checks[-1]["fix"] = "Confira a organização/URL e se o PAT não expirou ou foi revogado"
+        return {"ok": False, "verdict": "Não conecta", "checks": checks, "ms": int((time.monotonic() - t0) * 1000)}
     projects = []
-    check("Listar projetos", lambda: (projects.extend(org.projects()), ", ".join(p["name"] for p in projects[:6]) or "nenhum")[1])
-    proj = urllib.parse.quote(projects[0]["name"]) if projects else None
-    if proj:
-        check("Ler pull requests (Code)", lambda: f"{len(org.req('GET', f'{proj}/_apis/git/pullrequests?$top=50&{API}')['value'])} abertas no 1º projeto")
-        check("Ler builds (Build)", lambda: f"{len(org.req('GET', f'{proj}/_apis/build/builds?$top=5&{API}')['value'])} builds recentes lidos")
-        check("Ler releases (Release)", lambda: f"{len(org.req('GET', f'{org.vsrm}/{proj}/_apis/release/definitions?$top=200&{API}')['value'])} pipelines de release")
-    return {"ok": all(c["ok"] for c in checks), "checks": checks}
+    read("Conta", "Listar projetos", None, lambda: (projects.extend(org.projects()), f"{len(projects)}: " + ", ".join(p["name"] for p in projects[:4]))[1])
+    if projects:
+        proj = urllib.parse.quote(projects[0]["name"])
+        if read("Pull requests", "Ler PRs", "code-read",
+                lambda: f"{len(org.req('GET', f'{proj}/_apis/git/pullrequests?$top=100&{API}')['value'])} abertas em {projects[0]['name']}"):
+            try:
+                ctx["repo"] = org.req("GET", f"{proj}/_apis/git/repositories?{API}")["value"][0]["id"]
+            except Exception:  # noqa: BLE001
+                pass
+        if ctx.get("repo"):
+            write("Pull requests", "Votar (aprovar/recusar)", "code-write", "POST",
+                  f"{proj}/_apis/git/repositories/{ctx['repo']}/pullrequests?{API}", {})
+        read("Builds", "Ler builds", "build-read", lambda: f"{len(org.req('GET', f'{proj}/_apis/build/builds?$top=20&{API}')['value'])} recentes")
+        write("Builds", "Tentar de novo / rodar / cancelar", "build-exec", "PATCH", f"{proj}/_apis/build/builds/0?{API}", {})
+        read("Releases", "Ler releases e aprovações", "release-read",
+             lambda: f"{len(org.req('GET', f'{org.vsrm}/{proj}/_apis/release/definitions?$top=200&{API}')['value'])} pipelines de release")
+        write("Releases", "Aprovar / rejeitar release", "release-manage", "PATCH", f"{org.vsrm}/{proj}/_apis/release/approvals/0?{API}", {})
+        try:
+            vgs = org.req("GET", f"{proj}/_apis/distributedtask/variablegroups?$top=1&{API}")["value"]
+        except Exception as e:  # noqa: BLE001
+            vgs = None
+            add("Permissões de pipeline", "Liberar recurso para pipeline", "fail" if http_code(e) in (401, 403) else "warn",
+                azure_message(e), "vg")
+        if vgs == []:
+            add("Permissões de pipeline", "Liberar recurso para pipeline", "warn", "nenhum grupo de variáveis visível para testar")
+        elif vgs:
+            write("Permissões de pipeline", "Liberar recurso para pipeline", "vg", "PATCH",
+                  f"{proj}/_apis/pipelines/pipelinePermissions/variablegroup/{vgs[0]['id']}?{API_PREVIEW}", {"pipelines": []},
+                  ok_codes=(200,))
+    fails = [c for c in checks if c["status"] == "fail"]
+    verdict = "Pronto para tudo" if not fails and all(c["status"] == "ok" for c in checks) else \
+        "Funciona com limitações" if not any(c["group"] == "Conta" for c in fails) else "Não conecta"
+    return {"ok": not fails, "verdict": verdict, "checks": checks, "ms": int((time.monotonic() - t0) * 1000)}
+
+
+def http_code(e):
+    m = re.match(r"HTTP (\d{3})", str(e))
+    return int(m.group(1)) if m else None
+
+
+def azure_message(e):
+    """Só a mensagem do Azure, sem URL nem JSON — é o que aparece na tela."""
+    text, code = str(e), http_code(e)
+    m = re.search(r'"message":"(.*?)(?<!\\)"', text)
+    if m:
+        msg = m.group(1).encode().decode("unicode_escape", "ignore").replace("\r\n", " ")
+    elif code == 401 or "PAT inválido" in text:
+        msg = "o Azure recusou o PAT (inválido, expirado, revogado ou criado para outra organização)"
+    elif code == 404:
+        msg = "organização ou recurso não encontrado — confira a URL"
+    elif "urlopen error" in text or "timed out" in text:
+        msg = "sem resposta do Azure — confira a internet/VPN e a URL"
+    else:
+        msg = re.sub(r"https?://\S+", "", text)
+    return (f"HTTP {code} — " if code else "") + msg.strip()[:220]
 
 
 def save_config(body):

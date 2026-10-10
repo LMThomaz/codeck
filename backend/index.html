@@ -365,6 +365,18 @@
   .orgform .tests { grid-column: 1 / -1; display: grid; gap: 4px; font-size: 13px; }
   .orgform .who { grid-column: 1 / -1; font-size: 12px; color: var(--muted); margin-top: -4px; }
   .chk { display: flex; gap: 8px; }
+  .tverdict { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 9px 12px; border-radius: 9px; font-size: 13.5px; animation: fadeDown .25s var(--ease-out); }
+  .tverdict.t-ok { background: var(--good-bg); color: var(--good); } .tverdict.t-fail { background: var(--bad-bg); color: var(--bad); }
+  .tverdict.t-warn { background: var(--warn-bg); color: var(--warn); } .tverdict.t-run { background: var(--surface-2); color: var(--text-2); }
+  .tverdict .muted { color: inherit; opacity: .75; }
+  .spin { width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--line-2); border-top-color: var(--accent); animation: spin .8s linear infinite; display: inline-block; }
+  .tgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 10px 18px; margin-top: 10px; }
+  .tgroup h5 { margin: 0 0 4px; font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+  .tcheck { display: grid; grid-template-columns: 20px minmax(0, 1fr); gap: 6px; padding: 5px 0; font-size: 13px; animation: rowIn .35s var(--ease-out) both; }
+  .tcheck .ti { width: 18px; height: 18px; border-radius: 50%; display: grid; place-items: center; font-size: 11px; font-weight: 700; margin-top: 1px; }
+  .tcheck.s-ok .ti { background: var(--good-bg); color: var(--good); } .tcheck.s-fail .ti { background: var(--bad-bg); color: var(--bad); }
+  .tcheck.s-warn .ti { background: var(--warn-bg); color: var(--warn); }
+  .tfix { color: var(--bad); font-weight: 600; margin-top: 2px; }
   .chk .ok { color: var(--good); } .chk .ko { color: var(--bad); }
   .steps-help { margin: 0; padding-left: 18px; line-height: 1.7; }
   @media (max-width: 760px) {
@@ -1967,8 +1979,7 @@ function renderEnv() {
         <button class="ghost sm" data-cfdel="${i}" title="Remover">✕</button>
       </div>
       ${o.me && !o.test ? `<div class="who">Conectado como <b>${esc(o.me.name)}</b>${o.me.email && o.me.email !== o.me.name ? ` · ${esc(o.me.email)}` : ""}${o.patStore ? ` · 🔒 PAT no ${esc(o.patStore)}` : ""}</div>` : ""}
-      ${o.test ? `<div class="tests">${o.test.error ? `<div class="chk"><span class="ko">✗</span>${esc(o.test.error)}</div>` : o.test.running ? `<div class="muted small">Testando…</div>`
-        : o.test.checks.map(c => `<div class="chk"><span class="${c.ok ? "ok" : "ko"}">${c.ok ? "✓" : "✗"}</span><span><b>${esc(c.label)}</b> <span class="muted">${esc(c.detail)}</span></span></div>`).join("")}</div>` : ""}
+      ${o.test ? `<div class="tests">${testHtml(o.test)}</div>` : ""}
     </div>`).join("");
   $("#view").innerHTML = `
     ${!S.configured ? `<div class="notice">👋 Bem-vindo! Cadastre ao menos uma organização do Azure DevOps com o seu PAT para começar. Tudo fica só nesta máquina.</div>` : ""}
@@ -2002,8 +2013,21 @@ function renderEnv() {
         Tudo é local: <code>${esc(CFG?.dataDir || "")}</code> (fora do repositório). O PAT <b>nunca</b> fica em texto: vai cifrado para o ${S.app?.platform === "windows" ? "cofre do Windows (DPAPI — só a sua conta do Windows decifra)" : "Keychain do macOS"}, e o <code>config.json</code> guarda só a referência. A tela nunca recebe o PAT de volta.
         <br>O backend atende só em <code>127.0.0.1:${esc(CFG?.port || "")}</code>; nada é exposto na rede.
         <br>A tela só responde ao app: cada execução gera uma chave nova, então outros programas da máquina não agem por você.
-        <br>Para outra pessoa usar: clonar o repositório, rodar <code>./build-app.sh</code> e cadastrar as próprias contas aqui.</div></div>
+        <br>Para outra pessoa usar: instalar pelo site da ThomSoft (downloads/pr-pilot) e cadastrar as próprias contas aqui.</div></div>
     </div></div>`;
+}
+
+function testHtml(t) {
+  if (t.error) return `<div class="tverdict t-fail">✗ ${esc(t.error)}</div>`;
+  if (t.running) return `<div class="tverdict t-run"><span class="spin"></span> Testando cada permissão que o app usa…</div>${skel(3)}`;
+  const icon = {ok: "✓", fail: "✗", warn: "!"}, groups = [...new Set(t.checks.map(c => c.group))];
+  const nOk = t.checks.filter(c => c.status === "ok").length;
+  const cls = t.verdict === "Pronto para tudo" ? "t-ok" : t.verdict === "Não conecta" ? "t-fail" : "t-warn";
+  return `<div class="tverdict ${cls}">${cls === "t-ok" ? "✓" : cls === "t-fail" ? "✗" : "!"} <b>${esc(t.verdict)}</b>
+      <span class="muted small">${nOk} de ${t.checks.length} verificações · ${t.ms} ms · nada foi alterado no Azure</span></div>
+    <div class="tgrid">${groups.map(g => `<div class="tgroup"><h5>${esc(g)}</h5>${t.checks.filter(c => c.group === g).map(c => `
+      <div class="tcheck s-${c.status}"><span class="ti">${icon[c.status]}</span><div><b>${esc(c.label)}</b><div class="small muted">${esc(c.detail)}</div>
+        ${c.fix ? `<div class="small tfix">→ ${esc(c.fix)}</div>` : ""}</div></div>`).join("")}</div>`).join("")}</div>`;
 }
 
 async function cfgTest(i) {
@@ -2019,8 +2043,10 @@ async function cfgSave() {
   try {
     await post("/api/config", {pollSeconds: Number(cfgDraft.pollSeconds) || 60,
       orgs: cfgDraft.filter(o => o.name || o.url || o.pat).map(o => ({name: o.name, originalName: o.originalName, url: o.url, pat: o.pat, enabled: o.enabled}))});
-    toast("Configuração salva — conectando…");
-    cfgBusy = false; cfgDraft = null; await load(); setTimeout(async () => { await load(); if (tab === "ambiente") loadConfig(); }, 4000);
+    toast("Configuração salva — testando as organizações…");
+    cfgBusy = false; cfgDraft = null; await load(); await loadConfig();
+    // confere de verdade o que foi salvo: o PAT que está no cofre, organização por organização
+    await Promise.all(cfgDraft.map((_, i) => cfgTest(i)));
   } catch (e) { cfgBusy = false; alert("Não salvou: " + e.message); renderEnv(); }
 }
 
