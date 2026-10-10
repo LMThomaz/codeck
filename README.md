@@ -47,6 +47,11 @@ O app não é assinado por certificado comercial (decisão da ThomSoft):
 - **Tarefa em vários repositórios** (ex.: entidades → infra → API): um worktree em cada, na mesma branch; o agente
   enxerga todos (`--add-dir` no Claude). Ajustes por projeto: arquivos copiados, preparação, pasta dos worktrees,
   pastas extras e shell.
+- **Repositório = projeto:** abrir um repositório abre o projeto, com a aba **Git** (grafo, branches, alterações, commit,
+  sync) e a aba **PRs** (pull requests e builds deste repositório, com o detalhe ao lado).
+- **Executar** como no VS Code: configurações do `.vscode/launch.json` (com `compounds`, `preLaunchTask` e `envFile`, lido
+  só na hora), scripts do `package.json` (npm/pnpm/yarn/bun), perfis do .NET (`launchSettings.json`), Go, Rust e Compose.
+- Painéis laterais redimensionáveis arrastando a borda; tarefas abaixo dos arquivos.
 - **Retomar** a conversa de um agente depois de fechar o app; dividir a tela (clique direito na aba → Abrir ao lado);
   abrir um projeto em **janela própria** (clique direito na aba do projeto).
 - **Limites**: aviso ao passar de 80% e 95%, sugestão de outra conta ao criar tarefa e página de uso por dia,

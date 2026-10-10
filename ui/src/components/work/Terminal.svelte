@@ -107,7 +107,9 @@
     if (!host) return;
     const l = ensure(id);
     host.appendChild(l.el);
-    const ro = new ResizeObserver(() => resize(id));
+    // reajusta no quadro seguinte: dentro do próprio aviso o resize muda o layout de novo (o WebKit reporta "ResizeObserver loop")
+    let raf = 0;
+    const ro = new ResizeObserver(() => { cancelAnimationFrame(raf); raf = requestAnimationFrame(() => resize(id)); });
     ro.observe(host);
     requestAnimationFrame(() => resize(id));
     return () => { ro.disconnect(); if (l.el.parentElement === host) l.el.remove(); };
