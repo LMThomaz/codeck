@@ -1,6 +1,6 @@
 <script lang="ts">
   // Repositório (estilo GitKraken): branches | graph | alterações ou commit; diff no centro; sincronização no topo.
-  import { ArrowDown, ArrowLeft, ArrowUp, Code2, ExternalLink, FolderOpen, GitBranch, GitBranchPlus, GitPullRequestCreate, RefreshCw, Search, Terminal } from "@lucide/svelte";
+  import { ArrowDown, ArrowLeft, ArrowUp, Code2, Copy, ExternalLink, FolderOpen, GitBranch, GitBranchPlus, GitMerge, GitPullRequestCreate, RefreshCw, RotateCcw, Search, Tag as TagIcon, Terminal, Undo2 } from "@lucide/svelte";
   import { onDestroy, untrack } from "svelte";
   import { get, post } from "../lib/api";
   import { fileManagerName } from "../lib/native";
@@ -84,8 +84,8 @@
       diff = { title: f.path, text: d.diff, binary: d.binary, truncated: d.truncated };
     } catch (e) { ui.error(e); }
   }
-  async function newBranch(start?: string) {
-    const name = await ui.ask({ title: start ? "Criar branch a partir deste commit" : "Nova branch", input: { label: "Nome da branch", placeholder: "feature/minha-mudanca", required: true }, confirm: "Criar e fazer checkout" });
+  async function newBranch(start?: string, from?: string) {
+    const name = await ui.ask({ title: from ? `Nova branch a partir de ${from}` : start ? "Criar branch a partir deste commit" : "Nova branch", input: { label: "Nome da branch", placeholder: "feature/minha-mudanca", required: true }, confirm: "Criar e fazer checkout" });
     if (name) run("branch", "branch-create", { name: name.trim(), start }, `Branch ${name} criada`);
   }
   async function commitAction(a: string, sha: string) {
@@ -98,11 +98,31 @@
     if (a === "track") return run("checkout", "checkout", { track: name }, `Branch ${name.split("/").slice(1).join("/")} criada`);
     if (a === "merge") { if (await ui.ask({ title: `Merge de ${name} em ${status?.branch}?`, confirm: "Fazer merge" })) run("merge", "merge", { ref: name }, "Merge feito"); return; }
     if (a === "pr") { prFrom = name; return; }
+    if (a === "update") return run("update", "branch-update", { name }, name === status?.branch ? "Branch atualizada" : `${name} atualizada sem checkout`);
+    if (a === "push-branch") return run("push", "branch-push", { name }, `${name} enviada`);
+    if (a === "branch-from") return newBranch(name, name);
+    if (a === "rebase") {
+      if (await ui.ask({ title: `Rebase de ${status?.branch} sobre ${name}?`, message: "Reescreve os commits da branch atual por cima de " + name + ". Se ela já foi enviada, o próximo push precisa ser forçado.", confirm: "Fazer rebase" }))
+        run("rebase", "rebase", { onto: name }, "Rebase feito");
+      return;
+    }
+    if (a === "tag-push") return run("tag", "tag-push", { name }, `Tag ${name} enviada`);
+    if (a === "tag-delete" || a === "tag-delete-remote") {
+      const remote = a === "tag-delete-remote";
+      if (await ui.ask({ title: remote ? `Apagar a tag ${name} no servidor?` : `Apagar a tag local ${name}?`, confirm: "Apagar", danger: true }))
+        run("tag", "tag-delete", { name, remote }, `Tag ${name} apagada${remote ? " no servidor" : ""}`);
+      return;
+    }
     if (a === "rename") { const n = await ui.ask({ title: `Renomear ${name}`, input: { label: "Novo nome", value: name, required: true }, confirm: "Renomear" }); if (n) run("rename", "branch-rename", { old: name, new: n }); return; }
     if (a === "delete") {
-      if (await ui.ask({ title: `Apagar a branch local ${name}?`, message: "Se ela tiver commits que não estão em outra branch, o Git recusa.", confirm: "Apagar", danger: true }))
-        run("delete", "branch-delete", { name }, `${name} apagada`);
-      return;
+      if (!(await ui.ask({ title: `Apagar a branch local ${name}?`, message: "Se ela tiver commits que não estão em outra branch, o Git avisa antes.", confirm: "Apagar", danger: true }))) return;
+      try { await post("repo/branch-delete", { id, name }); ui.toast(`${name} apagada`); }
+      catch (e: any) {
+        if (!/not fully merged|não.*mesclad/i.test(e.message || "")) return ui.error(e);
+        if (!(await ui.ask({ title: `${name} tem commits que não estão em nenhuma outra branch`, message: "Apagar mesmo assim perde esses commits (a não ser que estejam no servidor).", confirm: "Apagar mesmo assim", danger: true }))) return;
+        try { await post("repo/branch-delete", { id, name, force: true }); ui.toast(`${name} apagada`); } catch (e2) { ui.error(e2); }
+      }
+      return loadAll();
     }
     if (a === "delete-remote") {
       if (await ui.ask({ title: `Apagar ${name} no servidor?`, message: "Isso remove a branch para todo mundo.", confirm: "Apagar no servidor", danger: true }))
@@ -119,9 +139,22 @@
       return loadAll();
     }
   }
-  async function contextCommit(c: Commit, e: MouseEvent) {
+  function contextCommit(c: Commit, e: MouseEvent) {
     sel = c.sha;
-    void e;
+    const short = c.sha.slice(0, 8);
+    ui.contextMenu(e, [
+      { heading: `${short} · ${c.subject.slice(0, 40)}` },
+      { label: "Nova branch a partir daqui…", icon: GitBranchPlus, onclick: () => newBranch(c.sha) },
+      { label: "Criar tag aqui…", icon: TagIcon, onclick: async () => { const n = await ui.ask({ title: `Tag em ${short}`, input: { label: "Nome da tag", placeholder: "v1.2.0", required: true }, confirm: "Criar tag" }); if (n) run("tag", "tag", { name: n.trim(), sha: c.sha }, `Tag ${n} criada`); } },
+      { label: "Checkout deste commit (detached)", icon: GitBranch, onclick: () => run("checkout", "checkout", { ref: c.sha }, `Agora em ${short}`) },
+      { separator: true },
+      { label: `Cherry-pick em ${status?.branch}`, icon: GitMerge, onclick: () => commitAction("cherry-pick", c.sha), disabled: !status?.branch },
+      { label: "Reverter (revert)", icon: Undo2, onclick: () => commitAction("revert", c.sha), disabled: !status?.branch },
+      { label: `Mover ${status?.branch} para cá (reset)…`, icon: RotateCcw, danger: true, onclick: () => resetTo(c.sha), disabled: !status?.branch },
+      { separator: true },
+      { label: "Copiar SHA", icon: Copy, onclick: async () => { await navigator.clipboard.writeText(c.sha); ui.toast("SHA copiado"); } },
+      { label: "Copiar mensagem", icon: Copy, onclick: async () => { await navigator.clipboard.writeText(c.subject); ui.toast("Mensagem copiada"); } },
+    ]);
   }
   async function resetTo(sha: string) {
     const mode = await ui.ask({ title: `Mover ${status?.branch} para ${sha.slice(0, 8)}?`, message: "soft = mantém tudo preparado · mixed = mantém as alterações · hard = descarta tudo",
@@ -184,7 +217,7 @@
     {#if error}<div class="err">{error}</div>{/if}
 
     <div class="cols">
-      <aside class="card side">{#if refs}<BranchesPanel {refs} onaction={branchAction} onfocus={(n) => (focusBranch = n)} focused={focusBranch} />{:else}<div class="sk"><i class="shim"></i><i class="shim"></i><i class="shim"></i></div>{/if}</aside>
+      <aside class="card side">{#if refs}<BranchesPanel {refs} canPr={!!repo?.provider} onaction={branchAction} onfocus={(n) => (focusBranch = n)} focused={focusBranch} />{:else}<div class="sk"><i class="shim"></i><i class="shim"></i><i class="shim"></i></div>{/if}</aside>
 
       <div class="card center">
         {#if diff}

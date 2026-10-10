@@ -347,6 +347,11 @@ REPO_ACTIONS = {
     "pull": lambda b: git.pull(b["id"], bool(b.get("rebase"))),
     "push": lambda b: git.push(b["id"], bool(b.get("force"))),
     "merge": lambda b: git.merge(b["id"], b.get("ref")),
+    "rebase": lambda b: git.rebase(b["id"], b.get("onto")),
+    "branch-push": lambda b: git.push_branch(b["id"], b.get("name"), bool(b.get("force"))),
+    "branch-update": lambda b: git.update_branch(b["id"], b.get("name")),
+    "tag-delete": lambda b: git.delete_tag(b["id"], b.get("name"), bool(b.get("remote"))),
+    "tag-push": lambda b: git.push_tag(b["id"], b.get("name")),
     "cherry-pick": lambda b: git.cherry_pick(b["id"], b.get("sha")),
     "revert": lambda b: git.revert(b["id"], b.get("sha")),
     "stash": lambda b: git.stash(b["id"], b.get("action"), b.get("ref"), b.get("message")),
@@ -445,6 +450,11 @@ def post_library_clone(qs, body):
 @route("GET", "/api/catalogs")
 def get_catalogs(qs, body):
     return catalogs.summary()
+
+
+@route("GET", "/api/clone-targets")
+def get_clone_targets(qs, body):
+    return {"targets": catalogs.clone_targets()}
 
 
 @route("POST", "/api/catalogs/account-dir")

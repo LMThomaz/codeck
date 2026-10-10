@@ -119,6 +119,45 @@ def remote_repos(source, force=False):
     return fetch(source, force)[0]
 
 
+# ---------------------------------------------------------------- pastas de trabalho (várias pastas base)
+# Os clones vivem espalhados (…/cifal/apis, …/cifal/mobile…). Pastas de trabalho = as configuradas em Preferências +
+# as pastas onde já há repositórios registrados. Elas servem para (1) reconhecer sozinho clones feitos fora do app e
+# (2) oferecer o destino na hora de clonar.
+_discover = {"at": 0.0}
+
+
+def workspace_roots():
+    return [os.path.expanduser(p) for p in (ctx.config.get("workspaceRoots") or []) if p]
+
+
+def clone_targets():
+    """Destinos sugeridos para clonar: pastas configuradas e pastas que já têm clones, com quantos repositórios cada uma tem."""
+    counts = {}
+    for r in git.list_repos(with_status=False):
+        if r.get("exists"):
+            parent = os.path.dirname(r["path"].rstrip(os.sep))
+            counts[parent] = counts.get(parent, 0) + 1
+    out = [{"path": p, "count": counts.pop(p, 0), "configured": True} for p in workspace_roots()]
+    out += [{"path": p, "count": n, "configured": False} for p, n in sorted(counts.items(), key=lambda kv: -kv[1])]
+    home = os.path.expanduser("~")
+    for t in out:
+        t["label"] = os.path.basename(t["path"].rstrip(os.sep)) or t["path"]
+        t["short"] = t["path"].replace(home, "~", 1)
+    return out
+
+
+def discover(force=False):
+    """Registra os repositórios encontrados nas pastas de trabalho (no máximo a cada 2 min)."""
+    if not force and time.time() - _discover["at"] < 120:
+        return
+    _discover["at"] = time.time()
+    for t in clone_targets():
+        try:
+            git.scan(t["path"], depth=2 if t["configured"] else 1)
+        except Exception:  # noqa: BLE001 — pasta removida ou sem permissão
+            continue
+
+
 def local_index():
     """remoteKey normalizada -> repositório local registrado (com status resumido)."""
     out = {}
@@ -143,6 +182,7 @@ def _build(meta, sources, exclude=(), base_dir=None, force=False):
             errors[label] = "sem conexão — a lista aparece quando a internet voltar" if is_network_error(e) else str(e)[:240]
     exclude = set(exclude or [])
     repos = [dict(r) for r in repos if r["key"] not in exclude]
+    discover()
     local = local_index()
     if base_dir and adopt_existing(base_dir, repos, local):
         local = local_index()

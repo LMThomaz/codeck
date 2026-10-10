@@ -52,6 +52,11 @@ fixo, tenta reconectar a cada 10 s e atualiza tudo assim que a rede volta.
 - **Favoritos e tags**: favorite repositórios de qualquer conta (GitHub e Azure misturados) — pela estrela ou buscando
   em todas as contas — e organize com tags livres ("Open-Source", "Sustentação"…). Cada tag vira uma coleção; tag nova
   é criada digitando no próprio seletor.
+- **Pastas de trabalho**: os clones podem viver em várias pastas (ex.: …/apis e …/mobile). O app reconhece sozinho os
+  repositórios dentro delas e, ao clonar, pergunta em qual pasta — lembrando a escolha por conta, catálogo ou tag.
+- **Branches**: agrupadas em pastas (`feature/`, `fix/`…), com ações no "⋯" e no clique direito — checkout, atualizar
+  sem checkout, publicar, merge, rebase, PR, nova branch a partir dela, renomear e apagar; tags (enviar, apagar no
+  servidor) e stashes. Clique direito num commit do graph: branch/tag aqui, cherry-pick, revert, reset, copiar SHA.
 - **Limpar repositório local** (manda para a Lixeira) — desabilitado quando há algo não commitado, stash, operação
   em andamento ou commit que não subiu.
 - **Repositório**: graph de commits no estilo GitKraken (faixas coloridas, avatar do autor, branches e tags),

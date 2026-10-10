@@ -540,6 +540,52 @@ def push(repo_id, force=False):
     log_git("push", r, st["branch"])
 
 
+def push_branch(repo_id, name, force=False):
+    """Envia uma branch local que não precisa ser a atual (cria a remota e passa a acompanhá-la, se ainda não houver)."""
+    r = get_repo(repo_id)
+    args = ["push", "--set-upstream"] + (["--force-with-lease"] if force else []) + ["origin", _check_branch(name)]
+    run(r["path"], *args, timeout=300, auth=auth_for(r))
+    _done(repo_id)
+    log_git("push", r, name)
+
+
+def update_branch(repo_id, name):
+    """Traz os commits da remota para uma branch local SEM fazer checkout. Só avança (fast-forward): se as duas
+    divergiram, o Git recusa e nada muda. A branch atual usa o pull normal."""
+    r = get_repo(repo_id)
+    st = status(repo_id)
+    if name == st["branch"]:
+        return pull(repo_id)
+    up = run(r["path"], "rev-parse", "--abbrev-ref", f"{_check_branch(name)}@{{upstream}}").strip()
+    remote, _, branch = up.partition("/")
+    if not branch:
+        raise ValueError(f"{name} não acompanha nenhuma branch remota")
+    run(r["path"], "fetch", remote, f"{branch}:{name}", timeout=300, auth=auth_for(r))
+    _done(repo_id)
+
+
+def rebase(repo_id, onto):
+    r = get_repo(repo_id)
+    run(r["path"], "rebase", _check_ref(onto), timeout=300)
+    _done(repo_id)
+    log_git("rebase", r, onto)
+
+
+def delete_tag(repo_id, name, remote=False):
+    r = get_repo(repo_id)
+    if remote:
+        run(r["path"], "push", "origin", "--delete", f"refs/tags/{_check_branch(name)}", timeout=180, auth=auth_for(r))
+    else:
+        run(r["path"], "tag", "-d", _check_branch(name))
+    _done(repo_id)
+
+
+def push_tag(repo_id, name):
+    r = get_repo(repo_id)
+    run(r["path"], "push", "origin", f"refs/tags/{_check_branch(name)}", timeout=180, auth=auth_for(r))
+    _done(repo_id)
+
+
 def merge(repo_id, ref):
     r = get_repo(repo_id)
     run(r["path"], "merge", "--no-edit", _check_ref(ref), timeout=180)

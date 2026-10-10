@@ -1,9 +1,10 @@
 """Contas e preferências: organizações do Azure DevOps, contas do GitHub (token, gh CLI ou login pelo navegador),
 intervalo de leitura, editor preferido e tema. Credenciais vão para o cofre (secrets.py); a tela nunca as recebe de volta."""
+import os
 import re
 import uuid
 
-from . import engine, git, github, secrets
+from . import catalogs, engine, git, github, secrets
 from .azure import normalize_org_url
 from .core import CONFIG_FILE, DATA, DEFAULT_PORT, ctx, load_json, save_json
 
@@ -17,6 +18,7 @@ def public_config():
         "pollSeconds": cfg.get("pollSeconds", 60),
         "editor": cfg.get("editor") or "vscode",
         "theme": cfg.get("theme") or "system",
+        "workspaceRoots": cfg.get("workspaceRoots") or [],
         "editors": git.available_editors(),
         "port": cfg.get("port", DEFAULT_PORT),
         "dataDir": DATA,
@@ -115,5 +117,15 @@ def save_prefs(body):
         cfg["editor"] = body["editor"]
     if body.get("theme") in THEMES:
         cfg["theme"] = body["theme"]
+    if isinstance(body.get("workspaceRoots"), list):
+        roots = []
+        for p in body["workspaceRoots"][:30]:
+            p = os.path.abspath(os.path.expanduser(str(p).strip()))
+            if p not in roots and os.path.isdir(p):
+                roots.append(p)
+        cfg["workspaceRoots"] = roots
+        ctx.config = cfg
+        import threading
+        threading.Thread(target=catalogs.discover, kwargs={"force": True}, daemon=True).start()   # já procura clones nelas
     save_json(CONFIG_FILE, cfg, private=True)
     ctx.config = cfg

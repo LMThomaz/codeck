@@ -57,10 +57,10 @@
   $effect(() => { if (searching) { void sq; untrack(runSearch); } });
 
   async function cloneFav(r: FavRepo) {
-    let base = tagInfo?.baseDir || null;
-    if (!base) base = await pickFolder(`Onde clonar ${r.name}?`);
-    if (!base) return;
-    try { watch(r.key, await post("library/clone", { key: r.key, dest: base.replace(/\/$/, "") + "/" + r.name })); } catch (e) { ui.error(e); }
+    const ch = await ui.chooseCloneDir({ title: `Clonar ${r.name}`, names: [r.name], current: tagInfo?.baseDir, rememberLabel: tagName ? `a tag ${tagName}` : undefined });
+    if (!ch) return;
+    if (ch.remember && tagName) { await post("library/tag", { name: tagName, baseDir: ch.base }); repos.loadLibrary(); }
+    try { watch(r.key, await post("library/clone", { key: r.key, dest: join(ch.base, r.name) })); } catch (e) { ui.error(e); }
   }
   let view = $state<CatalogView | null>(null);
   let loading = $state(false);
@@ -113,22 +113,35 @@
     };
     setTimeout(tick, 500);
   }
-  async function clone(key: string) {
-    if (!view?.baseDir) {
-      const p = await pickFolder(isAccount ? `Onde clonar os repositórios de ${view?.name}?` : "Onde clonar os repositórios deste catálogo?");
-      if (!p) return;
-      if (isAccount) await post("catalogs/account-dir", { key: catalogId!.slice(8), baseDir: p });
-      else await post("catalogs/save", { ...view, baseDir: p });
-      await loadCatalog();
+  const join = (base: string, name: string) => base.replace(/[\\/]$/, "") + (base.includes("\\") ? "\\" : "/") + name;
+  /** Pergunta a pasta (pré-seleciona a lembrada) e, se pedido, lembra na conta/catálogo. */
+  async function askBase(names: string[]) {
+    const ch = await ui.chooseCloneDir({ title: names.length === 1 ? `Clonar ${names[0]}` : `Clonar ${names.length} repositórios`, names,
+      current: view?.baseDir, rememberLabel: isAccount ? `a conta ${view?.name}` : `o catálogo ${view?.name}` });
+    if (!ch) return null;
+    if (ch.remember && ch.base !== view?.baseDir) {
+      if (isAccount) await post("catalogs/account-dir", { key: catalogId!.slice(8), baseDir: ch.base });
+      else await post("catalogs/save", { ...view, baseDir: ch.base });
     }
-    try { watch(key, await post("catalogs/clone", { id: catalogId, repoKey: key })); } catch (e) { ui.error(e); }
+    return ch.base;
+  }
+  async function clone(key: string) {
+    const r = view?.repos.find(x => x.key === key);
+    if (!r) return;
+    const base = await askBase([r.name]);
+    if (!base) return;
+    try { watch(key, await post("catalogs/clone", { id: catalogId, repoKey: key, dest: join(base, r.name) })); } catch (e) { ui.error(e); }
   }
   async function cloneAll() {
     const pending = view!.repos.filter(r => !r.cloned && !r.archived);
-    if (!(await ui.ask({ title: `Clonar ${pending.length} repositório(s)?`, message: `Vão para ${view!.baseDir}. Eles são clonados um de cada vez.`, confirm: "Clonar todos" }))) return;
+    const base = await askBase(pending.map(r => r.name));
+    if (!base) return;
+    const prog = ui.progress(`Clonando ${pending.length} repositório(s)…`);
+    let n = 0;
     for (const r of pending) {
+      prog.update(`Clonando ${r.name} (${++n} de ${pending.length})…`);
       try {
-        const job = await post("catalogs/clone", { id: catalogId, repoKey: r.key });
+        const job = await post("catalogs/clone", { id: catalogId, repoKey: r.key, dest: join(base, r.name) });
         jobs = { ...jobs, [r.key]: job };
         while (true) {
           await new Promise(res => setTimeout(res, 700));
@@ -140,7 +153,7 @@
     }
     await repos.load();
     await loadCatalog();
-    ui.toast("Clones concluídos");
+    prog.done("Clones concluídos");
   }
   async function addFolder() {
     const p = await pickFolder("Escolha a pasta de um repositório Git");

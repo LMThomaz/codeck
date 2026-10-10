@@ -5,6 +5,16 @@ export interface Dialog {
   input?: { label: string; value?: string; placeholder?: string; multiline?: boolean; required?: boolean };
   blocked?: string[]; resolve: (v: string | boolean | null) => void;
 }
+/** Menu aberto: um só por vez, desenhado pelo MenuHost por cima de tudo (nunca recortado por painel com rolagem). */
+export interface OpenMenu {
+  items: import("../components/Menu.svelte").MenuItem[];
+  /** retângulo do botão que abriu (menu ancorado) ou ponto do clique direito */
+  anchor: { left: number; top: number; right: number; bottom: number };
+  align: "left" | "right";
+  owner: symbol | null;
+}
+/** Pergunta onde clonar: devolve a pasta BASE escolhida (o repositório vai para base/<nome>) e se é para lembrar. */
+export interface CloneAsk { title: string; names: string[]; current?: string | null; rememberLabel?: string; resolve: (v: { base: string; remember: boolean } | null) => void }
 /** Aviso de uma ação em andamento: nasce girando e vira sucesso ou erro no mesmo lugar. */
 export interface Progress { done: (text: string) => void; fail: (e: unknown) => void; update: (text: string) => void }
 
@@ -14,6 +24,8 @@ class UI {
   toasts = $state<Toast[]>([]);
   dialog = $state<Dialog | null>(null);
   palette = $state(false);
+  menu = $state<OpenMenu | null>(null);
+  cloneAsk = $state<CloneAsk | null>(null);
   /** quantos envios (POST) estão em andamento — alimenta a barra de progresso do topo */
   inflight = $state(0);
   private seq = 0;
@@ -40,6 +52,18 @@ class UI {
       done: t => { this.patch(id, { text: t, kind: "ok" }); this.expire(id, "ok"); },
       fail: e => { this.patch(id, { text: message(e), kind: "error" }); this.expire(id, "error"); },
     };
+  }
+
+  openMenu(m: OpenMenu) { this.menu = m; }
+  chooseCloneDir(a: Omit<CloneAsk, "resolve">): Promise<{ base: string; remember: boolean } | null> {
+    return new Promise(resolve => (this.cloneAsk = { ...a, resolve: v => { this.cloneAsk = null; resolve(v); } }));
+  }
+  closeMenu() { this.menu = null; }
+  /** Clique direito: abre `items` no ponto do cursor. */
+  contextMenu(e: MouseEvent, items: OpenMenu["items"]) {
+    e.preventDefault();
+    e.stopPropagation();
+    this.menu = { items, anchor: { left: e.clientX, right: e.clientX, top: e.clientY, bottom: e.clientY }, align: "left", owner: null };
   }
 
   /** Confirmação. Com `input`, devolve o texto (ou null se cancelou). Com `blocked`, só informa e não deixa confirmar. */

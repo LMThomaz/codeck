@@ -4,6 +4,9 @@
   import DialogHost from "./components/DialogHost.svelte";
   import Sidebar from "./components/Sidebar.svelte";
   import Toaster from "./components/Toaster.svelte";
+  import MenuHost from "./components/MenuHost.svelte";
+  import CloneDialog from "./components/repo/CloneDialog.svelte";
+  import { ui } from "./lib/ui.svelte";
   import OfflineBanner from "./components/OfflineBanner.svelte";
   import TopProgress from "./components/TopProgress.svelte";
   import UpdateBanner from "./components/UpdateBanner.svelte";
@@ -64,6 +67,8 @@
 
 <CommandPalette />
 <DialogHost />
+<MenuHost />
+{#if ui.cloneAsk}<CloneDialog />{/if}
 <Toaster />
 
 <style>
