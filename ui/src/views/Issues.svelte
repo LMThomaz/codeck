@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { ExternalLink, MessageSquare } from "@lucide/svelte";
+  import { Bot, ExternalLink, MessageSquare } from "@lucide/svelte";
+  import { work } from "../lib/work.svelte";
   import { ago } from "../lib/format";
   import { store } from "../lib/store.svelte";
   import Empty from "../components/Empty.svelte";
@@ -18,6 +19,13 @@
     && (!q || `${i.number} ${i.title} ${i.repo} ${i.labels.map(l => l.name).join(" ")} ${i.type}`.toLowerCase().includes(q.toLowerCase()))));
   const count = (r: string) => (s?.issues || []).filter(i => i.reason === r).length;
   const REASON: Record<string, string> = { assigned: "atribuída a você", created: "criada por você", mentioned: "menciona você" };
+  /** Work item do Azure não tem repositório: abre no projeto ativo. Issue do GitHub abre no clone do repo dela. */
+  function startTask(i: any) {
+    work.startTask(i.provider === "github" ? { provider: "github", org: i.repo.split("/")[0], repo: i.repo } : null, {
+      title: i.title, kind: /bug|defeito/i.test(i.type || "") || i.labels.some((l: any) => /bug/i.test(l.name)) ? "fix" : "feature",
+      workItem: i, prompt: `Implemente ${i.provider === "github" ? "a issue" : "o work item"} #${i.number}: ${i.title}\n${i.url}\n\nLeia a descrição completa no link antes de começar.`,
+    });
+  }
 </script>
 
 <Page title="Issues e tarefas" sub="Issues do GitHub e itens de trabalho do Azure Boards atribuídos a você">
@@ -45,6 +53,7 @@
               {#if i.comments}<span class="row" style="gap:4px"><MessageSquare size={11} />{i.comments}</span>{/if}
             </div>
           </div>
+          <button class="btn sm start" title="Branch + worktree + agente com este item" onclick={(e) => { e.preventDefault(); e.stopPropagation(); startTask(i); }}><Bot size={13} /> Começar tarefa</button>
           <ExternalLink size={14} class="muted" />
         </a>
       {:else}
@@ -58,6 +67,8 @@
 </Page>
 
 <style>
+  .start { opacity: 0; transition: opacity var(--t-fast); }
+  .list-row:hover .start { opacity: 1; }
   .scroll { flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; }
   .ic { width: 32px; height: 32px; border-radius: 10px; display: grid; place-items: center; background: var(--surface-2); border: 1px solid var(--line); }
   .t { display: flex; align-items: baseline; gap: 7px; min-width: 0; }

@@ -1,6 +1,7 @@
 <script lang="ts">
   // Painel de detalhes da PR: ações de voto, descrição, revisores e checks/policies.
-  import { AlertTriangle, Archive, ExternalLink, GitBranch } from "@lucide/svelte";
+  import { AlertTriangle, Archive, Bot, ExternalLink, GitBranch } from "@lucide/svelte";
+  import { work } from "../../lib/work.svelte";
   import { archive } from "../../lib/actions";
   import { ago, dateTime } from "../../lib/format";
   import type { PR } from "../../lib/types";
@@ -11,6 +12,15 @@
 
   let { pr, mine = false, leaves = false }: { pr: PR; mine?: boolean; leaves?: boolean } = $props();
 
+  function reviewWithAi() {
+    work.startTask({ provider: pr.provider, org: pr.provider === "github" ? pr.project.split("/")[0] : pr.org, repo: pr.provider === "github" ? pr.project : pr.repo }, {
+      title: `Revisar PR #${pr.prId} ${pr.title}`, kind: "review", base: `origin/${pr.source}`,
+      prompt: `Revise a pull request #${pr.prId} "${pr.title}" (${pr.source} → ${pr.target}).\n${pr.url}\n\n` +
+        `Veja o que mudou com: git diff origin/${pr.target}...HEAD\n` +
+        `Aponte bugs, riscos, regressões e o que fere as convenções do projeto (CLAUDE.md/AGENTS.md), citando arquivo e linha. ` +
+        `Não altere código: só a revisão, em português, com os achados por gravidade.` + (pr.description ? `\n\nDescrição da PR:\n${pr.description.slice(0, 3000)}` : ""),
+    });
+  }
   async function doArchive() { await archive([pr.key], !pr.archived); }
   const btn = (v: number) => pr.myVote !== v;
 </script>
@@ -31,6 +41,7 @@
       {#if btn(0) && pr.provider === "azure"}<VoteButton {pr} v={0} cls="ghost" {leaves}>Remover voto</VoteButton>{/if}
     {/if}
     <a class="btn sm" href={pr.url} target="_blank" rel="noopener"><ExternalLink size={13} /> Abrir</a>
+    <button class="btn sm" title="Abre um worktree na branch da PR com um agente revisando" onclick={reviewWithAi}><Bot size={13} /> Revisar com IA</button>
     {#if !mine}<button class="btn sm ghost" onclick={doArchive}><Archive size={13} /> {pr.archived ? "Restaurar" : "Arquivar"}</button>{/if}
   </div>
 </div>

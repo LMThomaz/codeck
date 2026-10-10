@@ -70,7 +70,7 @@
   <div class="form">
     <label class="label">O que fazer<input class="input" bind:value={title} placeholder="ex.: Ajustar o cálculo do frete no carrinho" /></label>
     <div class="row2">
-      <Segmented size="sm" bind:value={kind} options={[{ value: "feature", label: "feature/" }, { value: "fix", label: "fix/" }]} />
+      <Segmented size="sm" bind:value={kind} options={[{ value: "feature", label: "feature/" }, { value: "fix", label: "fix/" }, { value: "review", label: "review/" }]} />
       <span class="branch mono"><GitBranch size={12} /> {kind}/{slug}</span>
     </div>
     <label class="label">A partir de

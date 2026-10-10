@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { ExternalLink, Play, RotateCcw, Square } from "@lucide/svelte";
+  import { Bot, ExternalLink, Play, RotateCcw, Square } from "@lucide/svelte";
+  import { work } from "../../lib/work.svelte";
   import { buildAction } from "../../lib/actions";
   import { get } from "../../lib/api";
   import { fmtDur, time } from "../../lib/format";
@@ -20,13 +21,25 @@
     get("build", { key: b.key }).then(d => (detail = d)).catch(e => (error = e.message));
   });
   const failedRun = $derived(["failed", "partiallySucceeded", "canceled"].includes(b.result || ""));
+  /** Worktree na branch do build com um agente corrigindo — o prompt já leva o trecho do log de cada etapa que falhou. */
+  function fixWithAi() {
+    const logs = (detail?.failed || []).map((f: any) => `### ${f.name}\n${(f.logTail || "").slice(-4000)}`).join("\n\n");
+    const branch = (b.branch || b.sourceBranch || "").replace(/^refs\/heads\//, "");
+    work.startTask({ provider: b.provider, org: b.provider === "github" ? b.project.split("/")[0] : b.org, repo: b.provider === "github" ? b.project : (b.repo || "") }, {
+      title: `Corrigir build ${b.pipeline} ${b.number}`, kind: "fix", base: `origin/${branch}`,
+      prompt: `O build "${b.pipeline}" ${b.number} falhou na branch ${branch}.\n${b.url}\n\n` +
+        `Descubra a causa, corrija e confirme rodando o build/testes localmente. Explique a causa antes de alterar.` +
+        (logs ? `\n\nTrechos do log das etapas que falharam:\n${logs}` : ""),
+    });
+  }
 </script>
 
 <div class="pane-h">
   <div class="small muted row"><ProviderIcon provider={b.provider} size={12} />{b.org}{#if b.folder} · {b.folder}{/if} · <span class="pill {st.cls}">{st.icon} {st.label}</span></div>
   <h2>{b.pipeline} <span class="muted">{b.number}</span></h2>
   <div class="acts">
-    {#if failedRun}<button class="btn sm primary" onclick={() => buildAction(b, "retry")}><RotateCcw size={13} /> Tentar de novo</button>{/if}
+    {#if failedRun}<button class="btn sm primary" onclick={() => buildAction(b, "retry")}><RotateCcw size={13} /> Tentar de novo</button>
+      <button class="btn sm" title="Abre um worktree na branch com um agente corrigindo (o log vai junto)" onclick={fixWithAi}><Bot size={13} /> Corrigir com IA</button>{/if}
     {#if b.status === "completed"}<button class="btn sm" onclick={() => buildAction(b, "rerun")}><Play size={13} /> Rodar de novo</button>{/if}
     {#if b.status !== "completed"}<button class="btn sm danger" onclick={() => buildAction(b, "cancel")}><Square size={12} /> Cancelar</button>{/if}
     {#if waiting}<a class="btn sm" href={"#/inbox/" + encodeURIComponent(waiting.key)}>{waiting.kind === "permission" ? "Ver permissão" : "Ver aprovação"}</a>{/if}

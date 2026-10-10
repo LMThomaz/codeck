@@ -68,6 +68,10 @@
 
   // ------------------------------------------------------------ ações
   let newTask = $state<{ preset?: any } | null>(null);
+  $effect(() => {
+    const pt = work.pendingTask;
+    if (pt && p && pt.projectId === p.id) untrack(() => { setScope(null); newTask = { preset: pt.preset }; work.pendingTask = null; });
+  });
   async function newTerm(command?: string, title?: string) {
     if (!p) return;
     try { const t = await post<TermInfo>("ws/shell", { repoId: p.id, taskId: v?.scope, title, command }); await work.load(); focusTab("t:" + t.id); }

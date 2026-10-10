@@ -176,6 +176,9 @@ class _WinPty:
             raise OSError(ctypes.get_last_error(), "UpdateProcThreadAttribute falhou")
         si = STARTUPINFOEXW()
         si.StartupInfo.cb = ctypes.sizeof(STARTUPINFOEXW)
+        # Sem isto, se o processo pai tem a saída redirecionada (serviço, CI), o filho herda ESSA saída em vez da
+        # ConPTY e nada chega ao terminal. Medido no runner do GitHub Actions: a saída do pwsh ia para o log do CI.
+        si.StartupInfo.dwFlags = 0x00000100   # STARTF_USESTDHANDLES, com os três handles nulos
         si.lpAttributeList = ctypes.cast(self.attrs, ctypes.c_void_p)
         pi = PROCESS_INFORMATION()
         env_block = ctypes.create_unicode_buffer("\0".join(f"{k}={v}" for k, v in env.items()) + "\0\0")
@@ -187,37 +190,64 @@ class _WinPty:
         self.hproc = pi.hProcess
         k32.CloseHandle(pi.hThread)
         self._closed = False
+        self._out_closed = False
+        self._pc_closed = False
+        self._lock = threading.Lock()
+        k32.WaitForSingleObject.argtypes = [HANDLE, w.DWORD]
+        threading.Thread(target=self._wait_exit, daemon=True).start()
+
+    def _wait_exit(self):
+        """A ConPTY não fecha a saída quando o processo sai sozinho: fecha aqui, e a leitura recebe o fim."""
+        self.k32.WaitForSingleObject(self.hproc, 0xFFFFFFFF)
+        self._close_pc()
+
+    def _close_pc(self):
+        with self._lock:
+            if self._pc_closed:
+                return
+            self._pc_closed = True
+        self.k32.ClosePseudoConsole(self.hpc)
 
     def read(self):
         buf = self.ct.create_string_buffer(65536)
         n = self.w.DWORD()
         ok = self.k32.ReadFile(self.out_read, buf, 65536, self.ct.byref(n), None)
-        return buf.raw[: n.value] if ok and n.value else b""
+        if ok and n.value:
+            return buf.raw[: n.value]
+        # fim da saída (o pseudoconsole fechou): a ponta de leitura fecha aqui, na própria thread que lia
+        if not self._out_closed:
+            self._out_closed = True
+            self.k32.CloseHandle(self.out_read)
+        return b""
 
     def write(self, data):
         n = self.w.DWORD()
         self.k32.WriteFile(self.in_write, data, len(data), self.ct.byref(n), None)
 
     def resize(self, cols, rows):
-        if not self._closed:
+        if not self._closed and not self._pc_closed:
             self.k32.ResizePseudoConsole(self.hpc, self.COORD(max(cols, 10), max(rows, 2)))
 
     def alive(self):
-        return self.k32.WaitForSingleObject(self.hproc, 0) == 0x102   # WAIT_TIMEOUT
+        return not self._closed and self.k32.WaitForSingleObject(self.hproc, 0) == 0x102   # WAIT_TIMEOUT
 
     def exit_code(self):
+        if self._closed:
+            return -1
         code = self.w.DWORD()
         self.k32.GetExitCodeProcess(self.hproc, self.ct.byref(code))
         return None if code.value == 259 else code.value   # STILL_ACTIVE
 
     def kill(self):
+        """Ordem da documentação da ConPTY: encerra o processo, fecha o pseudoconsole (a leitura pendente recebe o fim
+        e a própria thread de leitura fecha a ponta dela) e só então os demais handles."""
         if self._closed:
             return
         self._closed = True
         self.k32.TerminateProcess(self.hproc, 1)
-        self.k32.ClosePseudoConsole(self.hpc)   # fecha a saída: o ReadFile pendente retorna e a thread termina
-        for h in (self.in_write, self.out_read, self.hproc):
-            self.k32.CloseHandle(h)
+        self._close_pc()
+        self.k32.CloseHandle(self.in_write)
+        self.k32.CloseHandle(self.hproc)
         self.k32.DeleteProcThreadAttributeList(self.attrs)
 
 

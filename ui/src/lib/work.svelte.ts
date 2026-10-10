@@ -1,6 +1,8 @@
 // Área de trabalho (v3): projetos abertos em abas, tarefas em worktree, terminais/agentes e contas de IA.
 // O estado vem de /api/ws (relido a cada 2,5 s enquanto a tela está aberta — o status dos agentes muda rápido).
 import { get, post } from "./api";
+import { repos } from "./repos.svelte";
+import { go } from "./router.svelte";
 import { ui } from "./ui.svelte";
 
 export type Provider = "claude" | "codex" | "cursor" | "gemini" | "opencode";
@@ -35,6 +37,8 @@ class Work {
   providers = $state<Record<string, { label: string; installed: boolean }>>({});
   defaults = $state<Record<string, string>>({});
   loaded = $state(false);
+  /** "Nova tarefa" já preenchida, pedida de outra tela (PR, build, issue): a tela de trabalho abre o formulário */
+  pendingTask = $state<{ projectId: string; preset: any } | null>(null);
   private timer: ReturnType<typeof setInterval> | null = null;
 
   get project() { return this.projects.find(p => p.id === this.active) || null; }
@@ -92,6 +96,27 @@ class Work {
   async activate(repoId: string) {
     this.active = repoId;
     post("ws/activate", { repoId }).catch(() => {});
+  }
+
+  /** Acha o clone local de um repositório remoto. GitHub: "dono/repo"; Azure: org + nome do repo. */
+  findLocal(provider: string, org: string, repo: string) {
+    const n = (s?: string | null) => (s || "").toLowerCase();
+    return repos.local.find(r => r.provider === provider && r.exists && r.slug && (provider === "github"
+      ? n(r.slug) === n(repo.includes("/") ? repo : `${org}/${repo}`)
+      : n(r.slug.split("/")[0]) === n(org) && n(r.slug.split("/").pop()) === n(repo))) || null;
+  }
+
+  /** Abre o projeto certo e a "Nova tarefa" preenchida. Sem clone local, avisa; sem repo (work item do Azure), usa o projeto ativo. */
+  async startTask(target: { provider: string; org: string; repo?: string | null } | null, preset: any) {
+    if (!repos.loaded) await repos.load(false);
+    let local = target?.repo ? this.findLocal(target.provider, target.org, target.repo) : null;
+    if (!local && target?.repo) {
+      return ui.toast(`${target.repo} não está clonado nesta máquina — clone em Repositórios e tente de novo`, "info");
+    }
+    const projectId = local ? await this.open(local.id) : this.active;
+    if (!projectId) return ui.toast("Abra um projeto em Projetos primeiro", "info");
+    this.pendingTask = { projectId, preset };
+    go("/work/" + projectId);
   }
 
   /** Conta sugerida para um projeto: a padrão do dono (org) do repositório, senão a geral, senão a 1ª instalada. */

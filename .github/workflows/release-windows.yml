@@ -217,6 +217,12 @@ jobs:
               if b"conpty-ok-42" in seen:
                   break
           t.resize(120, 40)
+          t.write(b"exit\r")          # sair sozinho também tem de encerrar a leitura (sem travar)
+          for _ in range(20):
+              time.sleep(0.5)
+              if t.exit is not None:
+                  break
+          print("encerrou sozinho:", t.exit is not None)
           t.kill()
           print(seen.decode("utf-8", "replace")[-400:])
           sys.exit(0 if b"conpty-ok-42" in seen else 1)
