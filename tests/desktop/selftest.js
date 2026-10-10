@@ -196,7 +196,8 @@
   await step("Projetos: abrir projeto pelo menu", async () => {
     // o clique na lista já abriu demo-api: fecha para reabrir pelo menu de projetos
     await api("ws/close", { repoId: apiRepo.id });
-    await go("#/work", 1200);
+    await go("#/work", 600);
+    await waitFor(() => !byText(".ptab", "demo-api"), 8000);   // a tela relê os projetos a cada 2,5 s
     const trig = await waitFor(() => $(".ptabs .addp") || byText("button, span.btn", "Abrir projeto"));
     click(trig.closest("button") || trig);
     const it = await waitFor(() => byText(".items .it", "demo-api"));
