@@ -7,6 +7,8 @@
 
 <script lang="ts">
   // Botão que abre um menu. O menu em si é desenhado pelo MenuHost (por cima de tudo); aqui só fica o gatilho.
+  // O "⋯" de uma linha também responde ao clique direito na LINHA inteira (lista, regra, branch…): mesmo menu, no cursor.
+  // Menus com gatilho próprio (ex.: "Modelos", troca de branch) não pegam o clique direito de ninguém.
   import { MoreHorizontal } from "@lucide/svelte";
   import type { Snippet } from "svelte";
   import { ui } from "../lib/ui.svelte";
@@ -16,6 +18,19 @@
   const me = Symbol("menu");
   const open = $derived(ui.menu?.owner === me);
   let root: HTMLElement | undefined = $state();
+
+  const ROW = ".list-row, .rule, .row, .b, tr, [data-menu-row]";
+  $effect(() => {
+    if (trigger || !root) return;
+    const row = root.parentElement?.closest<HTMLElement>(ROW);
+    if (!row) return;
+    const onCtx = (e: MouseEvent) => {
+      if (e.defaultPrevented || (e.target as HTMLElement).closest("input, textarea, [contenteditable]")) return;
+      ui.contextMenu(e, items);
+    };
+    row.addEventListener("contextmenu", onCtx);
+    return () => row.removeEventListener("contextmenu", onCtx);
+  });
 
   function toggle(e: MouseEvent) {
     e.stopPropagation();

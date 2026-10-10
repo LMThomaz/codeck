@@ -83,7 +83,7 @@
           <button class="it sub" class:on={at("tag/" + t.name)} onclick={() => go("/repos/tag/" + enc(t.name), "soft")}>
             <span class="dot" style="background:{t.color}"></span><span class="grow ell">{t.name}</span><span class="n">{t.count}</span>
           </button>
-          {#if !compact}<span class="more"><Menu items={tagMenu(t.name, t.color)} /></span>{/if}
+          <span class="more"><Menu items={tagMenu(t.name, t.color)} /></span>
         </div>
       {/each}
     </div></div>
@@ -115,8 +115,9 @@
   .sub { padding-left: 30px; height: 28px; font-size: 12.5px; }
   .row { position: relative; }
   .more { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); opacity: 0; transition: opacity var(--t-fast); }
-  .row:hover .more, .row:focus-within .more { opacity: 1; }
+  .row:hover .more, .row:focus-within .more, .more:has(:global(.menu.open)) { opacity: 1; }
   .row:hover .n { opacity: 0; }
+  .compact .more :global(.btn) { width: 22px; height: 22px; }
   .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
   .dot.sq { border-radius: 3px; }
   .n { font-size: 11px; color: var(--faint); font-variant-numeric: tabular-nums; transition: opacity var(--t-fast); }

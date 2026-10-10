@@ -8,7 +8,6 @@
   import { repos } from "../lib/repos.svelte";
   import { go, router, soft } from "../lib/router.svelte";
   import type { CatalogView, FavRepo, RemoteRepo } from "../lib/types";
-  import CollectionsTree from "../components/repo/CollectionsTree.svelte";
   import FavStar from "../components/repo/FavStar.svelte";
   import ProviderIcon from "../components/ProviderIcon.svelte";
   import { ui } from "../lib/ui.svelte";
@@ -191,11 +190,13 @@
     : "Seus repositórios locais, favoritos e catálogos de GitHub e Azure DevOps"}>
   {#snippet actions()}
     {#if favMode}
+      <button class="btn sm" onclick={() => (editing = "new")}><Plus size={14} /> Novo catálogo</button>
       <button class="btn sm primary" onclick={() => { searching = true; sq = ""; }}><Search size={14} /> Adicionar repositório</button>
     {:else if catalogId && view}
       <button class="btn sm ghost" onclick={() => loadCatalog(true)} title="Ler a lista de novo"><RefreshCw size={14} /></button>
       {#if counts?.notCloned}<button class="btn sm" onclick={cloneAll}><Download size={14} /> Clonar todos ({counts.notCloned})</button>{/if}
       {#if !isAccount}<button class="btn sm" onclick={() => (editing = "edit")}><Pencil size={14} /> Editar</button>{/if}
+      <button class="btn sm" onclick={() => (editing = "new")}><Plus size={14} /> Novo catálogo</button>
     {:else}
       <button class="btn sm" onclick={() => (adding = true)}><FolderPlus size={14} /> Adicionar local</button>
       <button class="btn sm primary" onclick={() => (editing = "new")}><Plus size={14} /> Novo catálogo</button>
@@ -203,12 +204,6 @@
   {/snippet}
 
   <div class="layout">
-    <aside class="card collections">
-      <div class="ch">Coleções</div>
-      <button class="col-it" class:on={!catalogId && !favMode} onclick={() => go("/repos", "soft")}><FolderPlus size={14} /><span class="grow ell">Todos os locais</span><span class="n">{repos.local.length}</span></button>
-      <CollectionsTree onnew={() => (editing = "new")} />
-    </aside>
-
     <div class="main">
       <Toolbar bind:query={q} placeholder={catalogId ? "Buscar no catálogo…" : favMode ? "Buscar nos favoritos (nome, tag)…" : "Buscar repositório local…"}>
         {#snippet left()}
@@ -308,15 +303,7 @@
   .res.fav { background: color-mix(in srgb, var(--warn-soft) 60%, transparent); }
   .res .grow { min-width: 0; flex: 1; }
   .pad { padding: 14px 4px; }
-  .layout { flex: 1; min-height: 0; display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 14px; }
-  .collections { padding: 8px; display: flex; flex-direction: column; gap: 2px; overflow: auto; }
-  .ch { font: 650 10.5px/1 var(--font); text-transform: uppercase; letter-spacing: 0.07em; color: var(--muted); padding: 8px 10px 8px; }
-  .col-it { margin-bottom: 4px; }
-  .col-it { display: flex; align-items: center; gap: 9px; height: 32px; padding: 0 10px; border-radius: 8px; border: 0; background: none; color: var(--text-2);
-    font: 500 13px var(--font); cursor: pointer; text-align: left; transition: background var(--t), color var(--t); }
-  .col-it:hover { background: var(--surface-2); color: var(--text); }
-  .col-it.on { background: var(--accent-soft); color: var(--text); font-weight: 600; }
-  .n { font-size: 11.5px; color: var(--muted); }
+  .layout { flex: 1; min-height: 0; display: flex; flex-direction: column; }
   .main { min-height: 0; display: flex; flex-direction: column; }
   .scroll { flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; }
   .stale { display: flex; align-items: center; gap: 8px; margin: 10px 16px 0; padding: 8px 12px; border-radius: 9px; background: var(--warn-soft); color: var(--warn); font-size: 12.5px; }
@@ -331,5 +318,4 @@
   .opt small { display: block; color: var(--muted); margin-bottom: 8px; }
   .opt .grow { display: grid; gap: 8px; }
   .opt .grow small { margin-bottom: 0; }
-  @media (max-width: 960px) { .layout { grid-template-columns: minmax(0, 1fr); } .collections { display: none; } }
 </style>
