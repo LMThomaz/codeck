@@ -1,0 +1,12 @@
+# dados locais (PATs, regras, histórico) — nunca vão para o git
+data/
+config.json
+rules.json
+archive.json
+notified.json
+activity.jsonl
+*.log
+*.tmp
+__pycache__/
+.DS_Store
+data-*/

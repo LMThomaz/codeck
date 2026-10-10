@@ -1,0 +1,29 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "PR Pilot",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/server.py",
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "justMyCode": true,
+      "env": { "PR_PILOT_OPEN": "1" }
+    },
+    {
+      "name": "PR Pilot (sandbox: outra porta e dados separados)",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/server.py",
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "justMyCode": true,
+      "env": {
+        "PR_PILOT_OPEN": "1",
+        "PR_PILOT_PORT": "47822",
+        "PR_PILOT_DATA": "${workspaceFolder}/data-sandbox"
+      }
+    }
+  ]
+}

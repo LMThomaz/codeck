@@ -1,0 +1,1448 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PR Pilot</title>
+<style>
+  :root {
+    color-scheme: light;
+    --bg: #f4f5f7; --surface: #ffffff; --surface-2: #f8f9fb; --text: #15181e; --text-2: #4a5160; --muted: #7a8293;
+    --line: #e4e7ec; --line-2: #d3d8e0; --accent: #2a78d6; --accent-soft: #e8f1fc;
+    --good: #12804a; --good-bg: #e2f4ea; --bad: #c0362c; --bad-bg: #fde9e7; --warn: #946200; --warn-bg: #fff3d4;
+    --series-1: #2a78d6; --series-2: #eb6834; --org-1: #1baf7a; --org-2: #6250d6; --org-3: #e87ba4;
+    --shadow: 0 1px 2px rgba(16, 24, 40, .05), 0 1px 3px rgba(16, 24, 40, .06);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --bg: #0f1115; --surface: #181b21; --surface-2: #1e2229; --text: #eceef2; --text-2: #b4bac6; --muted: #858c9a;
+      --line: #282d36; --line-2: #343a45; --accent: #3987e5; --accent-soft: #19283b;
+      --good: #4cc98a; --good-bg: #14301f; --bad: #ff7f75; --bad-bg: #3a1916; --warn: #e3b341; --warn-bg: #33290f;
+      --series-1: #3987e5; --series-2: #d95926; --org-1: #199e70; --org-2: #9085e9; --org-3: #d55181;
+      --shadow: none;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --bg: #0f1115; --surface: #181b21; --surface-2: #1e2229; --text: #eceef2; --text-2: #b4bac6; --muted: #858c9a;
+    --line: #282d36; --line-2: #343a45; --accent: #3987e5; --accent-soft: #19283b;
+    --good: #4cc98a; --good-bg: #14301f; --bad: #ff7f75; --bad-bg: #3a1916; --warn: #e3b341; --warn-bg: #33290f;
+    --series-1: #3987e5; --series-2: #d95926; --org-1: #199e70; --org-2: #9085e9; --org-3: #d55181;
+    --shadow: none;
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", sans-serif; }
+  a { color: inherit; }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 0 16px; }
+
+  /* topo */
+  .top { background: var(--surface); border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 20; }
+  .top .bar { display: flex; align-items: center; gap: 14px; height: 56px; }
+  .brand { font-weight: 700; font-size: 16px; display: flex; align-items: center; gap: 8px; letter-spacing: -.01em; }
+  .brand .logo { width: 26px; height: 26px; border-radius: 7px; background: var(--accent); color: #fff;
+                 display: grid; place-items: center; font-size: 13px; }
+  .health { display: flex; gap: 10px; color: var(--muted); font-size: 12px; flex-wrap: wrap; }
+  .health span { display: inline-flex; align-items: center; gap: 5px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
+  .spacer { flex: 1; }
+  nav.tabs { display: flex; gap: 2px; overflow-x: auto; scrollbar-width: none; }
+  nav.tabs button { border: 0; background: none; padding: 10px 12px; color: var(--text-2); border-bottom: 2px solid transparent;
+                    border-radius: 0; font-weight: 500; white-space: nowrap; }
+  nav.tabs button.on { color: var(--text); border-bottom-color: var(--accent); }
+  nav.tabs .count { background: var(--surface-2); border: 1px solid var(--line); border-radius: 999px; padding: 0 6px;
+                    font-size: 11px; margin-left: 4px; color: var(--text-2); }
+  nav.tabs button.on .count { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+  /* controles */
+  button, .btn { font: inherit; border: 1px solid var(--line-2); background: var(--surface); color: var(--text);
+                 border-radius: 7px; padding: 6px 12px; cursor: pointer; line-height: 1.2; }
+  button:hover { border-color: var(--muted); }
+  button:disabled { opacity: .45; cursor: default; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.approve { background: var(--good); border-color: var(--good); color: #fff; }
+  button.reject { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 45%, transparent); background: var(--surface); }
+  button.ghost { border-color: transparent; background: none; }
+  button.ghost:hover { background: var(--surface-2); }
+  button.sm { padding: 4px 9px; font-size: 13px; }
+  input, select { font: inherit; background: var(--surface); color: var(--text); border: 1px solid var(--line-2);
+                  border-radius: 7px; padding: 6px 9px; min-width: 0; }
+  input:focus, select:focus, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  input[type=checkbox] { width: 16px; height: 16px; accent-color: var(--accent); margin: 0; }
+  .switch { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; user-select: none; }
+  .switch input { flex-shrink: 0; appearance: none; width: 34px; height: 20px; border-radius: 999px; background: var(--line-2);
+                  position: relative; cursor: pointer; transition: background .15s; border: 0; padding: 0; }
+  .switch input::after { content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px;
+                         border-radius: 50%; background: #fff; transition: transform .15s; }
+  .switch input:checked { background: var(--good); }
+  .switch input:checked::after { transform: translateX(14px); }
+
+  main.wrap { padding: 18px 16px 64px; }
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow); }
+  .card + .card { margin-top: 16px; }
+  .card-h { display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+  .card-h h3 { margin: 0; font-size: 14px; font-weight: 600; }
+  .card-b { padding: 14px 16px; }
+  .muted { color: var(--muted); }
+  .small { font-size: 12px; }
+  .error { background: var(--bad-bg); color: var(--bad); border-radius: 8px; padding: 9px 12px; margin-bottom: 10px; font-size: 13px; }
+  .notice { background: var(--warn-bg); color: var(--warn); border-radius: 8px; padding: 9px 12px; margin-bottom: 12px; font-size: 13px;
+            display: flex; gap: 10px; align-items: center; }
+
+  /* KPIs */
+  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 16px; }
+  .kpi { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; box-shadow: var(--shadow); }
+  .kpi .v { font-size: 24px; font-weight: 650; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+  .kpi .l { font-size: 12px; color: var(--text-2); }
+  .kpi .s { font-size: 11px; color: var(--muted); margin-top: 2px; }
+  .kpi.alert .v { color: var(--bad); }
+
+  /* toolbar */
+  .toolbar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
+  .toolbar input[type=search] { flex: 1 1 220px; }
+  .seg { display: inline-flex; border: 1px solid var(--line-2); border-radius: 7px; overflow: hidden; background: var(--surface); }
+  .seg button { border: 0; border-radius: 0; padding: 6px 11px; background: none; color: var(--text-2); }
+  .seg button + button { border-left: 1px solid var(--line-2); }
+  .seg button.on { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+  .bulk { display: flex; gap: 8px; align-items: center; padding: 8px 12px; background: var(--accent-soft); border-radius: 8px;
+          margin-bottom: 10px; font-size: 13px; flex-wrap: wrap; }
+
+  /* lista de PRs */
+  .pr { display: grid; grid-template-columns: 18px 34px minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 12px 16px;
+        border-top: 1px solid var(--line); }
+  .list-head { display: flex; gap: 12px; align-items: center; padding: 9px 16px; }
+  .list-head + .pr { border-top: 1px solid var(--line); }
+  .pr:first-child { border-top: 0; }
+  .pr:hover { background: var(--surface-2); }
+  .pr.open { background: var(--surface-2); }
+  .avatar { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; font-size: 12px; font-weight: 650;
+            color: #fff; letter-spacing: .02em; }
+  .pr .main { min-width: 0; cursor: pointer; }
+  .pr .t { display: flex; gap: 6px; align-items: baseline; min-width: 0; }
+  .pr .t .title { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .prid { color: var(--muted); font-weight: 500; font-variant-numeric: tabular-nums; flex-shrink: 0; }
+  .meta { display: flex; gap: 6px 10px; align-items: center; flex-wrap: wrap; font-size: 12px; color: var(--text-2); margin-top: 3px; }
+  .meta .sep { color: var(--line-2); }
+  .branch { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 11.5px; }
+  .branch b { color: var(--text); font-weight: 600; }
+  .pill { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 600; border-radius: 999px;
+          padding: 1px 8px; white-space: nowrap; border: 1px solid transparent; }
+  .p-good { background: var(--good-bg); color: var(--good); }
+  .p-bad { background: var(--bad-bg); color: var(--bad); }
+  .p-warn { background: var(--warn-bg); color: var(--warn); }
+  .p-auto { border-color: color-mix(in srgb, var(--accent) 50%, transparent); color: var(--accent); }
+  .p-neutral { background: var(--surface-2); color: var(--text-2); border-color: var(--line); }
+  .actions { display: flex; gap: 6px; align-items: center; }
+  .empty { padding: 40px 16px; text-align: center; color: var(--muted); }
+  .empty b { display: block; color: var(--text-2); font-size: 15px; margin-bottom: 4px; }
+
+  .detail { grid-column: 3 / -1; display: grid; grid-template-columns: 1.4fr 1fr; gap: 16px; padding: 4px 0 6px; cursor: default; }
+  .detail h4 { margin: 0 0 6px; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); font-weight: 600; }
+  .desc { white-space: pre-wrap; font-size: 13px; color: var(--text-2); max-height: 220px; overflow: auto; background: var(--surface);
+          border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }
+  .kv { display: flex; justify-content: space-between; gap: 10px; font-size: 13px; padding: 4px 0; border-bottom: 1px dashed var(--line); }
+  .kv:last-child { border-bottom: 0; }
+
+  /* menu */
+  details.menu { position: relative; }
+  details.menu summary { list-style: none; cursor: pointer; border: 1px solid var(--line-2); border-radius: 7px; padding: 4px 9px;
+                         background: var(--surface); line-height: 1.2; font-size: 13px; }
+  details.menu summary::-webkit-details-marker { display: none; }
+  details.menu .items { position: absolute; right: 0; top: calc(100% + 4px); background: var(--surface); border: 1px solid var(--line-2);
+                        border-radius: 9px; box-shadow: 0 8px 24px rgba(0,0,0,.14); padding: 5px; min-width: 250px; z-index: 30; }
+  details.menu .items button, details.menu .items a { display: block; width: 100%; text-align: left; border: 0; background: none;
+                        padding: 7px 10px; border-radius: 6px; font-size: 13px; text-decoration: none; }
+  details.menu .items button:hover, details.menu .items a:hover { background: var(--surface-2); }
+  details.menu hr { border: 0; border-top: 1px solid var(--line); margin: 4px 0; }
+
+  /* tabelas */
+  .tbl-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { padding: 8px 10px; text-align: left; border-top: 1px solid var(--line); vertical-align: middle; }
+  th { font-size: 11.5px; color: var(--muted); font-weight: 600; border-top: 0; white-space: nowrap; text-transform: uppercase; letter-spacing: .03em; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .rules td input:not([type=checkbox]), .rules td select { width: 100%; min-width: 90px; padding: 5px 7px; }
+  .rules select[data-f="action"] { min-width: 132px; }
+  .rules .ord { white-space: nowrap; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .rules tr.off td { opacity: .5; }
+  .match { font-weight: 600; font-variant-numeric: tabular-nums; cursor: help; }
+  .settings { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; }
+  .settings .switch { align-items: flex-start; }
+  .settings .switch small { display: block; color: var(--muted); font-size: 12px; }
+  .help { font-size: 12.5px; color: var(--text-2); line-height: 1.6; }
+  .help code { background: var(--surface-2); border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; font-size: 12px; }
+
+  /* gráficos */
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .grid2 > .card + .card { margin-top: 0; }
+  .legend { display: flex; gap: 14px; font-size: 12px; color: var(--text-2); }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .legend i { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+  .cols { display: flex; align-items: flex-end; gap: 2px; height: 160px; border-bottom: 1px solid var(--line-2); padding-top: 6px; }
+  .cols .c { flex: 1; display: flex; flex-direction: column-reverse; gap: 2px; height: 100%; justify-content: flex-start; min-width: 2px; }
+  .cols .c:hover { background: var(--surface-2); }
+  .cols .seg1, .cols .seg2 { width: 100%; }
+  .cols .c > div:last-child { border-radius: 4px 4px 0 0; }
+  .xaxis { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); margin-top: 6px; }
+  .hbars .row { display: grid; grid-template-columns: minmax(90px, 34%) 1fr 44px; gap: 10px; align-items: center; padding: 4px 0; font-size: 13px; }
+  .hbars .name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text-2); }
+  .hbars .track { height: 10px; }
+  .hbars .fill { height: 100%; background: var(--series-1); border-radius: 0 4px 4px 0; min-width: 2px; }
+  .hbars .val { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
+  .inbar { display: flex; align-items: center; gap: 8px; }
+  .inbar .fill { height: 8px; background: var(--series-1); border-radius: 0 4px 4px 0; }
+  #tip { position: fixed; pointer-events: none; z-index: 50; background: var(--text); color: var(--surface); font-size: 12px;
+         padding: 6px 9px; border-radius: 6px; white-space: pre; display: none; box-shadow: 0 4px 14px rgba(0,0,0,.2); }
+
+  .toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); background: var(--text); color: var(--surface);
+           padding: 9px 14px; border-radius: 8px; font-size: 13px; z-index: 60; box-shadow: 0 6px 20px rgba(0,0,0,.25); }
+
+  @media (max-width: 760px) {
+    .health { display: none; }
+    .pr { grid-template-columns: 18px minmax(0, 1fr); }
+    .kpis { grid-template-columns: 1fr 1fr; }
+    .toolbar .seg { overflow-x: auto; max-width: 100%; }
+    .pr .avatar { display: none; }
+    .pr .actions { grid-column: 1 / -1; justify-content: flex-end; }
+    .detail { grid-column: 1 / -1; grid-template-columns: 1fr; }
+    .grid2 { grid-template-columns: 1fr; }
+    .top .bar .label-pause { display: none; }
+  }
+
+  /* conflito */
+  .pr.conflict { background: color-mix(in srgb, var(--bad-bg) 60%, var(--surface)); box-shadow: inset 4px 0 0 var(--bad); }
+  .pr.conflict:hover, .pr.conflict.open { background: color-mix(in srgb, var(--bad-bg) 85%, var(--surface)); }
+  .pill.p-conflict { background: var(--bad); color: #fff; }
+  .conflict-banner { display: flex; gap: 12px; align-items: center; background: var(--bad-bg); color: var(--bad); border: 1px solid color-mix(in srgb, var(--bad) 35%, transparent);
+                     border-radius: 10px; padding: 10px 14px; margin-bottom: 12px; flex-wrap: wrap; }
+  .conflict-banner .ci { font-size: 20px; }
+  .conflict-banner .small { color: var(--text-2); }
+  .conflict-btn { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 45%, transparent); }
+  .conflict-on { background: var(--bad); border-color: var(--bad); color: #fff; }
+  button.kpi { text-align: left; font: inherit; color: inherit; cursor: pointer; }
+  button.kpi:hover { border-color: var(--bad); }
+  button.kpi.on { border-color: var(--bad); box-shadow: 0 0 0 1px var(--bad); }
+  .warnbox { background: var(--warn-bg); color: var(--warn); border-radius: 8px; padding: 9px 12px; font-size: 13px; margin-top: 10px; }
+  .conflict-box { background: var(--bad-bg); color: var(--bad); margin: 0 0 4px; }
+
+  /* regras */
+  .rules-list .rule { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 14px; align-items: center; padding: 14px 16px; border-top: 1px solid var(--line); }
+  .rules-list .rule:first-child { border-top: 0; }
+  .rule.off .rbody { opacity: .55; }
+  .rbody { cursor: pointer; min-width: 0; }
+  .rbody:hover .sentence { color: var(--accent); }
+  .rtop { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 4px; }
+  .prio { width: 20px; height: 20px; border-radius: 50%; background: var(--surface-2); border: 1px solid var(--line-2); font-size: 11px; display: grid;
+          place-items: center; color: var(--text-2); font-weight: 600; }
+  .rname { font-weight: 650; }
+  .act { font-size: 12px; font-weight: 600; border-radius: 6px; padding: 2px 8px; }
+  .a-approve { background: var(--good-bg); color: var(--good); }
+  .a-archive { background: var(--surface-2); color: var(--text-2); border: 1px solid var(--line); }
+  .a-notify { background: var(--accent-soft); color: var(--accent); }
+  .sentence { font-size: 14px; color: var(--text); line-height: 1.5; }
+  .sentence b { font-weight: 650; }
+  .rstats { font-size: 12px; color: var(--muted); margin-top: 4px; }
+  .ractions { display: flex; gap: 4px; align-items: center; }
+  .tpl-grid { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-top: 14px; }
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+  .tag { display: inline-flex; align-items: center; gap: 4px; background: var(--warn-bg); color: var(--warn); border-radius: 999px; padding: 3px 4px 3px 10px; font-size: 13px; font-weight: 600; }
+  .tag .x { border: 0; background: none; padding: 0 6px; color: inherit; font-size: 11px; }
+  .addin.inline { width: 170px; padding: 4px 9px; font-size: 13px; }
+  .settings-col { display: grid; gap: 14px; }
+  .settings-col .switch, .switch.opt { align-items: flex-start; }
+  .switch small { display: block; color: var(--muted); font-size: 12px; }
+
+  /* gaveta */
+  #modal { position: fixed; inset: 0; z-index: 40; }
+  #modal[hidden] { display: none; }
+  body.noscroll { overflow: hidden; }
+  .scrim { position: absolute; inset: 0; background: rgba(10, 14, 22, .45); }
+  .drawer { position: absolute; top: 0; right: 0; bottom: 0; width: min(620px, 100%); background: var(--surface); display: flex; flex-direction: column;
+            box-shadow: -10px 0 40px rgba(0,0,0,.2); }
+  .drawer header, .drawer footer { display: flex; align-items: center; gap: 8px; padding: 14px 20px; border-bottom: 1px solid var(--line); }
+  .drawer footer { border-top: 1px solid var(--line); border-bottom: 0; }
+  .drawer h2 { margin: 0; font-size: 17px; }
+  .dbody { flex: 1; overflow: auto; padding: 6px 20px 24px; }
+  .dbody section, .dbody details.more, .dbody .switch.opt { display: block; padding: 16px 0; border-bottom: 1px solid var(--line); }
+  .dbody .switch.opt { display: flex; }
+  .dbody h4 { margin: 0 0 10px; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--text-2); display: flex; align-items: center; gap: 8px; }
+  .dbody h5 { margin: 14px 0 8px; font-size: 12px; color: var(--text-2); }
+  .step { width: 20px; height: 20px; border-radius: 50%; background: var(--accent); color: #fff; display: inline-grid; place-items: center; font-size: 11px; }
+  .acts { display: grid; gap: 8px; }
+  .actcard { display: flex; gap: 12px; align-items: flex-start; text-align: left; padding: 10px 12px; border-radius: 9px; }
+  .actcard small { display: block; color: var(--muted); font-size: 12px; margin-top: 1px; }
+  .actcard .ai { font-size: 18px; line-height: 1.2; }
+  .actcard.on { border-color: var(--accent); background: var(--accent-soft); box-shadow: 0 0 0 1px var(--accent); }
+  .tchip { border-radius: 999px; padding: 4px 11px; font-size: 13px; background: var(--surface); }
+  .tchip.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .addin { width: 100%; margin-top: 8px; font-size: 13px; }
+  input.full { width: 100%; }
+  details.more summary { cursor: pointer; font-size: 13px; font-weight: 600; color: var(--text-2); }
+  .preview { border-bottom: 0 !important; }
+  .preview .sentence { background: var(--surface-2); border: 1px solid var(--line); border-radius: 9px; padding: 10px 12px; }
+  .simgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
+  .simstat { border: 1px solid var(--line); border-radius: 9px; padding: 10px 12px; }
+  .simstat .v { font-size: 22px; font-weight: 650; font-variant-numeric: tabular-nums; }
+  .simstat .l { font-size: 12px; color: var(--text-2); }
+  .simlist { margin-top: 10px; border: 1px solid var(--line); border-radius: 9px; max-height: 220px; overflow: auto; }
+  .simrow { display: flex; gap: 10px; align-items: center; justify-content: space-between; padding: 7px 10px; border-top: 1px solid var(--line); font-size: 13px; }
+  .simrow:first-child { border-top: 0; }
+  .ell { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* deploys */
+  .dep-ic { background: var(--surface-2); border: 1px solid var(--line-2); font-size: 16px; }
+  .pr.dep-release .dep-ic { background: var(--accent-soft); border-color: color-mix(in srgb, var(--accent) 40%, transparent); }
+  .pr.dep-permission .dep-ic { background: var(--warn-bg); border-color: color-mix(in srgb, var(--warn) 40%, transparent); }
+  .pr.dep-prod { box-shadow: inset 4px 0 0 var(--warn); }
+  .kindtag { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); flex-shrink: 0; }
+  .stage { font-weight: 700; flex-shrink: 0; }
+  .msg { font-style: italic; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 380px; }
+  .sect { display: flex; align-items: center; gap: 8px; padding: 10px 16px; background: var(--surface-2); border-top: 1px solid var(--line);
+          font-size: 12px; font-weight: 650; color: var(--text-2); text-transform: uppercase; letter-spacing: .04em; }
+  .card > .sect:first-child { border-top: 0; border-radius: 10px 10px 0 0; }
+  .res { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 11.5px; }
+  .env { display: inline-flex; gap: 4px; flex-wrap: wrap; }
+  /* ambiente */
+  .orgform { display: grid; grid-template-columns: 1fr 1.4fr 1.4fr auto; gap: 10px; align-items: end; padding: 14px 16px; border-top: 1px solid var(--line); }
+  .orgform:first-of-type { border-top: 0; }
+  .orgform label.f { display: grid; gap: 4px; font-size: 12px; color: var(--text-2); font-weight: 600; min-width: 0; }
+  .orgform label.f input { width: 100%; }
+  .orgform .oact { display: flex; gap: 6px; align-items: center; }
+  .orgform .tests { grid-column: 1 / -1; display: grid; gap: 4px; font-size: 13px; }
+  .orgform .who { grid-column: 1 / -1; font-size: 12px; color: var(--muted); margin-top: -4px; }
+  .chk { display: flex; gap: 8px; }
+  .chk .ok { color: var(--good); } .chk .ko { color: var(--bad); }
+  .steps-help { margin: 0; padding-left: 18px; line-height: 1.7; }
+  @media (max-width: 760px) {
+    .orgform { grid-template-columns: 1fr; }
+    .msg { max-width: 100%; }
+  }
+  @media (max-width: 760px) {
+    .rules-list .rule { grid-template-columns: auto minmax(0, 1fr); }
+    .ractions { grid-column: 1 / -1; justify-content: flex-end; }
+  }
+</style>
+</head>
+<body>
+<div class="top">
+  <div class="wrap bar">
+    <div class="brand"><span class="logo">PR</span>PR Pilot</div>
+    <div class="health" id="health"></div>
+    <span class="spacer"></span>
+    <label class="switch" title="Pausa só as ações automáticas"><input type="checkbox" id="autoOn"><span class="label-pause" id="autoLabel">Automação</span></label>
+    <button class="sm" id="refresh" title="Ler o Azure agora">↻ Atualizar</button>
+  </div>
+  <div class="wrap"><nav class="tabs" id="tabs"></nav></div>
+</div>
+
+<main class="wrap">
+  <div id="errors"></div>
+  <section id="view"></section>
+</main>
+<div id="tip"></div>
+<div id="modal" hidden></div>
+<datalist id="dl-creators"></datalist>
+<datalist id="dl-repos"></datalist>
+
+<script>
+const VOTES = {10: ["Aprovada", "p-good"], 5: ["Aprovada c/ sugestões", "p-good"], [-5]: ["Aguardando autor", "p-warn"], [-10]: ["Recusada", "p-bad"]};
+const POLICY = {approved: ["✓", "p-good"], rejected: ["✗", "p-bad"], broken: ["✗", "p-bad"], running: ["⟳", "p-warn"], queued: ["⟳", "p-warn"], notApplicable: ["–", "p-neutral"]};
+const ORG_COLORS = ["var(--org-1)", "var(--org-2)", "var(--org-3)"];
+const AVATAR_COLORS = ["#2a78d6", "#eb6834", "#1baf7a", "#6250d6", "#e34948", "#008300", "#c98500", "#d55181"];
+
+let S = null;              // estado do servidor
+const [hashTab, hashRule] = location.hash.slice(1).split("/");
+const TAB_IDS = ["fila", "todas", "releases", "arquivadas", "auto", "analise", "historico", "ambiente"];
+let tab = TAB_IDS.includes(hashTab) ? hashTab : "fila";
+let F = {q: "", org: "", creator: "", conflict: false, kind: ""};
+let relOnlyProd = false;
+let CFG = null, cfgDraft = null, cfgBusy = false;
+let selected = new Set();
+let expanded = new Set();
+let A = null, aDays = 30, aOrg = "", aLoading = false;
+let histFilter = "all";
+
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const key = p => `${p.org}|${p.prId}`;
+const post = (path, body) => fetch(path, {method: "POST", headers: {"Content-Type": "application/json", "X-PR-Pilot": "1"}, body: JSON.stringify(body || {})})
+  .then(async r => { const j = await r.json(); if (!r.ok) throw new Error(j.error || r.status); return j; });
+const hoursSince = iso => iso ? (Date.now() - new Date(iso)) / 36e5 : null;
+function fmtH(h) {
+  if (h === null || h === undefined) return "—";
+  if (h < 1) return `${Math.max(1, Math.round(h * 60))} min`;
+  if (h < 48) return `${Math.round(h)} h`;
+  return `${(h / 24).toFixed(1).replace(".", ",")} d`;
+}
+const initials = n => (n || "?").split(/[\s.@_-]+/).filter(Boolean).slice(0, 2).map(w => w[0].toUpperCase()).join("");
+const hash = s => [...(s || "")].reduce((a, c) => (a * 31 + c.charCodeAt(0)) >>> 0, 7);
+const avatarColor = n => AVATAR_COLORS[hash(n) % AVATAR_COLORS.length];
+const orgColor = o => ORG_COLORS[Math.max(0, (S?.orgs || []).indexOf(o)) % ORG_COLORS.length];
+const isProtected = t => S.rules.protectedTargets.map(x => x.toLowerCase()).includes((t || "").toLowerCase());
+function toast(msg) {
+  const t = document.createElement("div"); t.className = "toast"; t.textContent = msg; document.body.appendChild(t);
+  setTimeout(() => t.remove(), 2600);
+}
+
+async function load() {
+  try { S = await (await fetch("/api/state")).json(); }
+  catch { $("#health").innerHTML = `<span><i class="dot" style="background:var(--bad)"></i>servidor fora do ar</span>`; return; }
+  if (!S.configured && !load.onboarded) { load.onboarded = true; tab = "ambiente"; }
+  render();
+  if (hashRule && !load.opened) {  // link direto: #auto/nova ou #auto/<id da regra>
+    load.opened = true;
+    const r = S.rules.rules.find(x => x.id === hashRule), dr = (S.rules.deployRules || []).find(x => x.id === hashRule);
+    if (dr || hashRule === "nova-release") openDEditor(dr || blankDRule(DTEMPLATES[0].rule), !dr);
+    else if (r || hashRule === "nova") openEditor(r || blankRule(), !r);
+  }
+}
+
+/* ------------------------------------------------------------------ casca */
+function render() {
+  const pending = S.prs.filter(p => !p.archived && p.myVote === 0);
+  const active = S.prs.filter(p => !p.archived);
+  const archived = S.prs.filter(p => p.archived);
+  const tabs = [["fila", "Fila", pending.length + S.deploys.length], ["todas", "PRs abertas", active.length], ["releases", "Releases", S.deploys.length],
+                ["arquivadas", "Arquivadas", archived.length], ["auto", "Automação"], ["analise", "Análise"], ["historico", "Histórico"], ["ambiente", "⚙ Ambiente"]];
+  $("#tabs").innerHTML = tabs.map(([id, label, n]) =>
+    `<button class="${tab === id ? "on" : ""}" data-tab="${id}">${label}${n !== undefined ? `<span class="count">${n}</span>` : ""}</button>`).join("");
+
+  const ago = S.lastPoll ? new Date(S.lastPoll).toLocaleTimeString("pt-BR", {hour: "2-digit", minute: "2-digit", second: "2-digit"}) : "—";
+  $("#health").innerHTML = S.orgs.map(o => `<span title="${esc(S.me[o]?.name || "")}"><i class="dot" style="background:${S.errors[o] ? "var(--bad)" : orgColor(o)}"></i>${esc(o)}</span>`).join("")
+    + `<span>lido às ${ago}${S.pollMs ? ` · ${(S.pollMs / 1000).toFixed(1)}s` : ""}</span>`;
+  const paused = S.rules.settings.paused;
+  $("#autoOn").checked = !paused;
+  $("#autoLabel").textContent = paused ? "Automação pausada" : "Automação ativa";
+  $("#errors").innerHTML = Object.entries(S.errors).map(([o, e]) => `<div class="error"><b>${esc(o)}:</b> ${esc(e)}</div>`).join("")
+    + Object.entries(S.deployErrors || {}).map(([o, e]) => `<div class="error"><b>${esc(o)} · releases:</b> ${esc(e)}</div>`).join("");
+  const waitingMe = pending.length + S.deploys.length;
+  document.title = waitingMe ? `(${waitingMe}) PR Pilot` : "PR Pilot";
+
+  $("#dl-creators").innerHTML = S.creators.map(c => `<option value="${esc(c)}">`).join("");
+  $("#dl-repos").innerHTML = S.repos.map(c => `<option value="${esc(c)}">`).join("");
+
+  ({fila: renderQueue, todas: renderQueue, releases: renderReleases, arquivadas: renderArchived, auto: renderAuto,
+    analise: renderAnalytics, historico: renderHistory, ambiente: renderEnv})[tab]();
+}
+
+/* ------------------------------------------------------------------ fila */
+function renderQueue() {
+  if (document.activeElement && document.activeElement.closest("#view details.menu[open]")) return;
+  const all = S.prs.filter(p => !p.archived);
+  const base = tab === "fila" ? all.filter(p => p.myVote === 0) : all;
+  const q = F.q.trim().toLowerCase();
+  const list = base.filter(p => (!F.org || p.org === F.org) && (!F.creator || p.creatorName === F.creator) && (!F.conflict || p.mergeStatus === "conflicts")
+    && (!q || `${p.prId} ${p.title} ${p.repo} ${p.creatorName} ${p.source} ${p.target}`.toLowerCase().includes(q)));
+  for (const k of [...selected]) if (!list.some(p => key(p) === k)) selected.delete(k);
+  const deps = tab === "fila" ? filterDeploys(S.deploys) : [];
+  const showPrs = tab !== "fila" || !F.kind || F.kind === "pr";
+
+  const today = new Date().toDateString();
+  const todayVotes = S.activity.filter(a => a.action === "vote" && (a.vote === 10 || a.vote === 5) && new Date(a.ts).toDateString() === today);
+  const pend = all.filter(p => p.myVote === 0);
+  const oldest = pend.reduce((m, p) => !m || p.created < m ? p.created : m, null);
+  const relN = S.deploys.filter(d => d.kind !== "permission").length, permN = S.deploys.filter(d => d.kind === "permission").length;
+  const kpis = [
+    ["PRs aguardando meu voto", pend.length, pend.filter(p => isProtected(p.target)).length ? `${pend.filter(p => isProtected(p.target)).length} para branch protegida` : `${all.length} abertas de outros`, false],
+    ["Releases para aprovar", relN, relN ? "esperando liberação" : "nada parado", false],
+    ["Permissões pendentes", permN, permN ? "pipeline travado esperando você" : "nenhum pipeline travado", permN > 0],
+    ["Aprovadas hoje", todayVotes.length, `${todayVotes.filter(a => a.by === "auto").length} auto · ${todayVotes.filter(a => a.by !== "auto").length} manual`, false],
+    ["Mais antiga na fila", oldest ? fmtH(hoursSince(oldest)) : "—", "aguardando meu voto", hoursSince(oldest) > 72],
+    ["Com conflito", all.filter(p => p.mergeStatus === "conflicts").length, F.conflict ? "filtrando — clique para limpar" : "clique para ver só elas", all.some(p => p.mergeStatus === "conflicts"), "conflict"],
+    ["Build falhou", all.filter(p => p.build === "failed").length, "policy de build", all.some(p => p.build === "failed")],
+  ];
+
+  const creators = [...new Set(base.map(p => p.creatorName))].sort();
+  const conflicts = base.filter(p => p.mergeStatus === "conflicts");
+  $("#view").innerHTML = `
+    ${S.rules.settings.paused ? `<div class="notice">⏸ Automação pausada — nada é aprovado sozinho até você religar no topo.</div>` : ""}
+    <div class="kpis">${kpis.map(([l, v, s, alert, kf]) => `<${kf ? `button data-kfilter="${kf}"` : "div"} class="kpi ${alert && v ? "alert" : ""} ${kf && F.conflict ? "on" : ""}"><div class="l">${l}</div><div class="v">${v}</div><div class="s">${s}</div></${kf ? "button" : "div"}>`).join("")}</div>
+    <div class="toolbar">
+      ${tab === "fila" ? `<div class="seg">${[["", "Tudo", pend.length + S.deploys.length], ["pr", "PRs", pend.length], ["release", "Releases", relN], ["permission", "Permissões", permN]]
+        .map(([k, l, n]) => `<button class="${F.kind === k ? "on" : ""}" data-kind="${k}">${l} <span class="muted">${n}</span></button>`).join("")}</div>` : ""}
+      <input type="search" id="q" placeholder="Buscar por número, título, repositório, pipeline, branch…" value="${esc(F.q)}">
+      <div class="seg" id="orgSeg">${["", ...S.orgs].map(o => `<button class="${F.org === o ? "on" : ""}" data-org="${esc(o)}">${o ? esc(o) : "Todas"}</button>`).join("")}</div>
+      ${conflicts.length ? `<button class="${F.conflict ? "conflict-on" : "conflict-btn"}" data-kfilter="conflict">⚠ Com conflito (${conflicts.length})</button>` : ""}
+      <select id="creatorSel"><option value="">Todos os criadores</option>${creators.map(c => `<option ${F.creator === c ? "selected" : ""}>${esc(c)}</option>`).join("")}</select>
+    </div>
+    ${conflicts.length && !F.conflict ? `<div class="conflict-banner"><span class="ci">⚠</span><div><b>${conflicts.length} PR(s) com conflito de merge</b>
+      <div class="small">${conflicts.map(p => `#${p.prId} ${esc(p.creatorName.split(" ")[0])} → ${esc(p.target)}`).join(" · ")} — o autor precisa resolver antes de completar.</div></div>
+      <span class="spacer"></span><button class="sm" data-kfilter="conflict">Ver só elas</button></div>` : ""}
+    ${selected.size ? `<div class="bulk"><b>${selected.size} selecionada(s)</b><span class="spacer"></span>
+      <button class="approve sm" data-bulk="approve">Aprovar</button>
+      <button class="sm" data-bulk="archive">Arquivar</button>
+      <button class="ghost sm" data-bulk="clear">Limpar</button></div>` : ""}
+    <div class="card">
+      ${deps.length ? `<div class="sect">🚀 Releases e permissões <span class="muted" style="font-weight:500">${deps.length}</span></div>` + deps.map(deployRow).join("") : ""}
+      ${showPrs && list.length ? (tab === "fila" ? `<div class="sect">Pull requests <span class="muted" style="font-weight:500">${list.length}</span></div>` : "") + `<div class="list-head">
+          <input type="checkbox" id="selAll" ${list.every(p => selected.has(key(p))) ? "checked" : ""} title="Selecionar todas">
+          <span class="small muted">${list.length} PR(s)${tab === "fila" ? " aguardando seu voto" : " abertas"} · mais novas primeiro</span></div>`
+        + list.map(prRow).join("") : ""}
+      ${!deps.length && !(showPrs && list.length) ? `<div class="empty"><b>${tab === "fila" ? "Fila zerada 🎉" : "Nenhuma PR aberta"}</b>${q || F.org || F.creator || F.kind ? "Nada bate com os filtros." : tab === "fila" ? "Nenhuma PR, release ou permissão esperando você." : ""}</div>` : ""}
+    </div>`;
+}
+
+function prRow(p) {
+  const k = key(p), v = VOTES[p.myVote], rule = p.rule !== null && p.rule !== undefined ? S.rules.rules[p.rule] : null;
+  const pills = [];
+  if (isProtected(p.target)) pills.push(`<span class="pill p-warn" title="Branch protegida">🔒 ${esc(p.target)}</span>`);
+  if (v) pills.push(`<span class="pill ${v[1]}">${v[0]}</span>`);
+  if (p.build === "ok") pills.push(`<span class="pill p-good">Build ✓</span>`);
+  if (p.build === "failed") pills.push(`<span class="pill p-bad">Build ✗</span>`);
+  if (p.build === "running" || p.build === "pending") pills.push(`<span class="pill p-warn">Build ⟳</span>`);
+  if (p.mergeStatus === "conflicts") pills.unshift(`<span class="pill p-conflict">⚠ Conflito de merge</span>`);
+  if (p.approvals) pills.push(`<span class="pill p-neutral" title="${esc(p.reviewers.filter(r => r.vote >= 5).map(r => r.name).join(", "))}">👍 ${p.approvals}</span>`);
+  if (p.autoComplete) pills.push(`<span class="pill p-neutral" title="Auto-complete ligado">auto-complete</span>`);
+  if (rule) pills.push(`<span class="pill p-auto" title="${esc(rule.name || `Regra ${p.rule + 1}`)}: ${esc(ACTIONS[rule.action].label)}">${rule.action === "approve" ? "⚡ auto" : rule.action === "notify" ? "🔔" : "🗄"}${p.waiting ? ` · aguardando ${p.waiting}` : ""}</span>`);
+
+  const voteBtns = `
+    ${p.myVote !== 10 ? `<button class="approve sm" data-vote="10" data-k="${k}">Aprovar</button>` : ""}
+    ${p.myVote !== -10 ? `<button class="reject sm" data-vote="-10" data-k="${k}">Recusar</button>` : ""}`;
+  const open = expanded.has(k);
+  return `<div class="pr ${open ? "open" : ""} ${p.mergeStatus === "conflicts" ? "conflict" : ""}">
+    <input type="checkbox" data-sel="${k}" ${selected.has(k) ? "checked" : ""}>
+    <div class="avatar" style="background:${avatarColor(p.creatorName)}" title="${esc(p.creatorName)}">${esc(initials(p.creatorName))}</div>
+    <div class="main" data-expand="${k}">
+      <div class="t"><span class="prid">#${p.prId}</span><span class="title" title="${esc(p.title)}">${esc(p.title)}</span></div>
+      <div class="meta">
+        <span><i class="dot" style="background:${orgColor(p.org)}"></i> ${esc(p.org)}</span><span class="sep">/</span><span>${esc(p.repo)}</span>
+        <span class="branch">${esc(p.source)} → <b>${esc(p.target)}</b></span>
+        <span>${esc(p.creatorName)} · há ${fmtH(hoursSince(p.created))}</span>
+        ${pills.join("")}
+      </div>
+    </div>
+    <div class="actions">${voteBtns}
+      <details class="menu"><summary title="Mais ações">⋯</summary><div class="items">
+        <a href="${esc(p.url)}" target="_blank" rel="noopener">Abrir no Azure ↗</a>
+        <hr>
+        ${p.myVote !== 5 ? `<button data-vote="5" data-k="${k}">Aprovar com sugestões</button>` : ""}
+        ${p.myVote !== -5 ? `<button data-vote="-5" data-k="${k}">Aguardando o autor</button>` : ""}
+        ${p.myVote !== 0 ? `<button data-vote="0" data-k="${k}">Remover meu voto</button>` : ""}
+        <hr>
+        <button data-archive="${k}">${p.archived ? "Restaurar para a fila" : "Arquivar (ignorar)"}</button>
+        <button data-mkrule="${k}">Regra: auto-aprovar ${esc(p.creatorName.split(" ")[0])} → ${esc(p.target)}</button>
+        <button data-mkrule-arch="${k}">Regra: arquivar PRs de ${esc(p.creatorName.split(" ")[0])} → ${esc(p.target)}</button>
+      </div></details>
+    </div>
+    ${open ? prDetail(p) : ""}
+  </div>`;
+}
+
+function prDetail(p) {
+  const reviewers = p.reviewers.length ? p.reviewers.map(r => `<div class="kv"><span>${esc(r.name)}${r.required ? ` <span class="pill p-neutral">obrigatório</span>` : ""}</span>
+      <span>${VOTES[r.vote] ? `<span class="pill ${VOTES[r.vote][1]}">${VOTES[r.vote][0]}</span>` : `<span class="muted small">sem voto</span>`}</span></div>`).join("")
+    : `<div class="muted small">Sem revisores.</div>`;
+  const policies = (p.policies || []).length ? p.policies.map(x => {
+      const st = POLICY[x.status] || ["?", "p-neutral"];
+      return `<div class="kv"><span>${esc(x.name)}${x.blocking ? "" : ` <span class="muted small">(opcional)</span>`}</span><span class="pill ${st[1]}" title="${esc(x.status)}">${st[0]} ${esc(x.status)}</span></div>`;
+    }).join("") : `<div class="muted small">Nenhuma policy avaliada.</div>`;
+  return `<div class="detail">
+    ${p.mergeStatus === "conflicts" ? `<div class="warnbox conflict-box" style="grid-column:1/-1">⚠ <b>${esc(p.source)}</b> tem conflito com <b>${esc(p.target)}</b>. O merge está bloqueado até o autor (${esc(p.creatorName)}) atualizar a branch — aprovar não resolve.</div>` : ""}
+    <div><h4>Descrição</h4><div class="desc">${p.description ? esc(p.description) : `<span class="muted">Sem descrição.</span>`}</div>
+      <div class="small muted" style="margin-top:8px">Criada em ${new Date(p.created).toLocaleString("pt-BR")} · merge: ${esc(p.mergeStatus || "—")} · projeto ${esc(p.project)}</div></div>
+    <div><h4>Revisores</h4>${reviewers}<h4 style="margin-top:14px">Policies</h4>${policies}</div>
+  </div>`;
+}
+
+/* ------------------------------------------------------------------ releases / permissões */
+const DKIND = {release: ["🚀", "Release"], approval: ["🚀", "Pipeline"], permission: ["🔑", "Permissão"]};
+const RES_TYPE = {variablegroup: "grupo de variáveis", endpoint: "service connection", queue: "agent pool", securefile: "arquivo seguro",
+                  environment: "ambiente", repository: "repositório"};
+const isProdStage = d => /prod/i.test(d.stage || "") || isProtected(d.branch);
+const depKind = d => d.kind === "permission" ? "permission" : "release";
+
+function filterDeploys(list) {
+  const q = F.q.trim().toLowerCase();
+  return list.filter(d => (!F.org || d.org === F.org) && (!F.kind || F.kind === depKind(d)) && !F.conflict && !F.creator
+    && (!q || `${d.pipeline} ${d.stage} ${d.branch} ${d.version} ${d.message} ${d.requestedFor} ${d.prNumber || ""} ${d.resources.map(r => r.name).join(" ")}`.toLowerCase().includes(q)));
+}
+
+function deployRow(d) {
+  const [icon, label] = DKIND[d.kind], open = expanded.has(d.key), prod = isProdStage(d);
+  const pills = [];
+  if (d.kind === "permission") pills.push(...d.resources.map(r => `<span class="pill p-warn" title="${esc(RES_TYPE[r.type] || r.type)}">🔑 <span class="res">${esc(r.name)}</span></span>`));
+  if (prod) pills.push(`<span class="pill p-warn">🔒 produção</span>`);
+  if (!d.mine) pills.push(`<span class="pill p-neutral" title="Aprovador: ${esc(d.approver || "outro")}">não é com você${d.approver ? ` · ${esc(d.approver)}` : ""}</span>`);
+  if (d.ruleId) pills.push(`<span class="pill p-auto" title="${esc(d.ruleName)}">⚡ auto${d.waiting ? ` · aguardando ${esc(d.waiting)}` : ""}</span>`);
+  const yes = d.kind === "permission" ? "Permitir" : "Aprovar", no = d.kind === "permission" ? "Cancelar run" : "Rejeitar";
+  return `<div class="pr dep-${d.kind === "approval" ? "release" : d.kind} ${prod ? "dep-prod" : ""} ${open ? "open" : ""}">
+    <span></span>
+    <div class="avatar dep-ic" title="${label}">${icon}</div>
+    <div class="main" data-expand="${esc(d.key)}">
+      <div class="t"><span class="kindtag">${label}</span><span class="title" title="${esc(d.pipeline)}">${esc(d.pipeline)}</span>
+        ${d.stage ? `<span class="stage">→ ${esc(d.stage)}</span>` : ""}</div>
+      <div class="meta">
+        <span><i class="dot" style="background:${orgColor(d.org)}"></i> ${esc(d.org)}</span>
+        ${d.branch ? `<span class="branch"><b>${esc(d.branch)}</b>${d.version ? ` · ${esc(d.version)}` : ""}</span>` : ""}
+        ${d.prNumber ? `<a href="${esc(d.prUrl || "#")}" target="_blank" rel="noopener" class="prid">PR #${d.prNumber}</a>` : d.message ? `<span class="msg" title="${esc(d.message)}">“${esc(d.message)}”</span>` : ""}
+        <span>${d.requestedFor ? `${esc(d.requestedFor)} · ` : ""}esperando há ${fmtH(hoursSince(d.created))}</span>
+        ${pills.join("")}
+      </div>
+    </div>
+    <div class="actions">
+      <button class="approve sm" data-dep="approve" data-k="${esc(d.key)}">${yes}</button>
+      ${d.kind !== "permission" ? `<button class="reject sm" data-dep="reject" data-k="${esc(d.key)}">${no}</button>` : ""}
+      <details class="menu"><summary title="Mais ações">⋯</summary><div class="items">
+        <a href="${esc(d.url)}" target="_blank" rel="noopener">Abrir no Azure ↗</a>
+        ${d.prUrl ? `<a href="${esc(d.prUrl)}" target="_blank" rel="noopener">Abrir a PR #${d.prNumber} ↗</a>` : ""}
+        ${d.kind === "permission" ? `<hr><button data-dep="reject" data-k="${esc(d.key)}" style="color:var(--bad)">Cancelar esta execução</button>` : ""}
+        <hr>
+        <button data-dmkrule="${esc(d.key)}">${d.kind === "permission" ? `Regra: sempre liberar ${esc(d.resources.map(r => r.name).join(", "))}` : `Regra: aprovar ${esc(d.pipeline.replace(/ - deploy$/, ""))} → ${esc(d.stage)}`}</button>
+      </div></details>
+    </div>
+    ${open ? `<div class="detail"><div>
+        <h4>${d.kind === "permission" ? "O que está sendo pedido" : "Release"}</h4>
+        ${d.kind === "permission" ? `<div class="desc">O run ${esc(d.version)} de <b>${esc(d.pipeline)}</b> parou no estágio <b>${esc(d.stage)}</b> porque o pipeline ainda não tem permissão para usar:
+${d.resources.map(r => `• ${RES_TYPE[r.type] || r.type}: ${r.name}`).join("\n")}
+
+“Permitir” libera esse pipeline para sempre nesses recursos (como o botão Permit do Azure) e o run continua sozinho.</div>`
+          : `<div class="kv"><span>Release</span><span>${esc(d.releaseName || d.version || "—")}</span></div>
+             <div class="kv"><span>Estágio</span><span>${esc(d.stage || "—")}${d.approvalType ? ` <span class="muted small">(${d.approvalType === "postDeploy" ? "pós-deploy" : "pré-deploy"})</span>` : ""}</span></div>
+             <div class="kv"><span>Aprovador</span><span>${esc(d.approver || "—")}${d.mine ? " (você)" : ""}</span></div>
+             ${(d.otherApprovers || []).length ? `<div class="kv"><span>Também podem aprovar</span><span>${esc(d.otherApprovers.join(", "))}</span></div>` : ""}`}
+      </div><div><h4>Origem</h4>
+        <div class="kv"><span>Branch</span><span class="branch"><b>${esc(d.branch || "—")}</b></span></div>
+        <div class="kv"><span>Build</span><span>${esc(d.version || "—")}</span></div>
+        <div class="kv"><span>Commit</span><span class="small">${esc(d.message || "—")}</span></div>
+        <div class="kv"><span>Disparado por</span><span>${esc(d.requestedFor || "—")}</span></div>
+      </div></div>` : ""}
+  </div>`;
+}
+
+async function decideDeploy(k, decision, btn) {
+  const d = S.deploys.find(x => x.key === k);
+  if (!d) return;
+  let msg;
+  if (d.kind === "permission") msg = decision === "approve"
+    ? `Permitir que ${d.pipeline} use ${d.resources.map(r => r.name).join(", ")}?\n\nVale para todas as execuções futuras desse pipeline.`
+    : `Cancelar a execução ${d.version} de ${d.pipeline}?`;
+  else msg = decision === "approve" ? `Aprovar ${d.pipeline} → ${d.stage}?${isProdStage(d) ? "\n\n⚠ Isto sobe para produção." : ""}` : `Rejeitar ${d.pipeline} → ${d.stage}?`;
+  let comment = "";
+  if (d.kind !== "permission") { comment = prompt(msg + "\n\nComentário (opcional):", ""); if (comment === null) return; }
+  else if (!confirm(msg)) return;
+  if (btn) btn.disabled = true;
+  try {
+    await post("/api/deploy", {key: k, decision, comment});
+    toast(d.kind === "permission" ? (decision === "approve" ? "Permissão liberada — o run continua" : "Execução cancelada") : (decision === "approve" ? "Release aprovada" : "Release rejeitada"));
+    await load(); setTimeout(load, 5000);
+  } catch (e) { alert("Falhou: " + e.message); if (btn) btn.disabled = false; }
+}
+
+const ENV_ST = {succeeded: ["✓", "p-good"], partiallySucceeded: ["!", "p-warn"], rejected: ["✗", "p-bad"], canceled: ["⊘", "p-neutral"],
+                inProgress: ["⟳", "p-warn"], queued: ["⟳", "p-warn"], scheduled: ["⏱", "p-warn"], notStarted: ["–", "p-neutral"], undefined: ["?", "p-neutral"]};
+function renderReleases() {
+  if (F.kind === "pr") F.kind = "";
+  const deps = filterDeploys(S.deploys);
+  const rels = S.releases.filter(r => (!F.org || r.org === F.org) && (!relOnlyProd || isProtected(r.branch)));
+  $("#view").innerHTML = `
+    <div class="toolbar">
+      <div class="seg">${["", ...S.orgs].map(o => `<button class="${F.org === o ? "on" : ""}" data-org="${esc(o)}">${o ? esc(o) : "Todas"}</button>`).join("")}</div>
+      <div class="seg">${[["", "Tudo"], ["release", "Releases"], ["permission", "Permissões"]].map(([k, l]) => `<button class="${F.kind === k ? "on" : ""}" data-kind="${k}">${l}</button>`).join("")}</div>
+      <span class="spacer"></span><span class="small muted">lido às ${S.lastDeployPoll ? new Date(S.lastDeployPoll).toLocaleTimeString("pt-BR") : "—"}</span>
+      <button class="sm" data-goto="auto">⚡ Regras de release</button>
+    </div>
+    <div class="card"><div class="card-h"><h3>Esperando liberação</h3><span class="muted small">Aprovações de release (pré/pós-deploy), aprovações de ambiente YAML e pipelines travados pedindo permissão de recurso.</span></div>
+      ${deps.length ? deps.map(deployRow).join("") : `<div class="empty"><b>Nada parado 🎉</b>Nenhuma release ou pipeline esperando você${F.org || F.kind ? " com esses filtros" : ""}.</div>`}</div>
+    <div class="card"><div class="card-h"><h3>Releases recentes</h3><span class="spacer"></span>
+      <label class="switch small"><input type="checkbox" id="relProd" ${relOnlyProd ? "checked" : ""}><span>Só de branch protegida (${S.rules.protectedTargets.map(esc).join(", ")})</span></label></div>
+      <div class="tbl-wrap"><table><thead><tr><th>Release</th><th>Origem</th><th>Estágios</th><th>Criada</th></tr></thead><tbody>
+      ${rels.slice(0, 60).map(r => `<tr>
+        <td><a href="${esc(r.url)}" target="_blank" rel="noopener" style="text-decoration:none"><b>${esc(r.pipeline.replace(/ - deploy$/, ""))}</b> <span class="muted small">${esc(r.name)}</span></a>
+          <div class="small muted"><i class="dot" style="background:${orgColor(r.org)}"></i> ${esc(r.org)}</div></td>
+        <td class="small"><span class="branch">${isProtected(r.branch) ? "🔒 " : ""}<b>${esc(r.branch || "—")}</b></span> · ${esc(r.version || "")}</td>
+        <td><span class="env">${r.envs.map(e => { const st = ENV_ST[e.status] || ENV_ST.undefined; return `<span class="pill ${st[1]}" title="${esc(e.status)}">${st[0]} ${esc(e.name)}</span>`; }).join("")}</span></td>
+        <td class="small muted" style="white-space:nowrap">${new Date(r.created).toLocaleString("pt-BR", {day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit"})}<div>${esc(r.createdBy)}</div></td></tr>`).join("")
+        || `<tr><td colspan="4" class="empty">Nenhuma release.</td></tr>`}
+      </tbody></table></div></div>`;
+}
+
+/* ------------------------------------------------------------------ arquivadas */
+function renderArchived() {
+  const entries = Object.entries(S.archive).map(([k, a]) => ({...a, k, live: S.prs.find(p => key(p) === k)}))
+    .sort((a, b) => (b.ts || "").localeCompare(a.ts || ""));
+  $("#view").innerHTML = `<div class="card">
+    <div class="card-h"><h3>Arquivadas</h3><span class="muted small">Ficam fora da fila e o piloto não age nelas.
+      ${S.rules.settings.resurfaceOnPush ? "Voltam sozinhas se receberem push novo." : "Não voltam sozinhas com push novo."} Somem daqui quando a PR fecha.</span></div>
+    ${entries.length ? `<div class="tbl-wrap"><table><thead><tr><th>PR</th><th>Criador → destino</th><th>Motivo</th><th>Arquivada</th><th></th></tr></thead><tbody>
+      ${entries.map(a => `<tr>
+        <td><a href="${esc(a.url)}" target="_blank" rel="noopener" style="text-decoration:none"><span class="prid">#${a.prId}</span> <b>${esc(a.title)}</b></a>
+          <div class="small muted"><i class="dot" style="background:${orgColor(a.org)}"></i> ${esc(a.org)} / ${esc(a.repo || "")}</div></td>
+        <td class="small">${esc(a.creatorName)} → <b>${esc(a.target)}</b></td>
+        <td class="small">${a.reason === "manual" ? "manual" : `<span class="pill p-auto">${esc(a.reason)}</span>`}</td>
+        <td class="small muted">${a.ts ? new Date(a.ts).toLocaleString("pt-BR") : ""}</td>
+        <td class="num"><button class="sm" data-archive="${esc(a.k)}" data-restore="1">Restaurar</button></td></tr>`).join("")}
+    </tbody></table></div>` : `<div class="empty"><b>Nada arquivado</b>Use ⋯ → Arquivar numa PR para tirá-la da fila.</div>`}
+  </div>`;
+}
+
+/* ------------------------------------------------------------------ automação */
+const ACTIONS = {
+  approve: {icon: "⚡", label: "Aprovar automaticamente", short: "aprovar", verb: "aprovaria", done: "aprovações", cls: "a-approve",
+            desc: "Vota “Aprovado” assim que a PR aparece. Nunca sobrescreve um voto seu."},
+  archive: {icon: "🗄", label: "Arquivar", short: "arquivar", verb: "arquivaria", done: "arquivadas", cls: "a-archive",
+            desc: "Tira da fila e ignora — bom para bots e PRs que não são com você."},
+  notify:  {icon: "🔔", label: "Só me notificar", short: "notificar", verb: "notificaria", done: "avisos", cls: "a-notify",
+            desc: "Aviso do macOS quando chegar, sem votar."},
+};
+const TEMPLATES = [
+  {label: "Aprovar tudo de uma pessoa (menos produção)", rule: {action: "approve"}},
+  {label: "Aprovar PRs para develop de qualquer pessoa", rule: {action: "approve", targets: ["develop"]}},
+  {label: "Me avisar quando chegar PR para master", rule: {action: "notify", targets: ["master"]}},
+  {label: "Arquivar PRs de bots / build service", rule: {action: "archive", creators: ["Build Service", "Project Collection"]}},
+];
+let ed = null, edIsNew = false, edSim = null, edSimTimer = null;
+
+const blankRule = (over = {}) => ({id: "", name: "", enabled: true, action: "approve", orgs: [], creators: [], targets: [],
+                                   repos: [], titleContains: "", requireBuild: false, ...JSON.parse(JSON.stringify(over))});
+const uniq = arr => [...new Set(arr.filter(Boolean))];
+const listText = arr => arr.map(x => `<b>${esc(x)}</b>`).join(" ou ");
+
+function ruleSentence(r) {
+  const prot = S.rules.protectedTargets;
+  const who = r.creators.length ? listText(r.creators) : "<b>qualquer pessoa</b>";
+  const where = r.targets.length ? listText(r.targets)
+    : `<b>qualquer branch</b>${prot.length ? ` <span class="muted">(menos ${prot.map(esc).join(", ")})</span>` : ""}`;
+  const orgs = r.orgs.length ? ` em ${listText(r.orgs)}` : "";
+  const repos = r.repos.length ? `, no repositório ${listText(r.repos)}` : "";
+  const title = r.titleContains ? `, com “<b>${esc(r.titleContains)}</b>” no título` : "";
+  return `Quando ${who} abrir PR para ${where}${orgs}${repos}${title}`;
+}
+
+async function saveRules(rules, protectedTargets = S.rules.protectedTargets, msg = "Regras salvas — aplicando agora", deployRules = S.rules.deployRules) {
+  await post("/api/rules", {settings: S.rules.settings, protectedTargets, rules, deployRules});
+  toast(msg); await load(); setTimeout(load, 4000);
+}
+async function saveSettings(patch) {
+  await post("/api/rules", {settings: {...S.rules.settings, ...patch}, protectedTargets: S.rules.protectedTargets, rules: S.rules.rules, deployRules: S.rules.deployRules});
+  await load();
+}
+
+function ruleCard(r, i) {
+  const a = ACTIONS[r.action], st = S.ruleStats?.[r.id], open = S.prs.filter(p => p.ruleId === r.id && !p.archived).length;
+  const prot = r.targets.filter(isProtected);
+  return `<div class="rule ${r.enabled ? "" : "off"}">
+    <label class="switch" title="${r.enabled ? "Desativar" : "Ativar"} regra"><input type="checkbox" data-rtoggle="${esc(r.id)}" ${r.enabled ? "checked" : ""}></label>
+    <div class="rbody" data-redit="${esc(r.id)}">
+      <div class="rtop"><span class="prio" title="Prioridade">${i + 1}</span>${r.name ? `<span class="rname">${esc(r.name)}</span>` : ""}
+        <span class="act ${a.cls}">${a.icon} ${a.label}${r.action === "approve" && r.requireBuild ? " · após build verde" : ""}</span>
+        ${prot.length && r.action === "approve" ? `<span class="pill p-warn">🔒 aprova ${prot.map(esc).join(", ")}</span>` : ""}
+        ${r.enabled ? "" : `<span class="pill p-neutral">desativada</span>`}</div>
+      <div class="sentence">${ruleSentence(r)}</div>
+      <div class="rstats">${st ? `${st.count} ${a.done} nos últimos 30 dias · última há ${fmtH(hoursSince(st.last))}` : (r.action === "notify" ? "avisos não entram no histórico" : "ainda não agiu")}
+        ${open ? ` · <b>${open}</b> aberta(s) agora` : ""}</div>
+    </div>
+    <div class="ractions">
+      <button class="ghost sm" data-rmove="${i}|-1" ${i ? "" : "disabled"} title="Aumentar prioridade">↑</button>
+      <button class="ghost sm" data-rmove="${i}|1" ${i < S.rules.rules.length - 1 ? "" : "disabled"} title="Diminuir prioridade">↓</button>
+      <button class="sm" data-redit="${esc(r.id)}">Editar</button>
+      <details class="menu"><summary>⋯</summary><div class="items">
+        <button data-rdup="${esc(r.id)}">Duplicar</button>
+        <button data-rdel="${esc(r.id)}" style="color:var(--bad)">Excluir</button>
+      </div></details>
+    </div>
+  </div>`;
+}
+
+function renderAuto() {
+  const st = S.rules.settings, rules = S.rules.rules;
+  const sw = (id, label, help, on) => `<label class="switch"><input type="checkbox" data-setting="${id}" ${on ? "checked" : ""}><span>${label}<small>${help}</small></span></label>`;
+  const tplItems = TEMPLATES.map((t, i) => `<button data-tpl="${i}">${esc(t.label)}</button>`).join("");
+  $("#view").innerHTML = `
+    <div class="card">
+      <div class="card-h"><h3>Pull requests</h3><span class="muted small">Avaliadas de cima para baixo — a primeira que se aplicar à PR decide.</span>
+        <span class="spacer"></span>
+        <details class="menu"><summary>Modelos</summary><div class="items">${tplItems}</div></details>
+        <button class="primary sm" data-newrule>+ Nova regra</button></div>
+      ${rules.length ? `<div class="rules-list">${rules.map(ruleCard).join("")}</div>`
+        : `<div class="empty"><b>Nenhuma regra ainda</b>Comece por um modelo:<div class="tpl-grid">${TEMPLATES.map((t, i) => `<button data-tpl="${i}">${esc(t.label)}</button>`).join("")}</div></div>`}
+    </div>
+    <div class="card">
+      <div class="card-h"><h3>Releases e permissões</h3><span class="muted small">Primeira regra que se aplicar decide. Sem regra, o item só aparece na fila.</span>
+        <span class="spacer"></span>
+        <details class="menu"><summary>Modelos</summary><div class="items">${DTEMPLATES.map((t, i) => `<button data-dtpl="${i}">${esc(t.label)}</button>`).join("")}</div></details>
+        <button class="primary sm" data-newdrule>+ Nova regra</button></div>
+      ${(S.rules.deployRules || []).length ? `<div class="rules-list">${S.rules.deployRules.map(dRuleCard).join("")}</div>`
+        : `<div class="empty"><b>Nenhuma regra de release</b>Releases e permissões esperam o seu clique na Fila.<div class="tpl-grid">${DTEMPLATES.map((t, i) => `<button data-dtpl="${i}">${esc(t.label)}</button>`).join("")}</div></div>`}
+    </div>
+    <div class="grid2" style="margin-top:16px">
+      <div class="card">
+        <div class="card-h"><h3>Branches protegidas</h3></div>
+        <div class="card-b">
+          <div class="chips">${S.rules.protectedTargets.map(t => `<span class="tag">🔒 ${esc(t)}<button class="x" data-unprot="${esc(t)}" title="Remover">✕</button></span>`).join("")}
+            <input class="addin inline" id="addProt" placeholder="+ adicionar (Enter)"></div>
+          <p class="small muted" style="margin:10px 0 0">Regras com “qualquer branch” ou curinga nunca agem nelas. Para automatizar uma delas, escolha-a explicitamente dentro da regra — a tela avisa quando isso acontece.</p>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-h"><h3>Comportamento</h3><span class="muted small">salva na hora</span></div>
+        <div class="card-b settings-col">
+          ${sw("active", "Automação ativa", "Desligada, nenhuma regra age — a tela continua funcionando.", !st.paused)}
+          ${sw("notifyPending", "Notificar PR nova na fila", "Aviso do macOS quando chega PR esperando seu voto (uma vez por PR).", st.notifyPending)}
+          ${sw("notifyAuto", "Notificar auto-aprovação", "Aviso do macOS a cada aprovação feita pelo piloto.", st.notifyAuto)}
+          ${sw("resurfaceOnPush", "Desarquivar com push novo", "PR arquivada volta para a fila se o autor subir commit.", st.resurfaceOnPush)}
+          ${sw("notifyDeploys", "Notificar release/permissão pendente", "Aviso do macOS quando uma release ou pipeline passa a esperar você.", st.notifyDeploys)}
+        </div>
+      </div>
+    </div>`;
+}
+
+/* ---------- regras de release / permissão */
+const DACTIONS = {
+  release: {approve: {icon: "⚡", label: "Aprovar automaticamente", desc: "Aprova a release assim que ela chega no estágio.", verb: "aprovaria"},
+            notify: {icon: "🔔", label: "Só me notificar", desc: "Aviso do macOS quando a release chegar, sem aprovar.", verb: "notificaria"}},
+  permission: {approve: {icon: "⚡", label: "Liberar automaticamente", desc: "Dá a permissão (Permit) e o run continua sozinho.", verb: "liberaria"},
+               notify: {icon: "🔔", label: "Só me notificar", desc: "Aviso do macOS quando um pipeline travar pedindo permissão.", verb: "notificaria"}},
+};
+const DTEMPLATES = [
+  {label: "Aprovar Prod quando eu já aprovei a PR de release", rule: {kind: "release", action: "approve", stages: ["Prod"], branches: ["master"], requirePrApproved: true}},
+  {label: "Aprovar tudo que não é produção (Dev/Homolog)", rule: {kind: "release", action: "approve", stages: ["Dev"]}},
+  {label: "Liberar permissões de grupos de variáveis", rule: {kind: "permission", action: "approve"}},
+  {label: "Me avisar de release para produção", rule: {kind: "release", action: "notify", stages: ["Prod"]}},
+];
+let ded = null, dedIsNew = false, dedSim = null, dedSimTimer = null;
+const blankDRule = (over = {}) => ({id: "", name: "", enabled: true, kind: "release", action: "approve", orgs: [], pipelines: [], stages: [],
+                                    branches: [], resources: [], requirePrApproved: false, ...JSON.parse(JSON.stringify(over))});
+
+function dRuleSentence(r) {
+  const pipes = r.pipelines.length ? listText(r.pipelines) : "<b>qualquer pipeline</b>";
+  const orgs = r.orgs.length ? ` em ${listText(r.orgs)}` : "";
+  if (r.kind === "permission")
+    return `Quando ${pipes} travar pedindo permissão para ${r.resources.length ? listText(r.resources) : "<b>qualquer recurso</b>"}${orgs}`;
+  return `Quando a release de ${pipes} chegar no estágio ${r.stages.length ? listText(r.stages) : "<b>qualquer estágio</b>"}`
+    + `${r.branches.length ? `, vinda de ${listText(r.branches)}` : ""}${orgs}${r.requirePrApproved ? ", <b>se você já aprovou a PR de origem</b>" : ""}`;
+}
+
+function dRuleCard(r, i) {
+  const a = DACTIONS[r.kind][r.action], st = S.ruleStats?.[r.id], open = S.deploys.filter(d => d.ruleId === r.id).length;
+  const all = S.rules.deployRules;
+  const risky = r.kind === "release" && r.action === "approve" && !r.requirePrApproved && (!r.stages.length || r.stages.some(x => /prod/i.test(x)));
+  return `<div class="rule ${r.enabled ? "" : "off"}">
+    <label class="switch"><input type="checkbox" data-drtoggle="${esc(r.id)}" ${r.enabled ? "checked" : ""}></label>
+    <div class="rbody" data-dredit="${esc(r.id)}">
+      <div class="rtop"><span class="prio">${i + 1}</span>${r.name ? `<span class="rname">${esc(r.name)}</span>` : ""}
+        <span class="act ${r.action === "approve" ? "a-approve" : "a-notify"}">${r.kind === "permission" ? "🔑" : "🚀"} ${a.label}</span>
+        ${risky ? `<span class="pill p-warn">🔒 pode subir para produção</span>` : ""}${r.enabled ? "" : `<span class="pill p-neutral">desativada</span>`}</div>
+      <div class="sentence">${dRuleSentence(r)}</div>
+      <div class="rstats">${st ? `${st.count} vez(es) nos últimos 30 dias · última há ${fmtH(hoursSince(st.last))}` : (r.action === "notify" ? "avisos não entram no histórico" : "ainda não agiu")}
+        ${open ? ` · <b>${open}</b> na fila agora` : ""}</div>
+    </div>
+    <div class="ractions">
+      <button class="ghost sm" data-drmove="${i}|-1" ${i ? "" : "disabled"}>↑</button>
+      <button class="ghost sm" data-drmove="${i}|1" ${i < all.length - 1 ? "" : "disabled"}>↓</button>
+      <button class="sm" data-dredit="${esc(r.id)}">Editar</button>
+      <details class="menu"><summary>⋯</summary><div class="items">
+        <button data-drdup="${esc(r.id)}">Duplicar</button>
+        <button data-drdel="${esc(r.id)}" style="color:var(--bad)">Excluir</button>
+      </div></details>
+    </div></div>`;
+}
+
+const saveDeployRules = (deployRules, msg) => saveRules(S.rules.rules, S.rules.protectedTargets, msg, deployRules);
+
+function openDEditor(rule, isNew) { ded = blankDRule(rule); dedIsNew = isNew; dedSim = null; renderEditor(); runDSim(); }
+
+function runDSim() {
+  clearTimeout(dedSimTimer);
+  dedSimTimer = setTimeout(async () => {
+    const snap = JSON.stringify(ded);
+    let res; try { res = await post("/api/simulate-deploy", {rule: ded}); } catch (e) { res = {error: e.message}; }
+    if (!ded || JSON.stringify(ded) !== snap) return;
+    dedSim = res; const box = $("#edsim"); if (box) box.innerHTML = dSimHtml();
+  }, 250);
+}
+
+function dSimHtml() {
+  if (!dedSim) return `<div class="muted small">Calculando…</div>`;
+  if (dedSim.error) return `<div class="error">${esc(dedSim.error)}</div>`;
+  const a = DACTIONS[ded.kind][ded.action], o = dedSim.open;
+  return `<div class="simgrid">
+      <div class="simstat"><div class="v">${o.length}</div><div class="l">de ${dedSim.openTotal} itens na fila agora</div></div>
+      ${ded.kind === "release" ? `<div class="simstat"><div class="v">${dedSim.historyCount}</div><div class="l">estágios executados nas releases recentes<br><span class="muted">de ${dedSim.historyTotal}</span></div></div>`
+        : `<div class="simstat"><div class="v">—</div><div class="l">permissões não têm histórico no Azure</div></div>`}
+    </div>
+    ${o.length ? `<div class="simlist">${o.map(d => `<div class="simrow"><div class="ell">${esc(d.pipeline)}${d.stage ? ` → <b>${esc(d.stage)}</b>` : ""}
+        <div class="small muted">${esc(d.org)} · ${esc(d.branch || "")} ${esc(d.version || "")}${d.resources?.length ? ` · ${esc(d.resources.map(r => r.name).join(", "))}` : ""}</div></div>
+        ${d.shadowedBy ? `<span class="pill p-warn">decide: ${esc(d.shadowedBy)}</span>` : `<span class="pill p-auto">${a.verb}</span>`}</div>`).join("")}</div>` : ""}
+    ${ded.kind === "release" && dedSim.history.length ? `<div class="small muted" style="margin-top:8px">Recentes que teria pego: ${dedSim.history.slice(0, 5).map(h => `${esc(h.pipeline.replace(/ - deploy$/, ""))} → ${esc(h.stage)} (${esc(h.branch)})`).join(", ")}</div>` : ""}
+    ${!o.length && !(dedSim.history || []).length ? `<div class="warnbox" style="margin-top:8px">Nada recente se encaixa — confira o nome do pipeline/estágio.</div>` : ""}`;
+}
+
+function renderDEditor(m) {
+  const chip = (group, value, on, label) =>
+    `<button type="button" class="tchip ${on ? "on" : ""}" data-dchip="${group}" data-v="${esc(value)}">${on ? "✓ " : ""}${label ?? esc(value)}</button>`;
+  const r = ded, rel = r.kind === "release";
+  const pipesAll = uniq([...r.pipelines, ...S.deploys.filter(d => depKind(d) === r.kind).map(d => d.pipeline),
+                         ...(rel ? S.releases.map(x => x.pipeline) : [])]).slice(0, 30);
+  const stagesAll = uniq([...r.stages, ...S.releases.flatMap(x => x.envs.map(e => e.name)), ...S.deploys.map(d => d.stage)]);
+  const branchesAll = uniq([...r.branches, ...S.rules.protectedTargets, "develop", ...S.releases.map(x => x.branch)]).slice(0, 12);
+  const resAll = uniq([...r.resources, ...S.deploys.flatMap(d => d.resources.map(x => x.name))]);
+  const risky = rel && r.action === "approve" && !r.requirePrApproved && (!r.stages.length || r.stages.some(x => /prod/i.test(x)));
+  m.innerHTML = `<div class="scrim" data-edclose></div>
+  <aside class="drawer" role="dialog" aria-label="Regra de release">
+    <header><h2>${dedIsNew ? "Nova regra de release" : "Editar regra de release"}</h2><span class="spacer"></span><button class="ghost" data-edclose>✕</button></header>
+    <div class="dbody">
+      <section><h4><span class="step">1</span>Quando aparecer</h4>
+        <div class="acts">
+          <button type="button" class="actcard ${rel ? "on" : ""}" data-dkind="release"><span class="ai">🚀</span><span><b>Release esperando aprovação</b><small>Estágio de release (ex.: Prod) aguardando aprovador — clássica ou ambiente YAML.</small></span></button>
+          <button type="button" class="actcard ${!rel ? "on" : ""}" data-dkind="permission"><span class="ai">🔑</span><span><b>Pipeline pedindo permissão</b><small>Run travado em “needs permission to access a resource” (grupo de variáveis, service connection…).</small></span></button>
+        </div></section>
+      <section><h4><span class="step">2</span>O que fazer</h4>
+        <div class="acts">${Object.entries(DACTIONS[r.kind]).map(([k, a]) => `<button type="button" class="actcard ${r.action === k ? "on" : ""}" data-daction="${k}">
+          <span class="ai">${a.icon}</span><span><b>${a.label}</b><small>${a.desc}</small></span></button>`).join("")}</div></section>
+      <section><h4><span class="step">3</span>De qual pipeline</h4>
+        <div class="chips">${chip("anypipe", "", !r.pipelines.length, "Qualquer um")}${pipesAll.map(x => chip("pipelines", x, r.pipelines.includes(x))).join("")}</div>
+        <input class="addin" data-dadd="pipelines" placeholder="Parte do nome + Enter (“financeiro” pega minhaempresa-financeiro-api - deploy) — aceita curinga">
+      </section>
+      ${rel ? `<section><h4><span class="step">4</span>Em qual estágio e de qual branch</h4>
+        <div class="chips">${chip("anystage", "", !r.stages.length, "Qualquer estágio")}${stagesAll.map(x => chip("stages", x, r.stages.includes(x), `${/prod/i.test(x) ? "🔒 " : ""}${esc(x)}`)).join("")}</div>
+        <input class="addin" data-dadd="stages" placeholder="Outro estágio + Enter">
+        <h5>Branch de origem do build</h5>
+        <div class="chips">${chip("anybranch", "", !r.branches.length, "Qualquer branch")}${branchesAll.map(x => chip("branches", x, r.branches.includes(x))).join("")}</div>
+        ${r.action === "approve" ? `<label class="switch opt" style="border:0;padding-bottom:0"><input type="checkbox" data-dedf="requirePrApproved" ${r.requirePrApproved ? "checked" : ""}>
+          <span>Só se eu já aprovei a PR de origem<small>Lê a PR do commit (“Merge pull request N…”) e confere o seu voto. Sem PR identificada, espera você.</small></span></label>` : ""}
+        ${risky ? `<div class="warnbox">🔒 Esta regra pode aprovar <b>produção</b> sem você olhar. Ligue “Só se eu já aprovei a PR de origem” para manter o seu crivo na PR.</div>` : ""}
+      </section>` : `<section><h4><span class="step">4</span>Para quais recursos</h4>
+        <div class="chips">${chip("anyres", "", !r.resources.length, "Qualquer recurso")}${resAll.map(x => chip("resources", x, r.resources.includes(x))).join("")}</div>
+        <input class="addin" data-dadd="resources" placeholder="Nome do grupo de variáveis / service connection + Enter — aceita curinga (*-PROD)">
+        <p class="small muted" style="margin:8px 0 0">Só libera quando <b>todos</b> os recursos pedidos pelo run se encaixam.</p></section>`}
+      <section><h4><span class="step">5</span>Em qual organização</h4>
+        <div class="chips">${chip("anyorg", "", !r.orgs.length, "Todas")}${S.orgs.map(o => chip("orgs", o, r.orgs.includes(o))).join("")}</div></section>
+      <section><h4>Nome <span class="muted small" style="font-weight:400;text-transform:none;letter-spacing:0">(opcional)</span></h4>
+        <input class="full" data-dedf="name" value="${esc(r.name)}" placeholder="ex.: Prod após minha aprovação"></section>
+      <section class="preview"><h4>Prévia</h4>
+        <div class="sentence" id="edsentence">${dRuleSentence(r)} → <b>${DACTIONS[r.kind][r.action].label.toLowerCase()}</b>.</div>
+        <div id="edsim">${dSimHtml()}</div></section>
+    </div>
+    <footer>${dedIsNew ? "" : `<button class="reject" data-drdel="${esc(r.id)}">Excluir</button>`}<span class="spacer"></span>
+      <button data-edclose>Cancelar</button><button class="primary" data-dedsave>${dedIsNew ? "Criar regra" : "Salvar regra"}</button></footer>
+  </aside>`;
+}
+
+function dedChange() { dedSim = null; renderEditor(); runDSim(); }
+
+async function handleDeployRuleClick(t, d) {
+  if (d.newdrule !== undefined) { openDEditor(blankDRule(), true); return true; }
+  if (d.dtpl) { t.closest("details")?.removeAttribute("open"); openDEditor(blankDRule(DTEMPLATES[Number(d.dtpl)].rule), true); return true; }
+  if (d.dredit) { if (e_isInteractive(t) && !t.matches("[data-dredit]")) return false; openDEditor(S.rules.deployRules.find(r => r.id === d.dredit), false); return true; }
+  if (d.dmkrule) {
+    t.closest("details")?.removeAttribute("open");
+    const it = S.deploys.find(x => x.key === d.dmkrule);
+    const pipe = it.pipeline.replace(/ - deploy$/, "");
+    openDEditor(blankDRule(it.kind === "permission" ? {kind: "permission", pipelines: [pipe], resources: it.resources.map(r => r.name)}
+      : {kind: "release", pipelines: [pipe], stages: it.stage ? [it.stage] : [], branches: it.branch ? [it.branch] : [], requirePrApproved: isProdStage(it)}), true);
+    return true;
+  }
+  if (!ded && !(d.drtoggle || d.drmove || d.drdup || d.drdel)) return false;
+  if (d.dkind) { ded.kind = d.dkind; if (ded.kind === "permission") { ded.stages = []; ded.branches = []; ded.requirePrApproved = false; } else ded.resources = []; dedChange(); return true; }
+  if (d.daction) { ded.action = d.daction; if (ded.action !== "approve") ded.requirePrApproved = false; dedChange(); return true; }
+  if (d.dchip) {
+    const g = d.dchip, v = d.v, anyMap = {anypipe: "pipelines", anystage: "stages", anybranch: "branches", anyres: "resources", anyorg: "orgs"};
+    if (anyMap[g]) ded[anyMap[g]] = [];
+    else ded[g] = ded[g].includes(v) ? ded[g].filter(x => x !== v) : [...ded[g], v];
+    dedChange(); return true;
+  }
+  if (d.dedsave !== undefined) {
+    const list = (S.rules.deployRules || []).map(r => ({...r}));
+    if (dedIsNew) list.push({...ded}); else list[list.findIndex(r => r.id === ded.id)] = {...ded};
+    try { await saveDeployRules(list, dedIsNew ? "Regra criada — aplicando agora" : "Regra salva — aplicando agora"); closeEditor(); }
+    catch (e) { alert("Falhou: " + e.message); }
+    return true;
+  }
+  if (d.drtoggle) { await saveDeployRules(S.rules.deployRules.map(r => r.id === d.drtoggle ? {...r, enabled: t.checked} : r), t.checked ? "Regra ativada" : "Regra desativada"); return true; }
+  if (d.drmove) { const [i, dir] = d.drmove.split("|").map(Number), l = [...S.rules.deployRules]; l.splice(i + dir, 0, l.splice(i, 1)[0]); await saveDeployRules(l, "Prioridade alterada"); return true; }
+  if (d.drdup) { t.closest("details")?.removeAttribute("open"); const src = S.rules.deployRules.find(r => r.id === d.drdup); openDEditor({...src, id: "", name: src.name ? `${src.name} (cópia)` : ""}, true); return true; }
+  if (d.drdel) {
+    t.closest("details")?.removeAttribute("open");
+    const r = S.rules.deployRules.find(x => x.id === d.drdel);
+    if (!r || !confirm(`Excluir esta regra?\n\n${dRuleSentence(r).replace(/<[^>]+>/g, "")}`)) return true;
+    await saveDeployRules(S.rules.deployRules.filter(x => x.id !== d.drdel), "Regra excluída"); closeEditor(); return true;
+  }
+  return false;
+}
+
+/* ---------- editor de regra (gaveta) */
+function openEditor(rule, isNew) {
+  ed = blankRule(rule); edIsNew = isNew; edSim = null;
+  renderEditor(); runEdSim();
+}
+function closeEditor() { ed = null; ded = null; renderEditor(); }
+
+function edSimHtml() {
+  if (!edSim) return `<div class="muted small">Calculando…</div>`;
+  if (edSim.error) return `<div class="error">${esc(edSim.error)}</div>`;
+  const o = edSim.open, h = edSim.history, a = ACTIONS[ed.action];
+  const byT = Object.entries(h.byTarget).sort((x, y) => y[1] - x[1]).map(([t, n]) => `${esc(t)} ${n}`).join(" · ");
+  return `<div class="simgrid">
+      <div class="simstat"><div class="v">${o.length}</div><div class="l">de ${edSim.openTotal} PRs abertas agora</div></div>
+      <div class="simstat"><div class="v">${h.count}</div><div class="l">de ${h.total} concluídas nos últimos 30 dias${byT ? `<br><span class="muted">${byT}</span>` : ""}</div></div>
+    </div>
+    ${o.length ? `<div class="simlist">${o.map(p => `<div class="simrow">
+        <div class="ell"><span class="prid">#${p.prId}</span> ${esc(p.title)}<div class="small muted">${esc(p.creatorName)} → ${esc(p.target)} · ${esc(p.org)}</div></div>
+        ${p.shadowedBy ? `<span class="pill p-warn" title="Uma regra acima decide antes">decide: ${esc(p.shadowedBy)}</span>`
+          : p.myVote ? `<span class="pill p-neutral">você já votou</span>` : `<span class="pill p-auto">${a.verb}</span>`}
+      </div>`).join("")}</div>` : ""}
+    ${!o.length && h.count ? `<div class="small muted" style="margin-top:8px">Nenhuma aberta agora. Últimas que teria pego: ${h.sample.slice(0, 4).map(p => `#${p.prId} (${esc(p.creatorName.split(" ")[0])} → ${esc(p.target)})`).join(", ")}</div>` : ""}
+    ${!o.length && !h.count ? `<div class="warnbox" style="margin-top:8px">Nenhuma PR recente se encaixa — confira o nome do criador e a branch.</div>` : ""}`;
+}
+
+function runEdSim() {
+  clearTimeout(edSimTimer);
+  edSimTimer = setTimeout(async () => {
+    const snapshot = JSON.stringify(ed);
+    let res;
+    try { res = await post("/api/simulate", {rule: ed}); } catch (e) { res = {error: e.message}; }
+    if (!ed || JSON.stringify(ed) !== snapshot) return;
+    edSim = res;
+    const box = $("#edsim"); if (box) box.innerHTML = edSimHtml();
+  }, 300);
+}
+
+function edPreviewSentence() {
+  const a = ACTIONS[ed.action];
+  return `${ruleSentence(ed)} → <b>${a.short}</b>${ed.action === "approve" && ed.requireBuild ? " depois do build verde" : ""}.`;
+}
+
+function renderEditor() {
+  const m = $("#modal");
+  if (!ed && !ded) { m.innerHTML = ""; m.hidden = true; document.body.classList.remove("noscroll"); return; }
+  const scroll = m.querySelector(".dbody")?.scrollTop || 0;
+  m.hidden = false; document.body.classList.add("noscroll");
+  if (ded) { renderDEditor(m); m.querySelector(".dbody").scrollTop = scroll; return; }
+  const chip = (group, value, on, label) =>
+    `<button type="button" class="tchip ${on ? "on" : ""}" data-chip="${group}" data-v="${esc(value)}">${on ? "✓ " : ""}${label ?? esc(value)}</button>`;
+  const creatorsAll = uniq([...ed.creators, ...S.creators]);
+  const targetsAll = uniq([...ed.targets, ...S.targets, ...S.rules.protectedTargets]);
+  const prot = ed.targets.filter(isProtected);
+  const broad = ed.action === "approve" && !ed.creators.length && !ed.repos.length && !ed.titleContains;
+  m.innerHTML = `<div class="scrim" data-edclose></div>
+  <aside class="drawer" role="dialog" aria-label="${edIsNew ? "Nova regra" : "Editar regra"}">
+    <header><h2>${edIsNew ? "Nova regra" : "Editar regra"}</h2><span class="spacer"></span><button class="ghost" data-edclose title="Fechar (Esc)">✕</button></header>
+    <div class="dbody">
+      <section><h4><span class="step">1</span>O que fazer</h4>
+        <div class="acts">${Object.entries(ACTIONS).map(([k, a]) => `<button type="button" class="actcard ${ed.action === k ? "on" : ""}" data-edaction="${k}">
+          <span class="ai">${a.icon}</span><span><b>${a.label}</b><small>${a.desc}</small></span></button>`).join("")}</div>
+      </section>
+      <section><h4><span class="step">2</span>Quando a PR for criada por</h4>
+        <div class="chips">${chip("anycreator", "", !ed.creators.length, "Qualquer pessoa")}${creatorsAll.map(c => chip("creators", c, ed.creators.includes(c))).join("")}</div>
+        <input class="addin" data-add="creators" placeholder="Outro nome ou e-mail + Enter — parte do nome basta (“Ana” pega “Ana Souza” e “Ana Lima”)">
+      </section>
+      <section><h4><span class="step">3</span>Para a branch</h4>
+        <div class="chips">${chip("anytarget", "", !ed.targets.length, `Qualquer uma, menos as protegidas`)}${targetsAll.map(t => chip("targets", t, ed.targets.includes(t), `${isProtected(t) ? "🔒 " : ""}${esc(t)}`)).join("")}</div>
+        <input class="addin" data-add="targets" placeholder="Outra branch + Enter — aceita curinga (release/*)">
+        ${prot.length && ed.action === "approve" ? `<div class="warnbox">🔒 Esta regra vai aprovar sozinha PRs para <b>${prot.map(esc).join(", ")}</b> — isso é subida para produção sem você olhar.</div>` : ""}
+      </section>
+      <section><h4><span class="step">4</span>Em qual organização</h4>
+        <div class="chips">${chip("anyorg", "", !ed.orgs.length, "Todas")}${S.orgs.map(o => chip("orgs", o, ed.orgs.includes(o))).join("")}</div>
+      </section>
+      <details class="more" ${ed.repos.length || ed.titleContains ? "open" : ""}><summary>Mais filtros — repositório e título</summary>
+        <h5>Repositórios</h5>
+        <div class="chips">${ed.repos.length ? ed.repos.map(r => chip("repos", r, true)).join("") : `<span class="muted small">Todos os repositórios</span>`}</div>
+        <input class="addin" data-add="repos" list="dl-repos" placeholder="Adicionar repositório + Enter — aceita curinga (*-api)">
+        <h5>Título contém</h5>
+        <input class="full" data-edf="titleContains" value="${esc(ed.titleContains)}" placeholder="ex.: hotfix">
+      </details>
+      ${ed.action === "approve" ? `<label class="switch opt"><input type="checkbox" data-edf="requireBuild" ${ed.requireBuild ? "checked" : ""}>
+        <span>Esperar o build passar antes de aprovar<small>Com o build vermelho ou rodando, a PR espera na fila.</small></span></label>` : ""}
+      <section><h4>Nome <span class="muted small" style="font-weight:400;text-transform:none;letter-spacing:0">(opcional — aparece no histórico)</span></h4>
+        <input class="full" data-edf="name" value="${esc(ed.name)}" placeholder="ex.: Ana — tudo menos produção"></section>
+      <section class="preview"><h4>Prévia</h4>
+        <div class="sentence" id="edsentence">${edPreviewSentence()}</div>
+        ${broad && !ed.targets.length ? `<div class="warnbox">Sem filtro de criador, esta regra aprova PRs de <b>todo mundo</b>.</div>` : ""}
+        <div id="edsim">${edSimHtml()}</div></section>
+    </div>
+    <footer>${edIsNew ? "" : `<button class="reject" data-rdel="${esc(ed.id)}">Excluir</button>`}<span class="spacer"></span>
+      <button data-edclose>Cancelar</button><button class="primary" data-edsave>${edIsNew ? "Criar regra" : "Salvar regra"}</button></footer>
+  </aside>`;
+  m.querySelector(".dbody").scrollTop = scroll;
+}
+
+function edChange(rerender = true) {
+  if (rerender) renderEditor();
+  else { const s = $("#edsentence"); if (s) s.innerHTML = edPreviewSentence(); }
+  edSim = null; const box = $("#edsim"); if (box) box.innerHTML = edSimHtml();
+  runEdSim();
+}
+
+async function saveEditor() {
+  const rules = S.rules.rules.map(r => ({...r}));
+  if (!edIsNew) { const i = rules.findIndex(r => r.id === ed.id); rules[i] = {...ed}; }
+  else rules.push({...ed});
+  try { await saveRules(rules, S.rules.protectedTargets, edIsNew ? "Regra criada — aplicando agora" : "Regra salva — aplicando agora"); closeEditor(); }
+  catch (e) { alert("Falhou: " + e.message); }
+}
+
+async function handleRuleClick(t, d) {
+  if (d.edclose !== undefined) { closeEditor(); return true; }
+  if (d.edaction) { ed.action = d.edaction; if (ed.action !== "approve") ed.requireBuild = false; edChange(); return true; }
+  if (d.chip) {
+    const v = d.v, g = d.chip;
+    if (g === "anycreator") ed.creators = [];
+    else if (g === "anytarget") ed.targets = [];
+    else if (g === "anyorg") ed.orgs = [];
+    else ed[g] = ed[g].includes(v) ? ed[g].filter(x => x !== v) : [...ed[g], v];
+    edChange(); return true;
+  }
+  if (d.edsave !== undefined) { await saveEditor(); return true; }
+  if (d.newrule !== undefined) { openEditor(blankRule(), true); return true; }
+  if (d.tpl) { t.closest("details")?.removeAttribute("open"); openEditor(blankRule(TEMPLATES[Number(d.tpl)].rule), true); return true; }
+  if (d.redit) { if (e_isInteractive(t)) return false; openEditor(S.rules.rules.find(r => r.id === d.redit), false); return true; }
+  if (d.rtoggle) { await saveRules(S.rules.rules.map(r => r.id === d.rtoggle ? {...r, enabled: t.checked} : r), undefined, t.checked ? "Regra ativada" : "Regra desativada"); return true; }
+  if (d.rmove) {
+    const [i, dir] = d.rmove.split("|").map(Number), rules = [...S.rules.rules];
+    rules.splice(i + dir, 0, rules.splice(i, 1)[0]); await saveRules(rules, undefined, "Prioridade alterada"); return true;
+  }
+  if (d.rdup) {
+    t.closest("details")?.removeAttribute("open");
+    const src = S.rules.rules.find(r => r.id === d.rdup);
+    openEditor({...src, id: "", name: src.name ? `${src.name} (cópia)` : ""}, true); return true;
+  }
+  if (d.rdel) {
+    t.closest("details")?.removeAttribute("open");
+    const r = S.rules.rules.find(x => x.id === d.rdel);
+    if (!r || !confirm(`Excluir esta regra?\n\n${ruleSentence(r).replace(/<[^>]+>/g, "")}`)) return true;
+    await saveRules(S.rules.rules.filter(x => x.id !== d.rdel), undefined, "Regra excluída"); closeEditor(); return true;
+  }
+  if (d.unprot) { await saveRules(S.rules.rules, S.rules.protectedTargets.filter(x => x !== d.unprot), `${d.unprot} não é mais protegida`); return true; }
+  return false;
+}
+// O cartão inteiro abre o editor, menos os controles dentro dele.
+const e_isInteractive = t => t.closest("button, a, input, details") && !t.matches("[data-redit]");
+
+document.addEventListener("keydown", async e => {
+  if (e.key === "Escape" && (ed || ded)) { closeEditor(); return; }
+  if (e.key !== "Enter") return;
+  const el = e.target;
+  if (el.dataset?.dadd && ded) {
+    e.preventDefault();
+    const v = el.value.trim(), g = el.dataset.dadd;
+    if (v && !ded[g].includes(v)) ded[g] = [...ded[g], v];
+    dedChange(); $(`#modal [data-dadd="${g}"]`)?.focus(); return;
+  }
+  if (el.dataset?.add && ed) {
+    e.preventDefault();
+    const v = el.value.trim(), g = el.dataset.add;
+    if (v && !ed[g].includes(v)) ed[g] = [...ed[g], v];
+    edChange();
+    $(`#modal [data-add="${g}"]`)?.focus();
+  }
+  if (el.id === "addProt") {
+    const v = el.value.trim();
+    if (v && !S.rules.protectedTargets.includes(v)) await saveRules(S.rules.rules, [...S.rules.protectedTargets, v], `${v} agora é protegida`);
+  }
+});
+document.addEventListener("input", e => {
+  const df = e.target.dataset?.dedf;
+  if (df && ded) {
+    ded[df] = e.target.type === "checkbox" ? e.target.checked : e.target.value;
+    if (e.target.type === "checkbox") dedChange();
+    else { const s = $("#edsentence"); if (s) s.innerHTML = `${dRuleSentence(ded)} → <b>${DACTIONS[ded.kind][ded.action].label.toLowerCase()}</b>.`; }
+    return;
+  }
+  const f = e.target.dataset?.edf;
+  if (!f || !ed) return;
+  ed[f] = e.target.type === "checkbox" ? e.target.checked : e.target.value;
+  edChange(e.target.type === "checkbox");
+});
+
+/* ------------------------------------------------------------------ análise */
+async function loadAnalytics(force) {
+  if (aLoading) return;
+  aLoading = true; A = null;
+  if (tab === "analise") renderAnalytics();
+  try {
+    const r = await fetch(`/api/analytics?days=${aDays}&org=${encodeURIComponent(aOrg)}${force ? "&force=1" : ""}`);
+    A = await r.json(); if (!r.ok) throw new Error(A.error);
+  } catch (e) { A = {error: e.message}; }
+  aLoading = false;
+  if (tab === "analise") renderAnalytics();
+}
+
+function hbars(items, valueKey = "count", fmt = v => v) {
+  const max = Math.max(1, ...items.map(i => i[valueKey] || 0));
+  return items.length ? `<div class="hbars">${items.map(i => `<div class="row" data-tip="${esc(i.name)}: ${fmt(i[valueKey])}">
+    <span class="name">${esc(i.name)}</span><div class="track"><div class="fill" style="width:${(100 * (i[valueKey] || 0) / max).toFixed(1)}%"></div></div>
+    <span class="val">${fmt(i[valueKey])}</span></div>`).join("")}</div>` : `<div class="muted small">Sem dados no período.</div>`;
+}
+
+function columns(daily, series) {
+  const max = Math.max(1, ...daily.map(d => series.reduce((s, x) => s + d[x.key], 0)));
+  const fmtD = iso => new Date(iso + "T12:00").toLocaleDateString("pt-BR", {day: "2-digit", month: "2-digit"});
+  return `<div class="cols">${daily.map(d => {
+      const tip = `${fmtD(d.date)}\n` + series.map(x => `${x.label}: ${d[x.key]}`).join("\n");
+      return `<div class="c" data-tip="${esc(tip)}">${series.filter(x => d[x.key]).map(x =>
+        `<div class="seg1" style="height:${(100 * d[x.key] / max).toFixed(1)}%;background:${x.color}"></div>`).join("")}</div>`;
+    }).join("")}</div>
+    <div class="xaxis"><span>${fmtD(daily[0].date)}</span><span>máx. ${max}/dia</span><span>${fmtD(daily[daily.length - 1].date)}</span></div>`;
+}
+
+function renderAnalytics() {
+  const head = `<div class="toolbar">
+      <div class="seg">${[7, 30, 90].map(d => `<button class="${aDays === d ? "on" : ""}" data-days="${d}">${d} dias</button>`).join("")}</div>
+      <div class="seg">${["", ...S.orgs].map(o => `<button class="${aOrg === o ? "on" : ""}" data-aorg="${esc(o)}">${o ? esc(o) : "Todas"}</button>`).join("")}</div>
+      <span class="spacer"></span><button class="sm" id="aReload">↻ Recarregar do Azure</button></div>`;
+  if (!A) { $("#view").innerHTML = head + `<div class="card"><div class="empty"><b>Calculando…</b>Lendo PRs concluídas no Azure.</div></div>`; if (!aLoading) loadAnalytics(); return; }
+  if (A.error) { $("#view").innerHTML = head + `<div class="error">${esc(A.error)}</div>`; return; }
+  const k = A.kpis;
+  const tiles = [
+    ["PRs concluídas", k.merged, `em ${A.days} dias`],
+    ["Lead time mediano", fmtH(k.medianLeadH), "abertura → conclusão"],
+    ["Aguardando meu voto", k.pending, k.oldestPendingH ? `mais antiga há ${fmtH(k.oldestPendingH)}` : "fila zerada"],
+    ["Aprovações minhas", k.autoApprovals + k.manualApprovals, `${k.autoApprovals} auto · ${k.manualApprovals} manual`],
+    ["Meu tempo de resposta", fmtH(k.myMedianResponseH), "mediana, votos manuais"],
+    ["Abertas com problema", k.conflicts + k.buildFailed, `${k.conflicts} conflito · ${k.buildFailed} build ✗`],
+  ];
+  const autoShare = (k.autoApprovals + k.manualApprovals) ? Math.round(100 * k.autoApprovals / (k.autoApprovals + k.manualApprovals)) : null;
+  const maxMerged = Math.max(1, ...A.creators.map(c => c.merged));
+  $("#view").innerHTML = head
+    + Object.entries(A.errors || {}).map(([o, e]) => `<div class="error"><b>${esc(o)}:</b> ${esc(e)}</div>`).join("")
+    + `<div class="kpis">${tiles.map(([l, v, s]) => `<div class="kpi"><div class="l">${l}</div><div class="v">${v}</div><div class="s">${s}</div></div>`).join("")}</div>
+    <div class="grid2">
+      <div class="card"><div class="card-h"><h3>Minhas aprovações por dia</h3><span class="spacer"></span>
+        <div class="legend"><span><i style="background:var(--series-1)"></i>Piloto</span><span><i style="background:var(--series-2)"></i>Manual</span></div></div>
+        <div class="card-b">${columns(A.daily, [{key: "auto", label: "Piloto", color: "var(--series-1)"}, {key: "manual", label: "Manual", color: "var(--series-2)"}])}
+        <div class="small muted" style="margin-top:8px">${autoShare !== null ? `${autoShare}% das suas aprovações no período foram feitas pelo piloto.` : "Nenhuma aprovação registrada no período (o histórico começa quando o piloto foi ligado)."}</div></div></div>
+      <div class="card"><div class="card-h"><h3>PRs concluídas por dia</h3></div>
+        <div class="card-b">${columns(A.daily, [{key: "merged", label: "Concluídas", color: "var(--series-1)"}])}</div></div>
+    </div>
+    <div class="card" style="margin-top:16px"><div class="card-h"><h3>Por criador</h3><span class="muted small">concluídas no período · abertas agora</span></div>
+      <div class="tbl-wrap"><table><thead><tr><th>Criador</th><th style="width:38%">Concluídas</th><th class="num">Abertas</th><th class="num">Lead time mediano</th><th class="num">Para master/main</th><th></th></tr></thead><tbody>
+      ${A.creators.map(c => `<tr><td>${esc(c.name)}</td>
+        <td><div class="inbar"><div class="fill" style="width:${(85 * c.merged / maxMerged).toFixed(1)}%"></div><b class="small">${c.merged}</b></div></td>
+        <td class="num">${c.open}</td><td class="num">${fmtH(c.medianLeadH)}</td><td class="num">${c.toMaster}</td>
+        <td class="num">${S.rules.rules.some(r => r.enabled && r.creators.some(x => c.name.toLowerCase().includes(x.toLowerCase()))) ? `<span class="pill p-auto">tem regra</span>` : `<button class="ghost sm" data-mkrule-name="${esc(c.name)}">+ regra</button>`}</td></tr>`).join("")
+        || `<tr><td colspan="6" class="empty">Sem dados.</td></tr>`}
+      </tbody></table></div></div>
+    <div class="grid2" style="margin-top:16px">
+      <div class="card"><div class="card-h"><h3>Repositórios mais movimentados</h3></div><div class="card-b">${hbars(A.repos)}</div></div>
+      <div class="card"><div class="card-h"><h3>Idade das PRs abertas</h3></div><div class="card-b">${hbars(A.aging)}
+        <h3 style="font-size:14px;margin:18px 0 8px">Destino das concluídas</h3>${hbars(A.targets)}</div></div>
+    </div>`;
+}
+
+/* ------------------------------------------------------------------ histórico */
+function renderHistory() {
+  const label = a => {
+    const dl = {"deploy-approve": ["Aprovou release", "p-good"], "deploy-reject": ["Rejeitou release", "p-bad"],
+                permit: ["Liberou permissão", "p-good"], cancel: ["Cancelou run", "p-bad"]}[a.action];
+    if (dl) return dl;
+    if (a.action === "archive") return [`Arquivou`, "p-neutral"];
+    if (a.action === "unarchive") return [`Desarquivou`, "p-neutral"];
+    return VOTES[a.vote] || ["Removeu o voto", "p-neutral"];
+  };
+  const list = S.activity.filter(a => histFilter === "all" || (histFilter === "auto" ? a.by === "auto" : a.by !== "auto"));
+  $("#view").innerHTML = `<div class="toolbar"><div class="seg">
+      ${[["all", "Tudo"], ["auto", "Piloto"], ["manual", "Manual"]].map(([v, l]) => `<button class="${histFilter === v ? "on" : ""}" data-hist="${v}">${l}</button>`).join("")}
+    </div><span class="muted small">últimos ${S.activity.length} eventos</span></div>
+    <div class="card"><div class="tbl-wrap"><table><thead><tr><th>Quando</th><th>Quem</th><th>Ação</th><th>Item</th></tr></thead><tbody>
+    ${list.map(a => { const [l, c] = label(a); return `<tr>
+      <td class="small muted" style="white-space:nowrap">${new Date(a.ts).toLocaleString("pt-BR")}</td>
+      <td>${a.by === "auto" ? `<span class="pill p-auto">⚡ piloto</span>` : `<span class="pill p-neutral">você</span>`}${a.detail ? `<div class="small muted">${esc(a.detail)}</div>` : ""}</td>
+      <td><span class="pill ${c}">${l}</span></td>
+      <td>${a.kind ? `<a href="${esc(a.url)}" target="_blank" rel="noopener" style="text-decoration:none">${a.kind === "permission" ? "🔑" : "🚀"} ${esc(a.pipeline)}${a.stage ? ` → <b>${esc(a.stage)}</b>` : ""}</a>
+        <div class="small muted"><i class="dot" style="background:${orgColor(a.org)}"></i> ${esc(a.org)} · ${esc(a.branch || "")} ${esc(a.version || "")}${a.prNumber ? ` · PR #${a.prNumber}` : ""}</div>`
+        : `<a href="${esc(a.url)}" target="_blank" rel="noopener" style="text-decoration:none"><span class="prid">#${a.prId}</span> ${esc(a.title)}</a>
+        <div class="small muted"><i class="dot" style="background:${orgColor(a.org)}"></i> ${esc(a.org)} · ${esc(a.creatorName)} → ${esc(a.target)}</div>`}</td></tr>`; }).join("")
+      || `<tr><td colspan="4" class="empty">Nada ainda.</td></tr>`}
+    </tbody></table></div></div>`;
+}
+
+/* ------------------------------------------------------------------ ambiente */
+async function loadConfig() {
+  CFG = await (await fetch("/api/config")).json();
+  cfgDraft = CFG.orgs.map(o => ({originalName: o.name, name: o.name, url: o.url, pat: "", enabled: o.enabled, hasPat: o.hasPat,
+                                 patCommand: o.patCommand, me: o.me, test: null}));
+  cfgDraft.pollSeconds = CFG.pollSeconds;
+  if (!cfgDraft.length) cfgDraft.push(newOrgDraft());
+  if (tab === "ambiente") renderEnv();
+}
+const newOrgDraft = () => ({originalName: "", name: "", url: "", pat: "", enabled: true, hasPat: false, test: null});
+const tokensUrl = url => url ? `${url.includes("://") ? url.replace(/\/$/, "") : "https://dev.azure.com/" + url}/_usersSettings/tokens` : "";
+
+function renderEnv() {
+  if (!cfgDraft) { $("#view").innerHTML = `<div class="card"><div class="empty"><b>Carregando…</b></div></div>`; loadConfig(); return; }
+  const rows = cfgDraft.map((o, i) => `<div class="orgform">
+      <label class="f">Nome (como aparece na tela)<input data-cf="name" data-i="${i}" value="${esc(o.name)}" placeholder="ex.: MinhaEmpresa"></label>
+      <label class="f">Organização ou URL<input data-cf="url" data-i="${i}" value="${esc(o.url)}" placeholder="minha-org ou https://dev.azure.com/minha-org"></label>
+      <label class="f"><span>PAT${o.url ? ` · <a href="${esc(tokensUrl(o.url))}" target="_blank" rel="noopener">criar um ↗</a>` : ""}</span>
+        <input type="password" autocomplete="off" data-cf="pat" data-i="${i}" value="${esc(o.pat)}" placeholder="${o.hasPat ? (o.patCommand ? "vem de patCommand — vazio mantém" : "•••••• salvo — vazio mantém") : "cole o PAT"}"></label>
+      <div class="oact">
+        <label class="switch" title="Ativa"><input type="checkbox" data-cf="enabled" data-i="${i}" ${o.enabled ? "checked" : ""}></label>
+        <button class="sm" data-cftest="${i}" ${cfgBusy ? "disabled" : ""}>Testar</button>
+        <button class="ghost sm" data-cfdel="${i}" title="Remover">✕</button>
+      </div>
+      ${o.me && !o.test ? `<div class="who">Conectado como <b>${esc(o.me.name)}</b>${o.me.email && o.me.email !== o.me.name ? ` · ${esc(o.me.email)}` : ""}</div>` : ""}
+      ${o.test ? `<div class="tests">${o.test.error ? `<div class="chk"><span class="ko">✗</span>${esc(o.test.error)}</div>` : o.test.running ? `<div class="muted small">Testando…</div>`
+        : o.test.checks.map(c => `<div class="chk"><span class="${c.ok ? "ok" : "ko"}">${c.ok ? "✓" : "✗"}</span><span><b>${esc(c.label)}</b> <span class="muted">${esc(c.detail)}</span></span></div>`).join("")}</div>` : ""}
+    </div>`).join("");
+  $("#view").innerHTML = `
+    ${!S.configured ? `<div class="notice">👋 Bem-vindo! Cadastre ao menos uma organização do Azure DevOps com o seu PAT para começar. Tudo fica só nesta máquina.</div>` : ""}
+    <div class="card">
+      <div class="card-h"><h3>Organizações / contas Azure DevOps</h3><span class="muted small">Uma linha por organização. Cada uma usa o PAT da sua conta naquela org.</span>
+        <span class="spacer"></span><button class="sm" data-cfadd>+ Adicionar organização</button></div>
+      ${rows}
+      <div class="card-h" style="border-top:1px solid var(--line);border-bottom:0">
+        <label class="small" style="display:flex;gap:8px;align-items:center">Ler o Azure a cada <input type="number" min="15" max="3600" data-cf="pollSeconds" value="${esc(cfgDraft.pollSeconds)}" style="width:80px"> segundos</label>
+        <span class="spacer"></span>
+        <button data-cfreset>Descartar</button><button class="primary" data-cfsave ${cfgBusy ? "disabled" : ""}>Salvar e conectar</button>
+      </div>
+    </div>
+    <div class="grid2" style="margin-top:16px">
+      <div class="card"><div class="card-h"><h3>Como criar o PAT</h3></div><div class="card-b help">
+        <ol class="steps-help">
+          <li>No Azure DevOps da organização: <b>User settings → Personal access tokens → New token</b> (o link “criar ↗” acima abre direto).</li>
+          <li><b>Organization:</b> a própria org (ou All accessible organizations).</li>
+          <li><b>Scopes → Custom defined:</b>
+            <div><code>Code</code> Read &amp; write — ler e votar nas PRs</div>
+            <div><code>Build</code> Read &amp; execute — ver runs, cancelar</div>
+            <div><code>Release</code> Read, write, execute &amp; manage — aprovar releases</div>
+            <div>Para liberar permissão de recurso, inclua o escopo do recurso (ex.: <code>Variable Groups</code> Read, create &amp; manage) — e sua conta precisa ser admin dele.</div></li>
+          <li>Cole aqui, clique <b>Testar</b> e depois <b>Salvar e conectar</b>.</li>
+        </ol></div></div>
+      <div class="card"><div class="card-h"><h3>Onde ficam os dados</h3></div><div class="card-b help">
+        Tudo é local: <code>${esc(CFG?.dataDir || "data/")}</code> (fora do git). O <code>config.json</code> com os PATs fica com permissão <code>600</code> — só o seu usuário lê.
+        <br>A tela só atende em <code>127.0.0.1:${esc(CFG?.port || "")}</code>; nada é exposto na rede.
+        <br>Para outra pessoa usar: clonar o repositório, dar ▶ (ou <code>./install.sh</code>) e cadastrar as próprias contas aqui.</div></div>
+    </div>`;
+}
+
+async function cfgTest(i) {
+  const o = cfgDraft[i];
+  o.test = {running: true}; renderEnv();
+  try { o.test = await post("/api/config/test", {name: o.name, originalName: o.originalName, url: o.url, pat: o.pat}); }
+  catch (e) { o.test = {error: e.message}; }
+  renderEnv();
+}
+
+async function cfgSave() {
+  cfgBusy = true; renderEnv();
+  try {
+    await post("/api/config", {pollSeconds: Number(cfgDraft.pollSeconds) || 60,
+      orgs: cfgDraft.filter(o => o.name || o.url || o.pat).map(o => ({name: o.name, originalName: o.originalName, url: o.url, pat: o.pat, enabled: o.enabled}))});
+    toast("Configuração salva — conectando…");
+    cfgBusy = false; cfgDraft = null; await load(); setTimeout(async () => { await load(); if (tab === "ambiente") loadConfig(); }, 4000);
+  } catch (e) { cfgBusy = false; alert("Não salvou: " + e.message); renderEnv(); }
+}
+
+async function handleEnvClick(t, d) {
+  if (tab !== "ambiente" || !cfgDraft) return false;
+  if (d.cfadd !== undefined) { cfgDraft.push(newOrgDraft()); renderEnv(); return true; }
+  if (d.cfdel !== undefined) {
+    const o = cfgDraft[Number(d.cfdel)];
+    if (o.originalName && !confirm(`Remover ${o.originalName}? (só ao salvar)`)) return true;
+    cfgDraft.splice(Number(d.cfdel), 1); renderEnv(); return true;
+  }
+  if (d.cftest !== undefined) { await cfgTest(Number(d.cftest)); return true; }
+  if (d.cfsave !== undefined) { await cfgSave(); return true; }
+  if (d.cfreset !== undefined) { cfgDraft = null; renderEnv(); return true; }
+  if (d.cf === "enabled") { cfgDraft[Number(d.i)].enabled = t.checked; return true; }
+  return false;
+}
+document.addEventListener("input", e => {
+  const f = e.target.dataset?.cf;
+  if (!f || !cfgDraft || f === "enabled") return;
+  if (f === "pollSeconds") cfgDraft.pollSeconds = e.target.value;
+  else { cfgDraft[Number(e.target.dataset.i)][f] = e.target.value; cfgDraft[Number(e.target.dataset.i)].test = null; }
+});
+
+/* ------------------------------------------------------------------ eventos */
+async function vote(k, v, btn) {
+  const p = S.prs.find(x => key(x) === k);
+  if (!p) return;
+  if (v >= 5 && isProtected(p.target) && !confirm(`Aprovar PR para ${p.target}?\n\n#${p.prId} ${p.title}`)) return;
+  if (btn) btn.disabled = true;
+  try { await post("/api/vote", {org: p.org, prId: p.prId, vote: v}); toast(`#${p.prId}: ${(VOTES[v] || ["voto removido"])[0].toLowerCase()}`); await load(); }
+  catch (e) { alert("Falhou: " + e.message); if (btn) btn.disabled = false; }
+}
+
+function newRuleFrom(creator, target, action = "approve") {
+  openEditor(blankRule({action, creators: creator ? [creator] : [], targets: target ? [target] : []}), true);
+}
+
+document.addEventListener("click", async e => {
+  const t = e.target.closest("button, [data-expand], [data-redit], [data-dredit], [data-edclose], a, input");
+  if (!t) return;
+  const d = t.dataset;
+  if (await handleEnvClick(t, d)) return;
+  if (await handleDeployRuleClick(t, d)) return;
+  if (await handleRuleClick(t, d)) return;
+  if (d.dep) { t.closest("details")?.removeAttribute("open"); return decideDeploy(d.k, d.dep, t); }
+  if (d.kind !== undefined && !ded) { F.kind = d.kind; render(); return; }
+  if (d.goto) { tab = d.goto; history.replaceState(null, "", "#" + tab); render(); window.scrollTo(0, 0); return; }
+  if (d.kfilter) { F.conflict = !F.conflict; render(); return; }
+  if (d.tab) {
+    tab = d.tab; history.replaceState(null, "", "#" + tab); render(); window.scrollTo(0, 0); return; }
+  if (d.org !== undefined) { F.org = d.org; render(); return; }
+  if (d.vote !== undefined) { t.closest("details")?.removeAttribute("open"); return vote(d.k, Number(d.vote), t); }
+  if (d.sel) { t.checked ? selected.add(d.sel) : selected.delete(d.sel); render(); return; }
+  if (t.id === "selAll") { document.querySelectorAll("[data-sel]").forEach(c => t.checked ? selected.add(c.dataset.sel) : selected.delete(c.dataset.sel)); render(); return; }
+  if (d.expand && !e.target.closest("a")) { expanded.has(d.expand) ? expanded.delete(d.expand) : expanded.add(d.expand); render(); return; }
+  if (d.archive) {
+    t.closest("details")?.removeAttribute("open");
+    const [org, prId] = d.archive.split("|");
+    const restore = d.restore === "1" || S.prs.find(p => key(p) === d.archive)?.archived;
+    await post("/api/archive", {items: [{org, prId: Number(prId)}], archive: !restore});
+    toast(restore ? `#${prId} voltou para a fila` : `#${prId} arquivada`); return load();
+  }
+  if (d.bulk) {
+    const items = [...selected].map(k => S.prs.find(p => key(p) === k)).filter(Boolean);
+    if (d.bulk === "clear") { selected.clear(); return render(); }
+    if (d.bulk === "archive") { await post("/api/archive", {items: items.map(p => ({org: p.org, prId: p.prId})), archive: true}); toast(`${items.length} arquivada(s)`); }
+    if (d.bulk === "approve") {
+      const prot = items.filter(p => isProtected(p.target));
+      if (!confirm(`Aprovar ${items.length} PR(s)?${prot.length ? `\n\n⚠ ${prot.length} para branch protegida.` : ""}`)) return;
+      let ok = 0; for (const p of items) { try { await post("/api/vote", {org: p.org, prId: p.prId, vote: 10}); ok++; } catch {} }
+      toast(`${ok} de ${items.length} aprovada(s)`);
+    }
+    selected.clear(); return load();
+  }
+  if (d.mkrule || d.mkruleArch) { const p = S.prs.find(x => key(x) === (d.mkrule || d.mkruleArch)); t.closest("details")?.removeAttribute("open");
+    return newRuleFrom(p.creatorName.split(" ")[0], p.target, d.mkruleArch ? "archive" : "approve"); }
+  if (d.mkruleName) return newRuleFrom(d.mkruleName.split(" ")[0], "");
+  if (d.setting) {
+    const v = t.checked;
+    return saveSettings(d.setting === "active" ? {paused: !v} : {[d.setting]: v}).then(() => toast("Salvo"));
+  }
+  if (d.days) { aDays = Number(d.days); return loadAnalytics(); }
+  if (d.aorg !== undefined) { aOrg = d.aorg; return loadAnalytics(); }
+  if (t.id === "aReload") return loadAnalytics(true);
+  if (d.hist) { histFilter = d.hist; return render(); }
+});
+
+document.addEventListener("input", e => {
+  if (e.target.id === "q") { F.q = e.target.value; const pos = e.target.selectionStart; render(); const q = $("#q"); q.focus(); q.setSelectionRange(pos, pos); }
+});
+document.addEventListener("change", e => {
+  if (e.target.id === "creatorSel") { F.creator = e.target.value; render(); }
+  if (e.target.id === "relProd") { relOnlyProd = e.target.checked; render(); }
+});
+document.addEventListener("toggle", e => {
+  if (e.target.matches?.("details.menu") && e.target.open)
+    document.querySelectorAll("details.menu[open]").forEach(m => m !== e.target && m.removeAttribute("open"));
+}, true);
+document.addEventListener("click", e => {
+  if (!e.target.closest("details.menu")) document.querySelectorAll("details.menu[open]").forEach(m => m.removeAttribute("open"));
+}, true);
+
+$("#autoOn").addEventListener("change", e => saveSettings({paused: !e.target.checked}).then(() => toast(e.target.checked ? "Automação ligada" : "Automação pausada")));
+$("#refresh").onclick = async () => { await post("/api/refresh"); toast("Lendo o Azure…"); setTimeout(load, 2500); setTimeout(load, 8000); if (tab === "analise") loadAnalytics(true); };
+
+const tip = $("#tip");
+document.addEventListener("mousemove", e => {
+  const el = e.target.closest("[data-tip]");
+  if (!el) { tip.style.display = "none"; return; }
+  tip.textContent = el.dataset.tip; tip.style.display = "block";
+  const w = tip.offsetWidth, h = tip.offsetHeight;
+  tip.style.left = Math.min(e.clientX + 12, innerWidth - w - 8) + "px";
+  tip.style.top = (e.clientY + 14 + h > innerHeight ? e.clientY - h - 10 : e.clientY + 14) + "px";
+});
+
+load();
+setInterval(() => {
+  // não redesenha no meio de uma edição (menu aberto, digitando regra)
+  if (ed || ded || tab === "ambiente" || document.querySelector("details.menu[open]") || document.activeElement?.id === "addProt") return;
+  load();
+}, 15000);
+</script>
+</body>
+</html>
