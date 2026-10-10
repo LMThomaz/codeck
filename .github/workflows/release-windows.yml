@@ -253,6 +253,9 @@ jobs:
           Set-Content main.ts "import { soma } from `"./util`";`n`nconst total: string = soma(1, 2);`nconsole.log(total);"
           Set-Content tsconfig.json '{"compilerOptions":{"strict":true,"target":"es2020","module":"commonjs"}}'
           Set-Content .gitignore 'workspace.local.json'
+          Set-Content package.json '{"name":"demo","scripts":{"ola":"echo script-ok"}}'
+          New-Item -ItemType Directory -Force .vscode | Out-Null
+          Set-Content .vscode/launch.json "{`n  // comentário como no VS Code`n  `"version`": `"0.2.0`",`n  `"configurations`": [`n    { `"name`": `"Rodar demo`", `"type`": `"node-terminal`", `"request`": `"launch`", `"command`": `"echo launch-ok`" },`n  ],`n}"
           git add -A; git commit -qm inicial; git push -q -u origin main
           Set-Content workspace.local.json '{"segredo":"local"}'
           Pop-Location

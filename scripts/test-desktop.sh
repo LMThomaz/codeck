@@ -27,6 +27,8 @@ git clone -q "$FX/origin.git" "$FX/demo-api" 2>/dev/null
   printf 'import { soma } from "./util";\n\nconst total: string = soma(1, 2);\nconsole.log(total);\n' > main.ts
   printf '{"compilerOptions":{"strict":true,"target":"es2020","module":"commonjs"}}\n' > tsconfig.json
   printf 'workspace.local.json\n' > .gitignore
+  printf '{"name":"demo","scripts":{"ola":"echo script-ok"}}\n' > package.json
+  mkdir -p .vscode && printf '{\n  // comentário como no VS Code\n  "version": "0.2.0",\n  "configurations": [\n    { "name": "Rodar demo", "type": "node-terminal", "request": "launch", "command": "echo launch-ok" },\n  ],\n}\n' > .vscode/launch.json
   git add -A && git commit -qm inicial && git push -q -u origin main
   printf '{"segredo":"local"}\n' > workspace.local.json
 )

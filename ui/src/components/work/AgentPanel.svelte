@@ -1,7 +1,7 @@
 <script lang="ts">
   // Painel da direita: o agente selecionado (estado, modelo, contexto, custo, o que ele fez), a tarefa (branch, o que
   // mudou, PR) e os limites das contas de IA com a contagem para o reset.
-  import { ExternalLink, GitBranch, GitCommitHorizontal, GitCompareArrows, MessageSquareShare, GitPullRequestCreate, Send, Trash2 } from "@lucide/svelte";
+  import { ChevronDown, ExternalLink, GitBranch, GitCommitHorizontal, GitCompareArrows, MessageSquareShare, GitPullRequestCreate, Send, Trash2 } from "@lucide/svelte";
   import { get, post } from "../../lib/api";
   import { repos } from "../../lib/repos.svelte";
   import { go } from "../../lib/router.svelte";
@@ -16,6 +16,7 @@
   const s = $derived(work.session(term));
   const acc = $derived(work.account(term?.meta.account));
   let prompt = $state("");
+  let limitsOpen = $state((() => { try { return localStorage.getItem("commitdeck.limitsOpen") !== "0"; } catch { return true; } })());
   let diff = $state<any>(null);
   let now = $state(Date.now());
 
@@ -128,8 +129,10 @@
     </section>
   {/if}
 
-  <section>
-    <h4>Limites das contas</h4>
+  <section class="limits" class:shut={!limitsOpen}>
+    <button class="lh" onclick={() => { limitsOpen = !limitsOpen; try { localStorage.setItem("commitdeck.limitsOpen", limitsOpen ? "1" : "0"); } catch { /* */ } }} aria-expanded={limitsOpen}>
+      <h4>Limites das contas</h4><ChevronDown size={13} class="chev {limitsOpen ? '' : 'rot'}" /></button>
+    {#if limitsOpen}
     {#each accounts as a (a.id)}
       <div class="lim">
         <div class="who sm"><AgentIcon provider={a.provider} size={15} /><b class="grow ell">{a.name}</b><span class="tiny muted">{a.label}</span></div>
@@ -145,6 +148,7 @@
         {/if}
       </div>
     {:else}<div class="small muted">Nenhuma conta de IA. Configure em Contas e ajustes → IA.</div>{/each}
+    {/if}
   </section>
 </div>
 
@@ -184,5 +188,9 @@
   .num { width: 34px; text-align: right; font-variant-numeric: tabular-nums; }
   .reset { padding-left: 66px; margin-top: -3px; }
   a { color: var(--accent); }
+  .lh { display: flex; align-items: center; justify-content: space-between; width: 100%; border: 0; background: none; padding: 0; cursor: pointer; color: var(--muted); }
+  .lh :global(.chev) { transition: transform var(--t); }
+  .lh :global(.chev.rot) { transform: rotate(-90deg); }
+  .limits.shut { padding-bottom: 0; }
   .lnk { border: 0; background: none; color: var(--accent); font: 600 12.5px var(--font); cursor: pointer; padding: 0; }
 </style>

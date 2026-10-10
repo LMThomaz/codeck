@@ -15,7 +15,8 @@
   const $$ = (s, root = document) => [...root.querySelectorAll(s)];
   // o Monaco desenha os espaços como espaço não separável: normaliza para comparar texto
   const txt = el => (el?.innerText || el?.textContent || "").replace(/\u00a0/g, " ").trim();
-  const byText = (sel, t, root = document) => $$(sel, root).find(e => txt(e).includes(t));
+  // texto visível pode vir em maiúsculas (text-transform no CSS): compara sem diferenciar
+  const byText = (sel, t, root = document) => $$(sel, root).find(e => txt(e).toLowerCase().includes(t.toLowerCase()));
   async function waitFor(fn, ms = 8000, step = 100) {
     const end = Date.now() + ms;
     while (Date.now() < end) {
@@ -193,6 +194,8 @@
 
   // ============================================================ 4. projetos: abrir, terminal, editor
   await step("Projetos: abrir projeto pelo menu", async () => {
+    // o clique na lista já abriu demo-api: fecha para reabrir pelo menu de projetos
+    await api("ws/close", { repoId: apiRepo.id });
     await go("#/work", 1200);
     const trig = await waitFor(() => $(".ptabs .addp") || byText("button, span.btn", "Abrir projeto"));
     click(trig.closest("button") || trig);
@@ -217,6 +220,38 @@
     click(await waitFor(() => byText(".ft .n.file", "a.txt"))); await sleep(2500);
     click(byText(".tab", "terminal")); await sleep(1200);
     if (!termText().includes("desktop-ok-42")) throw new Error("histórico sumiu");
+  });
+  await step("Executar: launch.json e scripts do package.json", async () => {
+    click($(".runbtn .caret").closest("button"));
+    await waitFor(() => byText(".items .it", "Rodar demo"));
+    const items = $$(".items .it").map(txt);
+    if (!items.some(i => i.includes("ola"))) throw new Error("script do package.json não apareceu: " + items.join(" | "));
+    click(byText(".items .it", "Rodar demo"));
+    await waitFor(() => byText(".tab.on", "Rodar demo"), 8000);
+    await waitFor(() => termText().includes("launch-ok"), 15000);
+    click($(".runbtn .caret").closest("button")); click(await waitFor(() => byText(".items .it", "ola")));
+    await waitFor(() => termText().includes("script-ok"), 30000);
+    if (!txt($(".runbtn .good-run")).includes("ola")) throw new Error("não lembrou a última execução");
+    await shot("05a-executar");
+    return "launch.json (com comentários) e npm run ola executaram";
+  });
+  await step("Layout: arquivos em cima, tarefas embaixo e painel redimensionável", async () => {
+    const left = $(".work .left");
+    if (!(left.querySelector(".tree").compareDocumentPosition(left.querySelector(".scopes")) & Node.DOCUMENT_POSITION_FOLLOWING)) throw new Error("tarefas não estão abaixo dos arquivos");
+    const w0 = left.getBoundingClientRect().width, h = $(".hsplit.r"), r = h.getBoundingClientRect();
+    h.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, clientX: r.x + 4, clientY: r.y + 50 }));
+    window.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, clientX: r.x + 84, clientY: r.y + 50 }));
+    window.dispatchEvent(new PointerEvent("pointerup", { bubbles: true }));
+    await sleep(300);
+    const w1 = $(".work .left").getBoundingClientRect().width;
+    if (Math.abs(w1 - w0 - 80) > 4) throw new Error(`largura ${w0} → ${w1}`);
+    const lh = $(".right .lh"); if (lh) { click(lh); await sleep(200); if ($(".right .lim")) throw new Error("limites não recolheram"); click($(".right .lh")); }
+    return `painel ${Math.round(w0)} → ${Math.round(w1)} px`;
+  });
+  await step("Aba PRs do projeto", async () => {
+    click(byText(".tab", "PRs")); await sleep(800);
+    await waitFor(() => $(".act") || byText(".body *", "sem remoto"), 5000);
+    click(byText(".tab", "terminal") || byText(".tab", "Rodar demo"));
   });
   await step("Editor: abrir, digitar e salvar com ⌘S", async () => {
     click(byText(".tab", "a.txt")); await sleep(800);

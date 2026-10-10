@@ -12,8 +12,8 @@ export interface AiAccount {
   usage?: { rateLimits: { window: string; used: number | null; resetsAt: string | null }[]; updated: string; source: string; plan?: string } | null;
 }
 export interface TermInfo {
-  id: string; title: string; kind: "shell" | "agent" | "setup"; cwd: string; alive: boolean; exit: number | null; created: number; lastOutput: number;
-  meta: { project?: string; task?: string; account?: string; provider?: Provider; sid?: string };
+  id: string; title: string; kind: "shell" | "agent" | "setup" | "run"; cwd: string; alive: boolean; exit: number | null; created: number; lastOutput: number;
+  meta: { project?: string; task?: string; account?: string; provider?: Provider; sid?: string; run?: string };
 }
 export interface Session {
   account: string; provider: Provider; status: "starting" | "idle" | "working" | "done" | "needs-you" | "compacting"; started: number;

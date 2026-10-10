@@ -2,13 +2,14 @@
   // Área de trabalho (v3): projetos abertos em abas; em cada um, o checkout principal e as tarefas (worktrees) à
   // esquerda com os arquivos; no centro, abas de agentes, terminais e arquivos; à direita, o agente e os limites.
   // ⌘P abre arquivo · ⌘⇧F busca no projeto · ⌘T novo terminal · ⌘W fecha a aba · ⌘1…9 troca de projeto.
-  import { Bot, ChevronDown, Code2, FolderGit2, FolderOpen, GitBranch, AppWindow, Columns2, GitCompareArrows, LayoutGrid, PanelRight, Settings2, Plus, Search, SquareTerminal, X } from "@lucide/svelte";
+  import { Bot, GitPullRequest, Layers, Play, RefreshCw, ChevronDown, Code2, FolderGit2, FolderOpen, GitBranch, AppWindow, Columns2, GitCompareArrows, LayoutGrid, PanelRight, Settings2, Plus, Search, SquareTerminal, X } from "@lucide/svelte";
   import { untrack } from "svelte";
-  import { post } from "../lib/api";
+  import { get, post } from "../lib/api";
   import { pickFolder, send } from "../lib/native";
   import { setOpener } from "../lib/lsp";
   import { repos } from "../lib/repos.svelte";
   import { go, router } from "../lib/router.svelte";
+  import { store } from "../lib/store.svelte";
   import { ui } from "../lib/ui.svelte";
   import type { Project, Task, TermInfo } from "../lib/work.svelte";
   import { STATUS, work } from "../lib/work.svelte";
@@ -26,11 +27,29 @@
   import ProjectSettings from "../components/work/ProjectSettings.svelte";
   import Review from "../components/work/Review.svelte";
   import RepoDetail from "./RepoDetail.svelte";
+  import RepoActivity from "../components/work/RepoActivity.svelte";
 
   type FileTab = { k: "file"; key: string; path: string; scope: string | null; line?: number };
-  type View = { scope: string | null; files: FileTab[]; order: string[]; active: string | null; left: "files" | "search"; right: boolean; split?: string | null };
+  type View = { scope: string | null; files: FileTab[]; order: string[]; active: string | null; left: "files" | "search"; right: boolean; split?: string | null; lastRun?: string | null };
   const LS = "commitdeck.work.views";
   let views = $state<Record<string, View>>(readViews());
+  // larguras/alturas ajustáveis arrastando as bordas (valem para todos os projetos)
+  const SZ = "commitdeck.work.sizes";
+  let sizes = $state<{ left: number; right: number; scopes: number }>((() => { try { return { left: 260, right: 300, scopes: 240, ...JSON.parse(localStorage.getItem(SZ) || "{}") }; } catch { return { left: 260, right: 300, scopes: 240 }; } })());
+  const scopesH = $derived(sizes.scopes);
+  function drag(e: PointerEvent, which: "left" | "right" | "scopes") {
+    e.preventDefault();
+    const x0 = e.clientX, y0 = e.clientY, start = sizes[which];
+    const move = (ev: PointerEvent) => {
+      const v = which === "left" ? start + (ev.clientX - x0) : which === "right" ? start - (ev.clientX - x0) : start - (ev.clientY - y0);
+      const [min, max] = which === "scopes" ? [90, 520] : which === "left" ? [180, 520] : [220, 560];
+      sizes = { ...sizes, [which]: Math.round(Math.min(max, Math.max(min, v))) };
+    };
+    const up = () => { window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", up); document.body.classList.remove("resizing");
+      try { localStorage.setItem(SZ, JSON.stringify(sizes)); } catch { /* sem armazenamento */ } };
+    document.body.classList.add("resizing");
+    window.addEventListener("pointermove", move); window.addEventListener("pointerup", up);
+  }
   function readViews() { try { return JSON.parse(localStorage.getItem(LS) || "{}"); } catch { return {}; } }
   $effect(() => { const v = JSON.stringify(views); try { localStorage.setItem(LS, v); } catch { /* sem armazenamento */ } });
 
@@ -56,23 +75,31 @@
   const task = $derived(p && v?.scope ? p.tasks.find(t => t.id === v.scope) || null : null);
   const scopeTerms = $derived<TermInfo[]>(p ? (task ? task.terms : p.terms) : []);
 
-  type Tab = { key: string; kind: "term" | "file" | "review" | "git"; term?: TermInfo; file?: FileTab };
+  type Tab = { key: string; kind: "term" | "file" | "review" | "git" | "prs"; term?: TermInfo; file?: FileTab };
   const tabs = $derived.by<Tab[]>(() => {
     if (!p || !v) return [];
     const list: Tab[] = [
       // repositório = projeto: a aba Git (grafo, branches, alterações, commit, sync) fica sempre no começo — numa tarefa,
       // é o Git do worktree dela
       { key: "g:" + (v.scope || "main"), kind: "git" as const },
+      { key: "p:" + p.id, kind: "prs" as const },   // PRs e builds deste repositório
       // tarefa: a aba "Revisão" fica sempre no começo (o que mudou desde a base, para revisar e comentar)
       ...(task ? [{ key: "r:" + task.id, kind: "review" as const }] : []),
       ...scopeTerms.map(t => ({ key: "t:" + t.id, kind: "term" as const, term: t })),
       ...v.files.filter(f => f.scope === (v.scope || null)).map(f => ({ key: f.key, kind: "file" as const, file: f })),
     ];
-    const pos = (k: string) => { if (k.startsWith("g:")) return -2; if (k.startsWith("r:")) return -1; const i = v.order.indexOf(k); return i < 0 ? 1e6 : i; };
+    const pos = (k: string) => { if (k.startsWith("g:")) return -3; if (k.startsWith("p:")) return -2; if (k.startsWith("r:")) return -1; const i = v.order.indexOf(k); return i < 0 ? 1e6 : i; };
     return list.sort((a, b) => pos(a.key) - pos(b.key));
   });
   // sem aba escolhida: o 1º terminal/arquivo; se não houver, a tela inicial (abrir agente, terminal, nova tarefa)
   const activeTab = $derived(tabs.find(t => t.key === v?.active) || tabs.find(t => t.kind === "term" || t.kind === "file") || null);
+  // PRs abertas deste repositório (contador na aba)
+  const prCount = $derived.by(() => {
+    if (!p?.provider || !p.slug) return 0;
+    const sl = p.slug.toLowerCase().split("/");
+    return [...(store.s?.myPrs || []), ...store.open].filter(x => x.provider === p!.provider && (p!.provider === "github" ? (x.project || "").toLowerCase() === p!.slug!.toLowerCase()
+      : x.org.toLowerCase() === sl[0] && x.repo.toLowerCase() === sl[sl.length - 1])).length;
+  });
   const splitTab = $derived(v?.split && v.split !== activeTab?.key ? tabs.find(t => t.key === v!.split) || null : null);
   const activeTerm = $derived(activeTab?.kind === "term" ? activeTab.term! : (scopeTerms.find(t => t.kind === "agent") || null));
 
@@ -85,6 +112,42 @@
 
   // ------------------------------------------------------------ ações
   let newTask = $state<{ preset?: any } | null>(null);
+
+  // ------------------------------------------------------------ executar (launch.json, scripts, perfis do .NET…)
+  type RunCfg = { id: string; label: string; group: string; command?: string; compound?: string[]; envFile?: string; detail?: string };
+  let runCfgs = $state<RunCfg[]>([]);
+  async function loadRun() {
+    if (!p) return;
+    try { runCfgs = (await get<{ configs: RunCfg[] }>("ws/run-configs", { repoId: p.id, taskId: v?.scope })).configs; } catch { runCfgs = []; }
+  }
+  $effect(() => { void p?.id; void v?.scope; untrack(loadRun); });
+  const lastRun = $derived(runCfgs.find(c => c.id === v?.lastRun) || null);
+  async function runCfg(id: string) {
+    if (!p || !v) return;
+    v.lastRun = id;
+    const prog = ui.progress("Iniciando…");
+    try {
+      const r = await post<{ terms: TermInfo[] }>("ws/run", { repoId: p.id, taskId: v.scope, configId: id });
+      await work.load();
+      focusTab("t:" + r.terms[0].id);
+      prog.done(r.terms.length > 1 ? `${r.terms.length} processos iniciados` : "Executando");
+    } catch (e) { prog.fail(e); }
+  }
+  async function restart(t: TermInfo) {
+    await post("terms/close", { id: t.id }).catch(() => {});
+    drop(t.id);
+    if (t.meta.run) await runCfg(t.meta.run as string);
+  }
+  const runItems = $derived.by(() => {
+    const items: any[] = [];
+    let g = "";
+    for (const c of runCfgs) {
+      if (c.group !== g) { items.push({ heading: c.group }); g = c.group; }
+      items.push({ label: c.label + (c.compound ? ` (${c.compound.length})` : "") + (c.envFile ? `  · ${c.envFile}` : ""), icon: c.compound ? Layers : Play, onclick: () => runCfg(c.id) });
+    }
+    if (!items.length) items.push({ label: "Nada para executar — sem launch.json, scripts do package.json ou perfis do .NET", disabled: true });
+    return [...items, { separator: true }, { label: "Recarregar a lista", icon: RefreshCw, onclick: loadRun }];
+  });
   $effect(() => {
     const fr = work.focusRequest;
     if (fr && p && v && fr.projectId === p.id) untrack(() => { v!.scope = fr.scope; v!.active = (fr.tab === "git" ? "g:" : "r:") + (fr.scope || "main"); work.focusRequest = null; });
@@ -175,6 +238,8 @@
           {#if tab?.kind === "term" && tab.term}
             {@const tid = tab.term.id}
             {#key tid}<Terminal id={tid} />{/key}
+          {:else if tab?.kind === "prs"}
+            {#key p!.id}<RepoActivity project={p!} />{/key}
           {:else if tab?.kind === "git"}
             {#key (task?.repoId || p!.id)}<RepoDetail repoId={task?.repoId || p!.id} embedded />{/key}
           {:else if tab?.kind === "review" && task}
@@ -241,10 +306,19 @@
       </Empty>
     </div>
   {:else}
-    <div class="grid" class:noright={!v.right || activeTab?.kind === "git"}>
+    <div class="grid" class:noright={!v.right || activeTab?.kind === "git" || activeTab?.kind === "prs"} style="--lw:{sizes.left}px;--rw:{sizes.right}px">
       <!-- esquerda: escopo (principal / tarefas) + arquivos -->
       <aside class="card left">
-        <div class="scopes">
+        <div class="hsplit r" role="separator" aria-orientation="vertical" title="Arraste para redimensionar" onpointerdown={(e) => drag(e, "left")}></div>
+        <div class="lm">
+          <button class:on={v.left === "files"} onclick={() => (v.left = "files")}><Code2 size={13} /> Arquivos</button>
+          <button class:on={v.left === "search"} onclick={() => (v.left = "search")}><Search size={13} /> Busca</button>
+        </div>
+        <div class="tree">
+          {#key p.id + (v.scope || "")}<FileTree repoId={p.id} taskId={v.scope} mode={v.left} onopen={openFile} active={activeTab?.file?.path || null} />{/key}
+        </div>
+        <div class="scopes" style="height:{scopesH}px">
+          <div class="vsplit" role="separator" aria-orientation="horizontal" title="Arraste para redimensionar" onpointerdown={(e) => drag(e, "scopes")}></div>
           <button class="sc" class:on={!v.scope} onclick={() => setScope(null)}>
             <FolderGit2 size={14} /><span class="grow ell"><b>{p.name}</b><span class="tiny muted">checkout principal</span></span>
             {#if p.terms.length}<span class="tiny muted">{p.terms.length}</span>{/if}
@@ -264,13 +338,6 @@
             <div class="none">Nenhuma tarefa. “Nova” cria uma branch e um worktree — o agente trabalha lá sem mexer no seu checkout.</div>
           {/each}
         </div>
-        <div class="lm">
-          <button class:on={v.left === "files"} onclick={() => (v.left = "files")}><Code2 size={13} /> Arquivos</button>
-          <button class:on={v.left === "search"} onclick={() => (v.left = "search")}><Search size={13} /> Busca</button>
-        </div>
-        <div class="tree">
-          {#key p.id + (v.scope || "")}<FileTree repoId={p.id} taskId={v.scope} mode={v.left} onopen={openFile} active={activeTab?.file?.path || null} />{/key}
-        </div>
       </aside>
 
       <!-- centro: abas -->
@@ -284,21 +351,29 @@
                 oncontextmenu={(e) => ui.contextMenu(e, [
                   { label: "Abrir ao lado", icon: Columns2, onclick: () => { if (v) { if (v.active === t.key || activeTab?.key === t.key) v.active = tabs.find(x => x.key !== t.key)?.key || null; v.split = t.key; } }, disabled: tabs.length < 2 },
                   ...(v?.split ? [{ label: "Fechar a divisão", onclick: () => v && (v.split = null) }] : []),
+                  ...(t.kind === "term" && t.term?.kind === "run" ? [{ label: "Reiniciar", icon: RefreshCw, onclick: () => restart(t.term!) }] : []),
                   ...(t.kind !== "review" ? [{ separator: true }, { label: "Fechar", icon: X, onclick: () => closeTab(t) }] : []),
                 ])}>
                 {#if t.kind === "term" && t.term?.kind === "agent"}<AgentIcon provider={t.term.meta.provider} size={13} />
+                {:else if t.kind === "term" && t.term?.kind === "run"}<Play size={12} class={t.term.alive ? "running" : ""} />
                 {:else if t.kind === "term"}<SquareTerminal size={13} />
                 {:else if t.kind === "review"}<GitCompareArrows size={13} />
                 {:else if t.kind === "git"}<GitBranch size={13} />
+                {:else if t.kind === "prs"}<GitPullRequest size={13} />
                 {:else}<Code2 size={13} />{/if}
-                <span class="ell">{t.kind === "term" ? t.term!.title : t.kind === "review" ? "Revisão" : t.kind === "git" ? "Git" : t.file!.path.split("/").pop()}</span>
+                <span class="ell">{t.kind === "term" ? t.term!.title : t.kind === "review" ? "Revisão" : t.kind === "git" ? "Git" : t.kind === "prs" ? `PRs${prCount ? " · " + prCount : ""}` : t.file!.path.split("/").pop()}</span>
                 {#if s}<span class="sdot {STATUS[s.status]?.[1]}" class:pulse={s.status === "working"} title={STATUS[s.status]?.[0]}></span>{/if}
                 {#if t.kind === "file" && dirty[t.key]}<span class="dirty" title="não salvo"></span>{/if}
-                {#if t.kind !== "review" && t.kind !== "git"}<button class="x" title="Fechar (⌘W)" onclick={(e) => { e.stopPropagation(); closeTab(t); }}><X size={11} /></button>{/if}
+                {#if t.kind === "term" || t.kind === "file"}<button class="x" title="Fechar (⌘W)" onclick={(e) => { e.stopPropagation(); closeTab(t); }}><X size={11} /></button>{/if}
               </div>
             {/each}
           </div>
           <div class="tact">
+            <div class="runbtn">
+              <button class="btn sm good-run" disabled={!lastRun && !runCfgs.length} title={lastRun ? `Executar: ${lastRun.label}` : "Escolha o que executar"}
+                onclick={() => (lastRun ? runCfg(lastRun.id) : null)}><Play size={13} /> <span class="ell">{lastRun ? lastRun.label : "Executar"}</span></button>
+              <Menu items={runItems} align="right" label="O que executar">{#snippet trigger()}<span class="btn sm caret"><ChevronDown size={12} /></span>{/snippet}</Menu>
+            </div>
             <Menu items={agentItems} align="right">{#snippet trigger()}<span class="btn sm"><Bot size={14} /> Agente <ChevronDown size={12} /></span>{/snippet}</Menu>
             <button class="btn sm ghost" title="Novo terminal (⌘T)" onclick={() => newTerm()}><SquareTerminal size={14} /></button>
             <button class="btn sm ghost icon" title="Painel do agente" onclick={() => (v.right = !v.right)}><PanelRight size={15} /></button>
@@ -312,8 +387,9 @@
         </div>
       </section>
 
-      {#if v.right && activeTab?.kind !== "git"}
+      {#if v.right && activeTab?.kind !== "git" && activeTab?.kind !== "prs"}
         <aside class="card right">
+          <div class="hsplit l" role="separator" aria-orientation="vertical" title="Arraste para redimensionar" onpointerdown={(e) => drag(e, "right")}></div>
           <AgentPanel project={p} {task} term={activeTerm} onremoved={() => setScope(null)} onreview={() => task && focusTab("r:" + task.id)} />
         </aside>
       {/if}
@@ -351,11 +427,21 @@
   .cmp { display: flex; align-items: center; gap: 6px; margin: 2px 4px 4px; padding: 6px 8px; border: 1px dashed var(--accent-line); border-radius: 8px;
     background: var(--accent-soft); color: var(--accent); font: 600 12px var(--font); cursor: pointer; text-align: left; }
   .empty { flex: 1; display: grid; place-items: center; }
-  .grid { flex: 1; min-height: 0; display: grid; grid-template-columns: 260px minmax(0, 1fr) 300px; gap: 10px; }
-  .grid.noright { grid-template-columns: 260px minmax(0, 1fr); }
+  .grid { flex: 1; min-height: 0; display: grid; grid-template-columns: var(--lw) minmax(0, 1fr) var(--rw); gap: 10px; }
+  .grid.noright { grid-template-columns: var(--lw) minmax(0, 1fr); }
+  .left, .right { position: relative; }
+  .hsplit { position: absolute; top: 0; bottom: 0; width: 10px; z-index: 6; cursor: col-resize; }
+  .hsplit.r { right: -8px; } .hsplit.l { left: -8px; }
+  .hsplit::after { content: ""; position: absolute; top: 30%; bottom: 30%; left: 4px; width: 2px; border-radius: 2px; background: transparent; transition: background var(--t); }
+  .hsplit:hover::after { background: var(--accent-line); }
+  .vsplit { position: absolute; left: 0; right: 0; top: 0; height: 8px; cursor: row-resize; z-index: 6; }
+  .vsplit::after { content: ""; position: absolute; left: 35%; right: 35%; top: 4px; height: 2px; border-radius: 2px; background: var(--line-2); transition: background var(--t); }
+  .vsplit:hover::after { background: var(--accent-line); }
+  :global(body.resizing) { cursor: col-resize; user-select: none; }
+  :global(body.resizing iframe, body.resizing .xterm, body.resizing .monaco-editor) { pointer-events: none; }
   .card { min-height: 0; overflow: hidden; }
   .left { display: flex; flex-direction: column; }
-  .scopes { display: flex; flex-direction: column; gap: 2px; padding: 8px; max-height: 45%; overflow: auto; flex: none; }
+  .scopes { position: relative; display: flex; flex-direction: column; gap: 2px; padding: 10px 8px 8px; overflow: auto; flex: none; border-top: 1px solid var(--line); }
   .sc { display: flex; align-items: center; gap: 9px; width: 100%; padding: 6px 8px; border: 0; border-radius: 8px; background: none; color: var(--text-2);
     font: 13px var(--font); text-align: left; cursor: pointer; transition: background var(--t); animation: rise 0.25s var(--ease-out) both; }
   .sc:hover { background: var(--surface-2); }
@@ -371,7 +457,7 @@
   .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; background: var(--line-3); }
   .dot.accent { background: var(--accent); animation: ping 1.2s var(--ease) infinite; } .dot.warn { background: var(--warn); } .dot.good { background: var(--good); } .dot.muted { background: var(--text-2); }
   .none { font-size: 12px; color: var(--muted); padding: 4px 8px 8px; }
-  .lm { display: flex; gap: 2px; padding: 0 8px; border-top: 1px solid var(--line); padding-top: 8px; }
+  .lm { display: flex; gap: 2px; padding: 8px 8px 0; }
   .lm button { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 5px; height: 26px; border: 0; border-radius: 7px; background: none;
     color: var(--muted); font: 600 12px var(--font); cursor: pointer; }
   .lm button.on { background: var(--surface-3); color: var(--text); }
@@ -390,6 +476,11 @@
   .pulse { animation: ping 1.2s var(--ease) infinite; }
   .dirty { width: 7px; height: 7px; border-radius: 50%; background: var(--text-2); flex: none; }
   .tact { display: flex; align-items: center; gap: 4px; padding-bottom: 4px; }
+  .runbtn { display: flex; align-items: center; }
+  .runbtn .good-run { border-radius: 8px 0 0 8px; max-width: 200px; color: var(--good); }
+  .runbtn .good-run :global(svg) { color: var(--good); flex: none; }
+  .runbtn :global(.caret) { border-radius: 0 8px 8px 0; margin-left: -1px; padding: 0 6px; }
+  .tab :global(.running) { color: var(--good); animation: ping 1.6s var(--ease) infinite; border-radius: 50%; }
   .body { flex: 1; min-height: 0; position: relative; display: grid; grid-template-columns: minmax(0, 1fr); }
   .body.split { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
   .pane { position: relative; min-width: 0; min-height: 0; }
@@ -410,5 +501,5 @@
   .keys { margin-top: 8px; }
   .resume { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 6px; margin-top: 14px; }
   .right { overflow: hidden; }
-  @media (max-width: 1100px) { .grid, .grid.noright { grid-template-columns: 220px minmax(0, 1fr); } .right { display: none; } }
+  @media (max-width: 1100px) { .grid, .grid.noright { grid-template-columns: var(--lw) minmax(0, 1fr); } .right { display: none; } }
 </style>

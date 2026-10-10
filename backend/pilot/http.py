@@ -576,6 +576,16 @@ def post_ws_agent(qs, body):
                                  body.get("mode"), body.get("title"), body.get("resume"))
 
 
+@route("GET", "/api/ws/run-configs")
+def get_ws_run_configs(qs, body):
+    return workspace.run_configs(q1(qs, "repoId"), q1(qs, "taskId"))
+
+
+@route("POST", "/api/ws/run")
+def post_ws_run(qs, body):
+    return workspace.run(body.get("repoId"), body.get("taskId"), body.get("configId"))
+
+
 @route("GET", "/api/ws/files")
 def get_ws_files(qs, body):
     return workspace.files(q1(qs, "repoId"), q1(qs, "taskId"))

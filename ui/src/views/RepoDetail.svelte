@@ -22,6 +22,9 @@
   // Repositório = projeto: esta tela é a aba "Git" do projeto (ou da tarefa, com o worktree dela)
   let { repoId = undefined, embedded = false }: { repoId?: string; embedded?: boolean } = $props();
   const id = $derived(repoId ?? router.parts[1]);
+  // repositório recém-registrado (ex.: o worktree de uma tarefa nova) ainda fora da lista carregada: relê uma vez
+  let reloaded = "";
+  $effect(() => { const i = id; if (i && repos.loaded && !repos.byId(i) && reloaded !== i) { reloaded = i; repos.load(false); } });
   const repo = $derived(repos.byId(id));
   let status = $state<RepoStatus | null>(null);
   let refs = $state<Refs | null>(null);

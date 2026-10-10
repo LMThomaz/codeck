@@ -491,3 +491,239 @@ def changed_files(repo_id, task_id):
         elif not git.run(t["path"], "cat-file", "-t", f"{d['mergeBase']}:{f['path']}", check=False).strip():
             f["status"] = "A"
     return {"files": sorted(files, key=lambda x: x["path"]), "base": t["base"], "mergeBase": d["mergeBase"]}
+
+
+# ---------------------------------------------------------------- executar o projeto (como no VS Code)
+def _jsonc(text):
+    """JSON com comentários e vírgula sobrando (launch.json, launchSettings.json)."""
+    import json
+    out, i, n, in_str = [], 0, len(text), False
+    while i < n:
+        c = text[i]
+        if in_str:
+            out.append(c)
+            if c == "\\" and i + 1 < n:
+                out.append(text[i + 1]); i += 2; continue
+            if c == '"':
+                in_str = False
+        elif c == '"':
+            in_str = True; out.append(c)
+        elif text.startswith("//", i):
+            while i < n and text[i] != "\n":
+                i += 1
+            continue
+        elif text.startswith("/*", i):
+            j = text.find("*/", i + 2); i = n if j < 0 else j + 2; continue
+        else:
+            out.append(c)
+        i += 1
+    clean = re.sub(r",(\s*[}\]])", r"\1", "".join(out))
+    return json.loads(clean or "{}")
+
+
+def _vars(s, root):
+    """Variáveis do VS Code nas configurações: ${workspaceFolder}, ${env:X}, ${userHome}."""
+    if not isinstance(s, str):
+        return s
+    s = s.replace("${workspaceFolder}", root).replace("${workspaceRoot}", root).replace("${userHome}", os.path.expanduser("~"))
+    return re.sub(r"\$\{env:([^}]+)\}", lambda m: os.environ.get(m.group(1), ""), s)
+
+
+def _q(x):
+    import shlex
+    import subprocess as sp
+    return sp.list2cmdline([x]) if os.name == "nt" else shlex.quote(x)
+
+
+def run_configs(repo_id, task_id=None):
+    """O que a tela recebe: as configurações SEM valores de ambiente (o envFile pode ter credenciais — só o nome vai)."""
+    r = _run_configs(repo_id, task_id)
+    safe = []
+    for c in r["configs"]:
+        x = {k: v for k, v in c.items() if k not in ("env", "envFile")}
+        if c.get("envFile"):
+            x["envFile"] = os.path.basename(c["envFile"])
+        if c.get("env"):
+            x["envKeys"] = sorted(c["env"])
+        safe.append(x)
+    return {"configs": safe, "root": r["root"]}
+
+
+def _env_file(path):
+    """Arquivo .env (CHAVE=valor, # comentário, aspas opcionais) — lido só na hora de executar."""
+    out = {}
+    if not path or not os.path.isfile(path):
+        return out
+    for line in open(path, encoding="utf-8", errors="replace"):
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        k, v = line.split("=", 1)
+        k = k.strip().removeprefix("export ").strip()
+        v = v.strip()
+        if len(v) >= 2 and v[0] == v[-1] and v[0] in "'\"":
+            v = v[1:-1]
+        out[k] = v
+    return out
+
+
+def _run_configs(repo_id, task_id=None):
+    """Tudo que dá para executar no projeto: launch.json, scripts do package.json, perfis do .NET, Go, Rust, Compose."""
+    root = _root(repo_id, task_id)
+    out = []
+    # 1) .vscode/launch.json
+    lj = os.path.join(root, ".vscode", "launch.json")
+    if os.path.isfile(lj):
+        try:
+            data = _jsonc(open(lj, encoding="utf-8").read())
+        except Exception:  # noqa: BLE001 — launch.json inválido: só não lista
+            data = {}
+        by_name = {}
+        tasks = _vscode_tasks(root)
+        for c in data.get("configurations") or []:
+            cwd = _vars(c.get("cwd"), root) or root
+            env = {k: _vars(v, root) for k, v in (c.get("env") or {}).items()}
+            t, cmd = c.get("type"), None
+            if c.get("request") == "attach":
+                continue
+            if t == "node-terminal" and c.get("command"):
+                cmd = _vars(c["command"], root)
+            elif t in ("node", "pwa-node"):
+                exe = c.get("runtimeExecutable") or "node"
+                parts = [exe] + [_vars(a, root) for a in c.get("runtimeArgs") or []]
+                if c.get("program"):
+                    parts.append(_vars(c["program"], root))
+                parts += [_vars(a, root) for a in c.get("args") or []]
+                cmd = " ".join(_q(p) for p in parts)
+            elif t in ("debugpy", "python"):
+                if c.get("module"):
+                    cmd = " ".join(_q(p) for p in ["python3" if os.name != "nt" else "python", "-m", c["module"]] + [_vars(a, root) for a in c.get("args") or []])
+                elif c.get("program"):
+                    cmd = " ".join(_q(p) for p in ["python3" if os.name != "nt" else "python", _vars(c["program"], root)] + [_vars(a, root) for a in c.get("args") or []])
+            elif t in ("coreclr", "dotnet"):
+                if c.get("program", "").endswith(".exe") or c.get("program", "").endswith(".dll"):
+                    prog = _vars(c["program"], root)
+                    cmd = ("dotnet " + _q(prog) if prog.endswith(".dll") else _q(prog)) + "".join(" " + _q(_vars(a, root)) for a in c.get("args") or [])
+                elif c.get("projectPath"):
+                    cmd = "dotnet run --project " + _q(_vars(c["projectPath"], root))
+            elif t == "go":
+                cmd = "go run " + _q(_vars(c.get("program") or ".", root))
+            if cmd and c.get("preLaunchTask"):
+                pre = tasks.get(c["preLaunchTask"])   # como no VS Code: compila antes (sem isto rodaria a DLL antiga)
+                if not pre and t in ("coreclr", "dotnet") and "/bin/" in _vars(c.get("program", ""), root).replace("\\", "/"):
+                    # o "build" do C# costuma vir da extensão do VS Code (sem tasks.json): compila o projeto do programa
+                    pre = "dotnet build " + _q(_vars(c["program"], root).replace("\\", "/").split("/bin/")[0])
+                if pre:
+                    cmd = f"{pre} && {cmd}" if os.name != "nt" else f"{pre}; if ($?) {{ {cmd} }}"
+            if cmd:
+                item = {"id": "launch:" + c.get("name", ""), "label": c.get("name", "?"), "group": "launch.json", "command": cmd,
+                        "cwd": cwd, "env": env, "envFile": _vars(c.get("envFile"), root) or None}
+                out.append(item)
+                by_name[c.get("name")] = item
+        for comp in data.get("compounds") or []:
+            parts = [by_name[n] for n in comp.get("configurations") or [] if n in by_name]
+            if parts:
+                out.append({"id": "compound:" + comp.get("name", ""), "label": comp.get("name", "?"), "group": "launch.json",
+                            "compound": [p["id"] for p in parts]})
+    # 2) package.json (raiz e um nível abaixo — monorepos simples)
+    for pj in [os.path.join(root, "package.json")] + sorted(glob_one(root, "*/package.json")):
+        try:
+            import json
+            scripts = (json.load(open(pj, encoding="utf-8")).get("scripts") or {})
+        except Exception:  # noqa: BLE001
+            continue
+        d = os.path.dirname(pj)
+        pm = "pnpm" if os.path.exists(os.path.join(d, "pnpm-lock.yaml")) else "yarn" if os.path.exists(os.path.join(d, "yarn.lock")) else \
+             "bun" if os.path.exists(os.path.join(d, "bun.lockb")) else "npm"
+        rel = os.path.relpath(d, root)
+        for name in scripts:
+            out.append({"id": f"script:{rel}:{name}", "label": name, "group": f"scripts{'' if rel == '.' else ' · ' + rel}",
+                        "command": f"{pm} run {name}", "cwd": d, "detail": str(scripts[name])[:120]})
+    # 3) .NET: perfis do launchSettings.json de cada projeto (ex.: Local/Dev/Prod)
+    for ls in sorted(glob_one(root, "**/Properties/launchSettings.json", limit=40)):
+        proj_dir = os.path.dirname(os.path.dirname(ls))
+        try:
+            profiles = _jsonc(open(ls, encoding="utf-8").read()).get("profiles") or {}
+        except Exception:  # noqa: BLE001
+            continue
+        name = os.path.basename(proj_dir)
+        for prof, cfg in profiles.items():
+            if (cfg or {}).get("commandName") not in (None, "Project"):
+                continue
+            out.append({"id": f"dotnet:{name}:{prof}", "label": f"{name} · {prof}", "group": ".NET",
+                        "command": f"dotnet run --project {_q(proj_dir)} --launch-profile {_q(prof)}", "cwd": root})
+    # 4) outros
+    if os.path.exists(os.path.join(root, "go.mod")):
+        out.append({"id": "go:run", "label": "go run .", "group": "Go", "command": "go run .", "cwd": root})
+    if os.path.exists(os.path.join(root, "Cargo.toml")):
+        out.append({"id": "cargo:run", "label": "cargo run", "group": "Rust", "command": "cargo run", "cwd": root})
+    for f in ("docker-compose.yml", "docker-compose.yaml", "compose.yml", "compose.yaml"):
+        if os.path.exists(os.path.join(root, f)):
+            out.append({"id": "compose:up", "label": "docker compose up", "group": "Docker", "command": "docker compose up", "cwd": root})
+            break
+    return {"configs": out, "root": root}
+
+
+def _vscode_tasks(root):
+    """label → comando, do .vscode/tasks.json (para o preLaunchTask). Segue dependsOn de um nível."""
+    tj = os.path.join(root, ".vscode", "tasks.json")
+    if not os.path.isfile(tj):
+        return {}
+    try:
+        data = _jsonc(open(tj, encoding="utf-8").read())
+    except Exception:  # noqa: BLE001
+        return {}
+    out = {}
+    for t in data.get("tasks") or []:
+        if not t.get("command"):
+            continue
+        parts = [_vars(t["command"], root)] + [_vars(a if isinstance(a, str) else a.get("value", ""), root) for a in t.get("args") or []]
+        cwd = _vars((t.get("options") or {}).get("cwd"), root)
+        cmd = " ".join(_q(x) if t.get("type") == "process" else x for x in parts)
+        out[t.get("label") or t["command"]] = (f"cd {_q(cwd)} && {cmd}" if cwd else cmd)
+    for t in data.get("tasks") or []:
+        deps = t.get("dependsOn")
+        if deps and t.get("label"):
+            deps = [deps] if isinstance(deps, str) else deps
+            chain = [out[d] for d in deps if d in out] + ([out[t["label"]]] if t["label"] in out else [])
+            if chain:
+                out[t["label"]] = " && ".join(chain)
+    return out
+
+
+def glob_one(root, pattern, limit=200):
+    """glob que não entra em node_modules/bin/obj/.git/.worktrees (repositórios grandes continuam rápidos)."""
+    import fnmatch
+    skip = {"node_modules", "bin", "obj", ".git", ".worktrees", "dist", "build", ".venv", "venv", "packages"}
+    out, depth_max = [], (pattern.count("/") + 3 if "**" in pattern else pattern.count("/"))
+    base = root.rstrip(os.sep).count(os.sep)
+    pat = pattern.replace("**/", "")
+    for cur, dirs, files in os.walk(root):
+        dirs[:] = [x for x in dirs if x not in skip and not x.startswith(".") or x == ".vscode"]
+        if cur.count(os.sep) - base >= depth_max:
+            dirs[:] = []
+        for f in files:
+            rel = os.path.relpath(os.path.join(cur, f), root).replace(os.sep, "/")
+            if fnmatch.fnmatch(rel, pattern) or ("**" in pattern and fnmatch.fnmatch(rel, "*" + pat if "/" not in pat else "*/" + pat)) \
+                    or ("**" in pattern and rel.endswith("/" + pat)) or ("**" in pattern and rel == pat):
+                out.append(os.path.join(cur, f))
+                if len(out) >= limit:
+                    return out
+    return out
+
+
+def run(repo_id, task_id, config_id):
+    """Executa uma configuração num terminal do projeto (compound = um terminal por configuração)."""
+    cfgs = {c["id"]: c for c in _run_configs(repo_id, task_id)["configs"]}
+    c = cfgs.get(config_id)
+    if not c:
+        raise LookupError("Configuração não encontrada")
+    started = []
+    for cid in c.get("compound") or [config_id]:
+        x = cfgs[cid]
+        meta = {"project": repo_id, "run": cid, **({"task": task_id} if task_id else {})}
+        env = {**_env_file(x.get("envFile")), **(x.get("env") or {})}   # envFile primeiro; "env" do launch.json por cima
+        t = terminals.create(x["cwd"], "▶ " + x["label"], x["command"], "run", meta, env or None,
+                             shell=_settings(repo_id).get("shell") or None)
+        started.append(t.info())
+    return {"terms": started}
