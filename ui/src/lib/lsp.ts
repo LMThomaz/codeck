@@ -56,7 +56,7 @@ class Client {
   }
   notify(method: string, params: any) { if (this.ws.readyState === 1) this.ws.send(JSON.stringify({ jsonrpc: "2.0", method, params })); }
   diagnostics(p: { uri: string; diagnostics: any[] }) {
-    const d = this.docs.get(p.uri);
+    const d = this.docs.get(norm(p.uri));
     if (!d) return;
     const S = this.monaco.MarkerSeverity;
     this.monaco.editor.setModelMarkers(d.model, "lsp", p.diagnostics.map(x => ({
@@ -66,6 +66,9 @@ class Client {
   }
 }
 
+// Comparação de URIs: o servidor pode devolver "file:///d%3A/x" para "file:///D:/x" (Windows): decodifica e
+// padroniza a letra do drive antes de comparar.
+const norm = (u: string) => { let x = u; try { x = decodeURIComponent(u); } catch { /* já decodificada */ } return x.replace(/^file:\/\/\/([A-Za-z]):/, (_m, d) => `file:///${d.toLowerCase()}:`); };
 const toUri = (p: string) => "file://" + (p.startsWith("/") ? "" : "/") + p.replace(/\\/g, "/").split("/").map(encodeURIComponent).join("/").replace(/%3A/g, ":");
 const clients = new Map<string, Client>();
 const byModel = new Map<string, { client: Client; uri: string; root: string; rel: string }>();
@@ -86,20 +89,20 @@ export function attach(monaco: typeof Monaco, model: Monaco.editor.ITextModel, c
   register(monaco, lang);
   const client = c;
   client.ready.then(() => {
-    if (client.docs.has(uri)) return;
-    client.docs.set(uri, { model, version: 1 });
+    if (client.docs.has(norm(uri))) return;
+    client.docs.set(norm(uri), { model, version: 1 });
     client.notify("textDocument/didOpen", { textDocument: { uri, languageId: lang, version: 1, text: model.getValue() } });
     let t: ReturnType<typeof setTimeout> | undefined;
     model.onDidChangeContent(() => {
       clearTimeout(t);
       t = setTimeout(() => {
-        const d = client.docs.get(uri);
+        const d = client.docs.get(norm(uri));
         if (!d) return;
         d.version++;
         client.notify("textDocument/didChange", { textDocument: { uri, version: d.version }, contentChanges: [{ text: model.getValue() }] });
       }, 250);
     });
-    model.onWillDispose(() => { client.notify("textDocument/didClose", { textDocument: { uri } }); client.docs.delete(uri); byModel.delete(model.uri.toString()); });
+    model.onWillDispose(() => { client.notify("textDocument/didClose", { textDocument: { uri } }); client.docs.delete(norm(uri)); byModel.delete(model.uri.toString()); });
   }).catch(() => onStatus("falhou ao iniciar o servidor"));
 }
 
@@ -140,9 +143,9 @@ function register(monaco: typeof Monaco, lang: string) {
       await x.client.ready;
       const r = await x.client.request("textDocument/definition", { textDocument: { uri: x.uri }, position: pos(position) }).catch(() => null);
       const locs: any[] = (Array.isArray(r) ? r : r ? [r] : []).map(l => ({ uri: l.targetUri || l.uri, range: l.targetSelectionRange || l.range }));
-      const rootUri = toUri(x.root.replace(/[\\/]$/, "")) + "/";
-      return locs.filter(l => l.uri.startsWith(rootUri)).map(l => {
-        const rel = decodeURIComponent(l.uri.slice(rootUri.length));
+      const rootUri = norm(toUri(x.root.replace(/[\\/]$/, ""))) + "/";
+      return locs.filter(l => norm(l.uri).startsWith(rootUri)).map(l => {
+        const rel = norm(l.uri).slice(rootUri.length);
         const same = rel === x.rel;
         const target = same ? model.uri : monaco.Uri.parse(`cdgoto:///${encodeURIComponent(rel)}`);
         // o editor só "abre" um arquivo que tenha modelo: um vazio basta — o opener abaixo troca pela aba de verdade
@@ -173,9 +176,9 @@ export async function gotoDefinition(editor: Monaco.editor.ICodeEditor, position
   const r = await x.client.request("textDocument/definition", { textDocument: { uri: x.uri }, position: { line: position.lineNumber - 1, character: position.column - 1 } }).catch(() => null);
   const l = (Array.isArray(r) ? r : r ? [r] : []).map((y: any) => ({ uri: y.targetUri || y.uri, range: y.targetSelectionRange || y.range }))[0];
   if (!l) return false;
-  const rootUri = toUri(x.root.replace(/[\\/]$/, "")) + "/";
-  if (!l.uri.startsWith(rootUri)) return false;   // fora do projeto (biblioteca, node_modules): não abre
-  const rel = decodeURIComponent(l.uri.slice(rootUri.length)), line = l.range.start.line + 1;
+  const rootUri = norm(toUri(x.root.replace(/[\\/]$/, ""))) + "/";
+  if (!norm(l.uri).startsWith(rootUri)) return false;   // fora do projeto (biblioteca, node_modules): não abre
+  const rel = norm(l.uri).slice(rootUri.length), line = l.range.start.line + 1;
   if (rel === x.rel) {
     editor.setPosition({ lineNumber: line, column: l.range.start.character + 1 });
     editor.revealLineInCenter(line);

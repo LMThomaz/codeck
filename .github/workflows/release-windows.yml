@@ -282,6 +282,7 @@ jobs:
           for e in r["jsErrors"][:10]: print("erro JS:", e)
           sys.exit(0 if r["ok"] == r["total"] else 1)
           '@ | Set-Content -Encoding utf8 (Join-Path $w 'report.py')
+          $env:PYTHONIOENCODING = 'utf-8'
           build/app/python/python.exe (Join-Path $w 'report.py') "$out/result.json"
           if ($LASTEXITCODE -ne 0) { throw 'autoteste do desktop falhou' }
 
