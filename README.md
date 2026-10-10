@@ -3,8 +3,8 @@
 Fila única do Azure DevOps para o dia a dia de dev: **PRs, releases e permissões de pipeline** de várias
 organizações/contas numa tela só, com regras de automação. Não precisa ficar trocando de conta no navegador.
 
-Roda **só na sua máquina** (Python 3, sem dependências), atende em `127.0.0.1:47821` e guarda tudo em `data/`,
-que fica fora do git.
+Roda **só na sua máquina** (Python 3, sem dependências), atende em `127.0.0.1:47821` e guarda os dados em
+`~/Library/Application Support/PR Pilot` (fora do repositório).
 
 ## O que faz
 
@@ -21,7 +21,23 @@ que fica fora do git.
 - **Análise** e **Histórico** do que você e o piloto fizeram.
 - **Ambiente**: cadastro das organizações e dos PATs, com botão de teste.
 
-## Rodar
+## Instalar como app (macOS)
+
+```bash
+./build-app.sh
+```
+
+Compila o **PR Pilot.app**, instala em `/Applications` e abre.
+
+- Janela própria, sem navegador nem terminal.
+- Contador de pendências no Dock e na barra de menus.
+- Fechar a janela não para o piloto: ele continua na barra de menus, aprovando e avisando.
+- Abre sozinho ao ligar o Mac. Para desligar: ícone na barra de menus → *Abrir ao iniciar o Mac*.
+- O app embute uma cópia do `server.py` e do `index.html`: depois de mudar o código, rode `./build-app.sh` de novo.
+
+Requisitos: macOS 13+ e as Command Line Tools (`xcode-select --install`), que trazem o `swiftc` e o `python3`.
+
+## Rodar sem o app
 
 **VS Code / Cursor**: abra a pasta e dê ▶ em **PR Pilot** (Run and Debug). O navegador abre sozinho; na
 primeira vez ele abre direto na tela **Ambiente** para você cadastrar suas organizações.
@@ -32,15 +48,16 @@ primeira vez ele abre direto na tela **Ambiente** para você cadastrar suas orga
 PR_PILOT_OPEN=1 python3 server.py
 ```
 
-**Sempre ligado (macOS)**: o comando abaixo instala um serviço do usuário que sobe no login e reinicia se cair.
+**Sempre ligado, sem janela (macOS)**: o comando abaixo instala um serviço do usuário que sobe no login e reinicia se
+cair. É uma alternativa ao app; o `build-app.sh` remove esse serviço para que os dois não rodem ao mesmo tempo.
 
 ```bash
 ./install.sh             # instala/reinicia
 ./install.sh uninstall   # remove
 ```
 
-> Com o serviço instalado, o ▶ avisa que a porta está em uso e só abre a tela. Para mexer no código ao mesmo
-> tempo, use **PR Pilot (sandbox)**: porta `47822` e dados em `data-sandbox/`, sem tocar nos seus.
+> Com o app (ou o serviço) aberto, o ▶ avisa que a porta está em uso e só abre a tela. Para mexer no código ao
+> mesmo tempo, use **PR Pilot (sandbox)**: porta `47822` e dados em `data-sandbox/`, sem tocar nos seus.
 
 ## Configurar contas
 
@@ -66,10 +83,10 @@ Escopos do PAT (Custom defined):
 | Variável | Padrão | Uso |
 |---|---|---|
 | `PR_PILOT_PORT` | `47821` | porta local |
-| `PR_PILOT_DATA` | `./data` | pasta dos dados (config, regras, histórico) |
+| `PR_PILOT_DATA` | `~/Library/Application Support/PR Pilot` | pasta dos dados (config, regras, histórico) |
 | `PR_PILOT_OPEN` | — | `1` abre o navegador ao subir |
 
-## Dados locais (`data/`, fora do git)
+## Dados locais (`~/Library/Application Support/PR Pilot`)
 
 | Arquivo | Conteúdo |
 |---|---|

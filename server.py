@@ -2,7 +2,7 @@
 """PR Pilot — fila única do Azure DevOps (várias organizações/contas): PRs, aprovações de release e
 permissões de pipeline, com regras de automação e uma tela local. Roda só na sua máquina.
 
-Dados locais (pasta data/, fora do git; PR_PILOT_DATA muda o lugar):
+Dados locais por usuário (macOS: ~/Library/Application Support/PR Pilot; PR_PILOT_DATA muda o lugar):
   config.json    organizações + PATs (chmod 600, editado pela tela Ambiente)
   rules.json     regras de automação + ajustes (editados pela tela)
   archive.json   PRs arquivadas/ignoradas
@@ -15,6 +15,7 @@ import json
 import os
 import re
 import shutil
+import sys
 import webbrowser
 import statistics
 import subprocess
@@ -29,12 +30,24 @@ from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 BASE = os.path.dirname(os.path.abspath(__file__))
-DATA = os.path.abspath(os.environ.get("PR_PILOT_DATA") or os.path.join(BASE, "data"))
+
+
+def default_data_dir():
+    # Um lugar só por usuário: o app, o ▶ do editor e o terminal enxergam as mesmas contas e regras.
+    if sys.platform == "darwin":
+        return os.path.expanduser("~/Library/Application Support/PR Pilot")
+    if os.name == "nt":
+        return os.path.join(os.environ.get("APPDATA") or os.path.expanduser("~"), "PR Pilot")
+    return os.path.join(os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config"), "pr-pilot")
+
+
+DATA = os.path.abspath(os.environ.get("PR_PILOT_DATA") or default_data_dir())
 os.makedirs(DATA, exist_ok=True)
-for _name in ("config.json", "rules.json", "archive.json", "notified.json", "activity.jsonl"):
-    # versões antigas guardavam os dados na raiz do projeto
-    if os.path.exists(os.path.join(BASE, _name)) and not os.path.exists(os.path.join(DATA, _name)):
-        shutil.move(os.path.join(BASE, _name), os.path.join(DATA, _name))
+for _old in (BASE, os.path.join(BASE, "data")):
+    # versões antigas guardavam os dados na raiz do projeto e depois em ./data
+    for _name in ("config.json", "rules.json", "archive.json", "notified.json", "activity.jsonl"):
+        if os.path.exists(os.path.join(_old, _name)) and not os.path.exists(os.path.join(DATA, _name)) and _old != DATA:
+            shutil.move(os.path.join(_old, _name), os.path.join(DATA, _name))
 CONFIG_FILE = os.path.join(DATA, "config.json")
 RULES_FILE = os.path.join(DATA, "rules.json")
 ARCHIVE_FILE = os.path.join(DATA, "archive.json")
@@ -1104,6 +1117,13 @@ class Handler(BaseHTTPRequestHandler):
             return self.send(200, payload)
         if url.path == "/api/config":
             return self.send(200, public_config())
+        if url.path == "/api/summary":  # leve: usado pelo app para o contador no Dock e na barra de menus
+            with lock:
+                prs = sum(1 for p in state["prs"] if not p.get("archived") and p["myVote"] == 0)
+                deploys = len(state["deploys"])
+                errors = bool(state["errors"] or state["deployErrors"])
+            return self.send(200, {"prs": prs, "deploys": deploys, "total": prs + deploys, "errors": errors,
+                                   "configured": bool(ORGS), "lastPoll": state["lastPoll"]})
         if url.path == "/api/analytics":
             try:
                 days = min(max(int((qs.get("days") or ["30"])[0]), 1), 90)
