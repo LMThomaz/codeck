@@ -100,6 +100,8 @@
     return [...(store.s?.myPrs || []), ...store.open].filter(x => x.provider === p!.provider && (p!.provider === "github" ? (x.project || "").toLowerCase() === p!.slug!.toLowerCase()
       : x.org.toLowerCase() === sl[0] && x.repo.toLowerCase() === sl[sl.length - 1])).length;
   });
+  // Git e PRs são telas completas (colunas próprias): ocupam a largura toda enquanto ativas
+  const full = $derived(activeTab?.kind === "git" || activeTab?.kind === "prs");
   const splitTab = $derived(v?.split && v.split !== activeTab?.key ? tabs.find(t => t.key === v!.split) || null : null);
   const activeTerm = $derived(activeTab?.kind === "term" ? activeTab.term! : (scopeTerms.find(t => t.kind === "agent") || null));
 
@@ -306,9 +308,9 @@
       </Empty>
     </div>
   {:else}
-    <div class="grid" class:noright={!v.right || activeTab?.kind === "git" || activeTab?.kind === "prs"} style="--lw:{sizes.left}px;--rw:{sizes.right}px">
+    <div class="grid" class:noright={!v.right || full} class:full style="--lw:{sizes.left}px;--rw:{sizes.right}px">
       <!-- esquerda: escopo (principal / tarefas) + arquivos -->
-      <aside class="card left">
+      <aside class="card left" class:hidden={full}>
         <div class="hsplit r" role="separator" aria-orientation="vertical" title="Arraste para redimensionar" onpointerdown={(e) => drag(e, "left")}></div>
         <div class="lm">
           <button class:on={v.left === "files"} onclick={() => (v.left = "files")}><Code2 size={13} /> Arquivos</button>
@@ -429,6 +431,8 @@
   .empty { flex: 1; display: grid; place-items: center; }
   .grid { flex: 1; min-height: 0; display: grid; grid-template-columns: var(--lw) minmax(0, 1fr) var(--rw); gap: 10px; }
   .grid.noright { grid-template-columns: var(--lw) minmax(0, 1fr); }
+  .grid.full { grid-template-columns: minmax(0, 1fr); }
+  .left.hidden { display: none; }
   .left, .right { position: relative; }
   .hsplit { position: absolute; top: 0; bottom: 0; width: 10px; z-index: 6; cursor: col-resize; }
   .hsplit.r { right: -8px; } .hsplit.l { left: -8px; }
