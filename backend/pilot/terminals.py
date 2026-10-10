@@ -1,0 +1,339 @@
+"""Terminais de verdade (PTY) para a tela: shells e agentes de IA (Claude Code, Codex, cursor-agent…).
+
+macOS/Linux: pty.openpty + processo em sessão própria. Windows: ConPTY (CreatePseudoConsole) via ctypes — a mesma API
+do Windows Terminal, disponível do Windows 10 1809 em diante.
+
+Cada terminal guarda as últimas saídas (até MAX_SCROLLBACK bytes) para a tela poder reconectar — trocar de aba ou
+recarregar a interface não mata o processo. Quem assina recebe a saída ao vivo (os WebSockets da tela).
+
+O processo NUNCA herda a chave do app (COMMITDECK_*) nem segredos que o app conhece: um agente rodando no terminal
+não pode chamar a API local nem ler os PATs.
+"""
+import os
+import shlex
+import shutil
+import sys
+import threading
+import time
+import uuid
+
+
+MAX_SCROLLBACK = 1_500_000
+_SECRET_ENV = ("COMMITDECK_", "LFTP_PASSWORD", "AZURE_DEVOPS_EXT_PAT", "VSS_NUGET_EXTERNAL_FEED_ENDPOINTS",
+               # marcas de uma sessão de IA de FORA (se o app foi aberto de dentro de um agente): herdadas, fariam o
+               # agente novo se achar "sessão filha" (sem histórico) ou usar a conta errada — a conta vem do app
+               "CLAUDECODE", "CLAUDE_CODE_", "CLAUDE_CONFIG_DIR", "CLAUDE_AGENT", "CODEX_HOME", "CODEX_SANDBOX", "CODEX_THREAD")
+IS_WIN = os.name == "nt"
+
+
+def clean_env(extra=None):
+    env = {k: v for k, v in os.environ.items() if not k.startswith(_SECRET_ENV)}
+    env.update(TERM="xterm-256color", COLORTERM="truecolor", TERM_PROGRAM="Commitdeck", LANG=env.get("LANG") or "pt_BR.UTF-8")
+    env.update(extra or {})
+    return env
+
+
+def default_shell():
+    if IS_WIN:
+        return shutil.which("pwsh") or shutil.which("powershell") or "powershell.exe"
+    return os.environ.get("SHELL") or ("/bin/zsh" if sys.platform == "darwin" else "/bin/bash")
+
+
+def shell_argv(command=None):
+    """Shell de login (PATH do usuário, nvm, etc.). Com `command`, roda o comando e, quando ele sai, fica no shell."""
+    sh = default_shell()
+    if IS_WIN:
+        base = [sh, "-NoLogo"]
+        return base + (["-NoExit", "-Command", command] if command else [])
+    if not command:
+        return [sh, "-l"]
+    return [sh, "-l", "-c", f"{command}; exec {shlex.quote(sh)} -l"]
+
+
+# ---------------------------------------------------------------- PTY por plataforma
+class _PosixPty:
+    def __init__(self, argv, cwd, env, cols, rows):
+        import fcntl
+        import pty
+        import struct
+        import subprocess
+        import termios
+        self._fcntl, self._termios, self._struct = fcntl, termios, struct
+        self.master, slave = pty.openpty()
+        self.resize(cols, rows, fd=slave)
+        self.proc = subprocess.Popen(argv, stdin=slave, stdout=slave, stderr=slave, cwd=cwd, env=env,
+                                     start_new_session=True, close_fds=True)
+        os.close(slave)
+
+    def read(self):
+        try:
+            return os.read(self.master, 65536)
+        except OSError:
+            return b""
+
+    def write(self, data):
+        try:
+            os.write(self.master, data)
+        except OSError:
+            pass
+
+    def resize(self, cols, rows, fd=None):
+        try:
+            self._fcntl.ioctl(fd if fd is not None else self.master, self._termios.TIOCSWINSZ,
+                              self._struct.pack("HHHH", max(rows, 2), max(cols, 10), 0, 0))
+        except OSError:
+            pass
+
+    def alive(self):
+        return self.proc.poll() is None
+
+    def exit_code(self):
+        return self.proc.poll()
+
+    def kill(self):
+        import signal
+        try:
+            os.killpg(self.proc.pid, signal.SIGHUP)
+            time.sleep(0.2)
+            if self.proc.poll() is None:
+                os.killpg(self.proc.pid, signal.SIGKILL)
+        except (OSError, ProcessLookupError):
+            pass
+        try:
+            os.close(self.master)
+        except OSError:
+            pass
+
+
+class _WinPty:
+    """ConPTY via ctypes: duas pipes (entrada/saída), CreatePseudoConsole e CreateProcessW com o atributo do console."""
+
+    def __init__(self, argv, cwd, env, cols, rows):
+        import ctypes
+        import subprocess
+        from ctypes import wintypes as w
+        self.ct, self.w = ctypes, w
+        k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        self.k32 = k32
+
+        class COORD(ctypes.Structure):
+            _fields_ = [("X", w.SHORT), ("Y", w.SHORT)]
+
+        class STARTUPINFOW(ctypes.Structure):
+            _fields_ = [("cb", w.DWORD), ("lpReserved", w.LPWSTR), ("lpDesktop", w.LPWSTR), ("lpTitle", w.LPWSTR),
+                        ("dwX", w.DWORD), ("dwY", w.DWORD), ("dwXSize", w.DWORD), ("dwYSize", w.DWORD),
+                        ("dwXCountChars", w.DWORD), ("dwYCountChars", w.DWORD), ("dwFillAttribute", w.DWORD),
+                        ("dwFlags", w.DWORD), ("wShowWindow", w.WORD), ("cbReserved2", w.WORD),
+                        ("lpReserved2", ctypes.c_void_p), ("hStdInput", w.HANDLE), ("hStdOutput", w.HANDLE),
+                        ("hStdError", w.HANDLE)]
+
+        class STARTUPINFOEXW(ctypes.Structure):
+            _fields_ = [("StartupInfo", STARTUPINFOW), ("lpAttributeList", ctypes.c_void_p)]
+
+        class PROCESS_INFORMATION(ctypes.Structure):
+            _fields_ = [("hProcess", w.HANDLE), ("hThread", w.HANDLE), ("dwProcessId", w.DWORD), ("dwThreadId", w.DWORD)]
+
+        self.COORD = COORD
+        HANDLE = w.HANDLE
+        for name, args, res in (
+            ("CreatePipe", [ctypes.POINTER(HANDLE), ctypes.POINTER(HANDLE), ctypes.c_void_p, w.DWORD], w.BOOL),
+            ("CreatePseudoConsole", [COORD, HANDLE, HANDLE, w.DWORD, ctypes.POINTER(ctypes.c_void_p)], ctypes.c_long),
+            ("ResizePseudoConsole", [ctypes.c_void_p, COORD], ctypes.c_long),
+            ("ClosePseudoConsole", [ctypes.c_void_p], None),
+            ("InitializeProcThreadAttributeList", [ctypes.c_void_p, w.DWORD, w.DWORD, ctypes.POINTER(ctypes.c_size_t)], w.BOOL),
+            ("UpdateProcThreadAttribute", [ctypes.c_void_p, w.DWORD, ctypes.c_size_t, ctypes.c_void_p, ctypes.c_size_t, ctypes.c_void_p, ctypes.c_void_p], w.BOOL),
+            ("DeleteProcThreadAttributeList", [ctypes.c_void_p], None),
+            ("CreateProcessW", [w.LPCWSTR, w.LPWSTR, ctypes.c_void_p, ctypes.c_void_p, w.BOOL, w.DWORD, ctypes.c_void_p, w.LPCWSTR, ctypes.c_void_p, ctypes.POINTER(PROCESS_INFORMATION)], w.BOOL),
+            ("ReadFile", [HANDLE, ctypes.c_void_p, w.DWORD, ctypes.POINTER(w.DWORD), ctypes.c_void_p], w.BOOL),
+            ("WriteFile", [HANDLE, ctypes.c_void_p, w.DWORD, ctypes.POINTER(w.DWORD), ctypes.c_void_p], w.BOOL),
+            ("CloseHandle", [HANDLE], w.BOOL),
+            ("WaitForSingleObject", [HANDLE, w.DWORD], w.DWORD),
+            ("GetExitCodeProcess", [HANDLE, ctypes.POINTER(w.DWORD)], w.BOOL),
+            ("TerminateProcess", [HANDLE, ctypes.c_uint], w.BOOL),
+        ):
+            fn = getattr(k32, name)
+            fn.argtypes, fn.restype = args, res
+
+        in_read, self.in_write, self.out_read, out_write = HANDLE(), HANDLE(), HANDLE(), HANDLE()
+        if not k32.CreatePipe(ctypes.byref(in_read), ctypes.byref(self.in_write), None, 0) or \
+           not k32.CreatePipe(ctypes.byref(self.out_read), ctypes.byref(out_write), None, 0):
+            raise OSError(ctypes.get_last_error(), "CreatePipe falhou")
+        self.hpc = ctypes.c_void_p()
+        hr = k32.CreatePseudoConsole(COORD(max(cols, 10), max(rows, 2)), in_read, out_write, 0, ctypes.byref(self.hpc))
+        if hr != 0:
+            raise OSError(hr, "CreatePseudoConsole falhou (precisa do Windows 10 1809 ou mais novo)")
+        k32.CloseHandle(in_read)
+        k32.CloseHandle(out_write)   # a ConPTY ficou com as pontas dela
+
+        size = ctypes.c_size_t()
+        k32.InitializeProcThreadAttributeList(None, 1, 0, ctypes.byref(size))
+        self.attrs = ctypes.create_string_buffer(size.value)
+        if not k32.InitializeProcThreadAttributeList(self.attrs, 1, 0, ctypes.byref(size)):
+            raise OSError(ctypes.get_last_error(), "InitializeProcThreadAttributeList falhou")
+        PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE = 0x00020016
+        if not k32.UpdateProcThreadAttribute(self.attrs, 0, PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE, self.hpc,
+                                             ctypes.sizeof(ctypes.c_void_p), None, None):
+            raise OSError(ctypes.get_last_error(), "UpdateProcThreadAttribute falhou")
+        si = STARTUPINFOEXW()
+        si.StartupInfo.cb = ctypes.sizeof(STARTUPINFOEXW)
+        si.lpAttributeList = ctypes.cast(self.attrs, ctypes.c_void_p)
+        pi = PROCESS_INFORMATION()
+        env_block = ctypes.create_unicode_buffer("\0".join(f"{k}={v}" for k, v in env.items()) + "\0\0")
+        cmdline = ctypes.create_unicode_buffer(subprocess.list2cmdline(argv))
+        EXTENDED_STARTUPINFO_PRESENT, CREATE_UNICODE_ENVIRONMENT = 0x00080000, 0x00000400
+        if not k32.CreateProcessW(None, cmdline, None, None, False, EXTENDED_STARTUPINFO_PRESENT | CREATE_UNICODE_ENVIRONMENT,
+                                  env_block, cwd, ctypes.byref(si), ctypes.byref(pi)):
+            raise OSError(ctypes.get_last_error(), f"não abriu {argv[0]}")
+        self.hproc = pi.hProcess
+        k32.CloseHandle(pi.hThread)
+        self._closed = False
+
+    def read(self):
+        buf = self.ct.create_string_buffer(65536)
+        n = self.w.DWORD()
+        ok = self.k32.ReadFile(self.out_read, buf, 65536, self.ct.byref(n), None)
+        return buf.raw[: n.value] if ok and n.value else b""
+
+    def write(self, data):
+        n = self.w.DWORD()
+        self.k32.WriteFile(self.in_write, data, len(data), self.ct.byref(n), None)
+
+    def resize(self, cols, rows):
+        if not self._closed:
+            self.k32.ResizePseudoConsole(self.hpc, self.COORD(max(cols, 10), max(rows, 2)))
+
+    def alive(self):
+        return self.k32.WaitForSingleObject(self.hproc, 0) == 0x102   # WAIT_TIMEOUT
+
+    def exit_code(self):
+        code = self.w.DWORD()
+        self.k32.GetExitCodeProcess(self.hproc, self.ct.byref(code))
+        return None if code.value == 259 else code.value   # STILL_ACTIVE
+
+    def kill(self):
+        if self._closed:
+            return
+        self._closed = True
+        self.k32.TerminateProcess(self.hproc, 1)
+        self.k32.ClosePseudoConsole(self.hpc)   # fecha a saída: o ReadFile pendente retorna e a thread termina
+        for h in (self.in_write, self.out_read, self.hproc):
+            self.k32.CloseHandle(h)
+        self.k32.DeleteProcThreadAttributeList(self.attrs)
+
+
+# ---------------------------------------------------------------- terminal (processo + histórico + assinantes)
+class Terminal:
+    def __init__(self, argv, cwd, title, kind="shell", meta=None, env=None, cols=120, rows=32):
+        self.id = uuid.uuid4().hex[:12]
+        self.title, self.kind, self.cwd, self.meta = title, kind, cwd, dict(meta or {})
+        self.argv = argv
+        self.created = time.time()
+        self.last_output = self.created
+        self.scroll = bytearray()
+        self.subs = set()
+        self.lock = threading.Lock()
+        self.exit = None
+        self.pty = (_WinPty if IS_WIN else _PosixPty)(argv, cwd, clean_env(env), cols, rows)
+        threading.Thread(target=self._pump, daemon=True, name=f"pty-{self.id}").start()
+
+    def _pump(self):
+        while True:
+            data = self.pty.read()
+            if not data:
+                if not self.pty.alive() or IS_WIN:
+                    break
+                time.sleep(0.05)
+                continue
+            with self.lock:
+                self.last_output = time.time()
+                self.scroll += data
+                if len(self.scroll) > MAX_SCROLLBACK:
+                    del self.scroll[: len(self.scroll) - MAX_SCROLLBACK]
+                subs = list(self.subs)
+            for fn in subs:
+                try:
+                    fn(data)
+                except Exception:  # noqa: BLE001 — assinante caído sai da lista
+                    self.subs.discard(fn)
+        for _ in range(20):
+            if not self.pty.alive():
+                break
+            time.sleep(0.1)
+        self.exit = self.pty.exit_code()
+        for fn in list(self.subs):
+            try:
+                fn(None)   # None = terminou
+            except Exception:  # noqa: BLE001
+                pass
+
+    def attach(self, fn):
+        """Assina a saída; devolve o histórico atual (para a tela redesenhar ao reconectar)."""
+        with self.lock:
+            self.subs.add(fn)
+            return bytes(self.scroll)
+
+    def detach(self, fn):
+        self.subs.discard(fn)
+
+    def write(self, data):
+        if self.exit is None:
+            self.pty.write(data)
+
+    def resize(self, cols, rows):
+        self.pty.resize(int(cols), int(rows))
+
+    def kill(self):
+        self.pty.kill()
+
+    @property
+    def alive(self):
+        return self.exit is None and self.pty.alive()
+
+    def info(self):
+        return {"id": self.id, "title": self.title, "kind": self.kind, "cwd": self.cwd, "meta": self.meta,
+                "created": self.created, "lastOutput": self.last_output, "alive": self.alive, "exit": self.exit}
+
+
+_terms = {}
+_lock = threading.Lock()
+
+
+def create(cwd, title=None, command=None, kind="shell", meta=None, env=None, cols=120, rows=32):
+    cwd = os.path.abspath(os.path.expanduser(cwd or os.path.expanduser("~")))
+    if not os.path.isdir(cwd):
+        raise ValueError("Pasta não encontrada")
+    t = Terminal(shell_argv(command), cwd, title or os.path.basename(cwd), kind, meta, env, cols, rows)
+    with _lock:
+        _terms[t.id] = t
+    return t
+
+
+def get(tid):
+    t = _terms.get(tid)
+    if not t:
+        raise LookupError("Terminal não encontrado")
+    return t
+
+
+def list_all(**match):
+    with _lock:
+        items = list(_terms.values())
+    return [t.info() for t in items if all(t.meta.get(k) == v for k, v in match.items())]
+
+
+def close(tid):
+    with _lock:
+        t = _terms.pop(tid, None)
+    if t:
+        t.kill()
+
+
+def close_all():
+    for tid in list(_terms):
+        close(tid)
+
+
+def rename(tid, title):
+    get(tid).title = (title or "").strip()[:60] or get(tid).title
+
+

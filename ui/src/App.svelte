@@ -8,6 +8,7 @@
   import CloneDialog from "./components/repo/CloneDialog.svelte";
   import AccountEditor from "./components/repo/AccountEditor.svelte";
   import { ui } from "./lib/ui.svelte";
+  import { work } from "./lib/work.svelte";
   import OfflineBanner from "./components/OfflineBanner.svelte";
   import TopProgress from "./components/TopProgress.svelte";
   import UpdateBanner from "./components/UpdateBanner.svelte";
@@ -25,30 +26,36 @@
   import RepoDetail from "./views/RepoDetail.svelte";
   import Repositories from "./views/Repositories.svelte";
   import Settings from "./views/Settings.svelte";
+  import Work from "./views/Work.svelte";
 
   const views: Record<string, any> = {
     inbox: Inbox, prs: PullRequests, builds: Builds, deploys: Deploys, issues: Issues, repos: Repositories, repo: RepoDetail,
-    automation: Automation, analytics: Analytics, history: History, settings: Settings,
+    automation: Automation, analytics: Analytics, history: History, settings: Settings, work: Work,
   };
   const View = $derived(views[router.view] || Inbox);
 
   // Notificação clicada no app nativo: "rota/chave" (formatos antigos continuam valendo).
   window.openTarget = (target: string) => {
     const [t, ...rest] = (target || "").split("/");
+    if (t === "term") {   // agente terminou / pediu atenção: abre o projeto dele
+      const a = work.agents.find(x => x.term.meta.sid === rest[0] || x.term.id === rest[0]);
+      return go("/work/" + (a?.project.id || ""));
+    }
     const key = encodeURIComponent(rest.join("/"));
     const map: Record<string, string> = { fila: "/inbox/", minhas: "/prs/mine/", todas: "/prs/all/", builds: "/builds/", historico: "/history", deploys: "/deploys/" };
     go((map[t] ?? `/${t}/`) + (map[t] === "/history" ? "" : key));
   };
 
   onMount(() => {
+    const stopWork = work.watch();   // projetos abertos e agentes: a barra lateral mostra o estado em qualquer tela
     store.start();
     repos.load();
     const t = setInterval(() => { if (!store.hold) repos.load(); }, 30000);
-    return () => clearInterval(t);
+    return () => { clearInterval(t); stopWork(); };
   });
   $effect(() => {
     // 1ª execução sem nenhuma conta: vai direto para Contas
-    if (store.s && !store.s.configured && router.view !== "settings") go("/settings/accounts");
+    if (store.s && !store.s.configured && !["settings", "work"].includes(router.view)) go("/settings/accounts");
   });
 </script>
 

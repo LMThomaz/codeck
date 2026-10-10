@@ -13,7 +13,7 @@ import time
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from . import accounts, analytics, azure, catalogs, engine, git, github, library, rules, update
+from . import accounts, agents, analytics, azure, catalogs, engine, git, github, library, rules, terminals, update, workspace, ws
 from .core import (APP_BUILD, APP_PLATFORM, APP_VERSION, ARCHIVE_FILE, CONFIG_FILE, DATA, DEFAULT_PORT, PRODUCT, RULES_FILE, OfflineError,
                    STATIC_DIR, TOKEN, ctx, load_json, lock, log_activity, log_build, log_deploy, notifications, notify_seq,
                    now_iso, pr_summary, read_activity, save_json, state, wake)
@@ -452,6 +452,147 @@ def get_catalogs(qs, body):
     return catalogs.summary()
 
 
+# ---------------------------------------------------------------- terminais
+@route("GET", "/api/terms")
+def get_terms(qs, body):
+    return {"terms": terminals.list_all()}
+
+
+@route("POST", "/api/terms/new")
+def post_term_new(qs, body):
+    t = terminals.create(body.get("cwd"), body.get("title"), body.get("command"), body.get("kind") or "shell",
+                         body.get("meta"), None, int(body.get("cols") or 120), int(body.get("rows") or 32))
+    return t.info()
+
+
+@route("POST", "/api/terms/close")
+def post_term_close(qs, body):
+    terminals.close(body.get("id"))
+    return {"ok": True}
+
+
+@route("POST", "/api/terms/rename")
+def post_term_rename(qs, body):
+    terminals.rename(body.get("id"), body.get("title"))
+    return {"ok": True}
+
+
+# ---------------------------------------------------------------- projetos abertos, tarefas e arquivos (v3)
+@route("GET", "/api/ws")
+def get_ws(qs, body):
+    agents.refresh_codex()
+    return workspace.state()
+
+
+@route("POST", "/api/ws/open")
+def post_ws_open(qs, body):
+    return workspace.open_project(body.get("repoId"), body.get("path"))
+
+
+@route("POST", "/api/ws/close")
+def post_ws_close(qs, body):
+    workspace.close_project(body.get("repoId"))
+    return {"ok": True}
+
+
+@route("POST", "/api/ws/activate")
+def post_ws_activate(qs, body):
+    workspace.activate(body.get("repoId"))
+    return {"ok": True}
+
+
+@route("POST", "/api/ws/reorder")
+def post_ws_reorder(qs, body):
+    workspace.reorder(body.get("ids") or [])
+    return {"ok": True}
+
+
+@route("POST", "/api/ws/settings")
+def post_ws_settings(qs, body):
+    return workspace.save_settings(body.get("repoId"), body)
+
+
+@route("POST", "/api/ws/task")
+def post_ws_task(qs, body):
+    return workspace.create_task(body.get("repoId"), body)
+
+
+@route("POST", "/api/ws/task/update")
+def post_ws_task_update(qs, body):
+    return workspace.update_task(body.get("repoId"), body.get("taskId"), body)
+
+
+@route("POST", "/api/ws/task/remove")
+def post_ws_task_remove(qs, body):
+    workspace.remove_task(body.get("repoId"), body.get("taskId"), bool(body.get("force")), bool(body.get("deleteBranch")))
+    return {"ok": True}
+
+
+@route("GET", "/api/ws/task/diff")
+def get_ws_task_diff(qs, body):
+    return workspace.diff_summary(q1(qs, "repoId"), q1(qs, "taskId"))
+
+
+@route("POST", "/api/ws/shell")
+def post_ws_shell(qs, body):
+    return workspace.start_shell(body.get("repoId"), body.get("taskId"), body.get("title"), body.get("command"))
+
+
+@route("POST", "/api/ws/agent")
+def post_ws_agent(qs, body):
+    return workspace.start_agent(body.get("repoId"), body.get("taskId"), body.get("accountId"), body.get("prompt"),
+                                 body.get("mode"), body.get("title"))
+
+
+@route("GET", "/api/ws/files")
+def get_ws_files(qs, body):
+    return workspace.files(q1(qs, "repoId"), q1(qs, "taskId"))
+
+
+@route("GET", "/api/ws/file")
+def get_ws_file(qs, body):
+    return workspace.read_file(q1(qs, "repoId"), q1(qs, "path"), q1(qs, "taskId"))
+
+
+@route("POST", "/api/ws/file")
+def post_ws_file(qs, body):
+    return workspace.write_file(body.get("repoId"), body.get("path"), body.get("text", ""), body.get("taskId"), body.get("mtime"))
+
+
+@route("GET", "/api/ws/search")
+def get_ws_search(qs, body):
+    return workspace.search(q1(qs, "repoId"), q1(qs, "q", ""), q1(qs, "taskId"), q1(qs, "regex") == "1", q1(qs, "case") == "1")
+
+
+# ---------------------------------------------------------------- contas de IA
+@route("GET", "/api/ai")
+def get_ai(qs, body):
+    agents.refresh_codex()
+    return agents.accounts()
+
+
+@route("GET", "/api/ai/detect")
+def get_ai_detect(qs, body):
+    return {"found": agents.detect()}
+
+
+@route("POST", "/api/ai/save")
+def post_ai_save(qs, body):
+    return agents.save_account(body)
+
+
+@route("POST", "/api/ai/delete")
+def post_ai_delete(qs, body):
+    agents.delete_account(body.get("id"))
+    return {"ok": True}
+
+
+@route("POST", "/api/ai/default")
+def post_ai_default(qs, body):
+    agents.set_default(body.get("scope") or "*", body.get("id"))
+    return {"ok": True}
+
+
 @route("GET", "/api/clone-targets")
 def get_clone_targets(qs, body):
     return {"targets": catalogs.clone_targets(q1(qs, "account"))}
@@ -550,13 +691,70 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         path = urllib.parse.urlparse(self.path).path
+        if path.startswith("/ws/term/"):
+            return self.terminal_socket(path[len("/ws/term/"):])
         if not path.startswith("/api/"):
             return self.static(path)
         if not self.authorized():
             return self.send(401, {"error": "abra pelo app"})
         return self.dispatch(GET, None)
 
+    def terminal_socket(self, tid):
+        """WebSocket de um terminal. A chave vem no subprotocolo "commitdeck.<token>" (o navegador não manda cabeçalho)."""
+        offered = ws.WebSocket.offered_protocols(self)
+        proto = next((p for p in offered if p.startswith("commitdeck.")), "")
+        if TOKEN and not hmac.compare_digest(proto[len("commitdeck."):], TOKEN):
+            return self.send(401, {"error": "abra pelo app"})
+        try:
+            term = terminals.get(tid)
+        except LookupError:
+            return self.send(404, {"error": "Terminal não encontrado"})
+        sock = ws.WebSocket.accept(self, proto or None)
+
+        def out(data):
+            if data is None:
+                sock.send_text(json.dumps({"t": "exit", "code": term.exit}))
+            else:
+                sock.send_bytes(data)
+        history = term.attach(out)
+        try:
+            sock.send_text(json.dumps({"t": "hello", **term.info()}))
+            if history:
+                sock.send_bytes(history)
+            if not term.alive:
+                sock.send_text(json.dumps({"t": "exit", "code": term.exit}))
+            while True:
+                op, data = sock.recv()
+                if op == ws.BINARY:
+                    term.write(data)
+                    continue
+                msg = json.loads(data or b"{}")
+                if msg.get("t") == "in":
+                    term.write(msg.get("d", "").encode("utf-8"))
+                elif msg.get("t") == "resize":
+                    term.resize(msg.get("c", 120), msg.get("r", 32))
+        except (ws.Closed, OSError, ValueError):
+            pass
+        finally:
+            term.detach(out)
+            sock.closed = True
+
+    def agent_hook(self, path):
+        parts = path.strip("/").split("/")
+        if len(parts) != 3:
+            return self.send(404, {"error": "rota não encontrada"})
+        length = min(int(self.headers.get("Content-Length") or 0), 2_000_000)
+        try:
+            payload = json.loads(self.rfile.read(length) or b"{}")
+            return self.send(200, agents.hook(parts[1], parts[2], payload))
+        except PermissionError:
+            return self.send(403, {"error": "forbidden"})
+        except (ValueError, json.JSONDecodeError):
+            return self.send(400, {"error": "JSON inválido"})
+
     def do_POST(self):
+        if self.path.startswith("/hook/"):
+            return self.agent_hook(urllib.parse.urlparse(self.path).path)
         if self.headers.get("X-Commitdeck") != "1" or not self.authorized():
             return self.send(403, {"error": "forbidden"})
         length = int(self.headers.get("Content-Length") or 0)
@@ -582,6 +780,7 @@ def _watch_parent(parent):
     while True:
         time.sleep(3)
         if not alive(int(parent)):
+            terminals.close_all()   # shells e agentes vivem em sessão própria: fecham junto com o app
             os._exit(0)  # o app fechou (ou caiu): não fica processo órfão segurando a porta
 
 
@@ -595,6 +794,9 @@ def main():
         print(f"Porta {port} em uso — já há um {PRODUCT} rodando.", flush=True)
         raise SystemExit(1)
     server.daemon_threads = True
+    ctx.port = port   # os hooks dos agentes chamam de volta nesta porta
+    import atexit
+    atexit.register(terminals.close_all)
     if os.environ.get("COMMITDECK_PARENT_PID"):
         threading.Thread(target=_watch_parent, args=(os.environ["COMMITDECK_PARENT_PID"],), daemon=True).start()
     engine.start()

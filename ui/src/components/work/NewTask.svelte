@@ -1,0 +1,132 @@
+<script lang="ts">
+  // Nova tarefa: branch + worktree próprio + (opcional) um ou mais agentes já com o prompt.
+  // Vários agentes = fan-out: cada um no SEU worktree, para comparar e ficar com o melhor.
+  import { GitBranch, Rocket, Sparkles } from "@lucide/svelte";
+  import { untrack } from "svelte";
+  import { get, post } from "../../lib/api";
+  import { store } from "../../lib/store.svelte";
+  import type { Project } from "../../lib/work.svelte";
+  import { work } from "../../lib/work.svelte";
+  import { ui } from "../../lib/ui.svelte";
+  import Drawer from "../Drawer.svelte";
+  import ProviderIcon from "../ProviderIcon.svelte";
+  import Segmented from "../Segmented.svelte";
+  import AgentIcon from "./AgentIcon.svelte";
+
+  let { project, preset = null, onclose, oncreated }:
+    { project: Project; preset?: { title?: string; prompt?: string; kind?: string; workItem?: any; base?: string } | null; onclose: () => void; oncreated: (taskIds: string[]) => void } = $props();
+
+  let title = $state(untrack(() => preset?.title || ""));
+  let kind = $state(untrack(() => preset?.kind || "feature"));
+  let base = $state(untrack(() => preset?.base || ""));
+  let prompt = $state(untrack(() => preset?.prompt || ""));
+  let mode = $state("default");
+  let chosen = $state<string[]>(untrack(() => (work.defaultAccount(project) ? [work.defaultAccount(project)!] : [])));
+  let branches = $state<string[]>([]);
+  let busy = $state(false);
+  let workItem = $state<any>(untrack(() => preset?.workItem || null));
+  const slug = $derived(title.normalize("NFKD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 48) || "tarefa");
+  const items = $derived((store.s?.issues || []).filter(i => !project.provider || i.provider === project.provider).slice(0, 60));
+
+  $effect(() => {
+    get<any>("repo/refs", { id: project.id }).then(r => {
+      branches = [...new Set([...(r.remote || []).map((b: any) => b.name).filter((n: string) => !n.endsWith("/HEAD")), ...(r.local || []).map((b: any) => b.name)])];
+      if (!base) base = branches.find(b => /origin\/(develop|main|master)$/.test(b)) || r.default || branches[0] || "";
+    }).catch(() => {});
+  });
+  function pickItem(i: any) {
+    workItem = i;
+    if (!title) title = i.title;
+    if (!prompt) prompt = `Implemente o ${i.provider === "github" ? "issue" : "work item"} #${i.number}: ${i.title}\n${i.url || ""}`;
+  }
+  const toggle = (id: string) => (chosen = chosen.includes(id) ? chosen.filter(x => x !== id) : [...chosen, id]);
+
+  async function create() {
+    if (!title.trim()) return ui.toast("Diga o que é a tarefa", "info");
+    busy = true;
+    const prog = ui.progress(chosen.length > 1 ? `Criando ${chosen.length} worktrees…` : "Criando o worktree…");
+    try {
+      const ids: string[] = [];
+      // fan-out: um worktree por agente (branch com sufixo do agente); sem agente, um worktree só
+      const runs = chosen.length > 1 ? chosen : [chosen[0] || null];
+      for (const aid of runs) {
+        const acc = work.account(aid);
+        const sfx = chosen.length > 1 && acc ? `-${acc.provider}-${acc.name}`.toLowerCase().replace(/[^a-z0-9-]/g, "") : "";
+        const t = await post<any>("ws/task", { repoId: project.id, title: title.trim() + (sfx ? ` (${acc!.label} · ${acc!.name})` : ""),
+          kind, slug: slug + sfx, base, prompt: prompt.trim() || title.trim(), agents: aid ? [aid] : [], mode,
+          workItem: workItem ? { number: workItem.number, title: workItem.title, url: workItem.url, provider: workItem.provider } : null,
+          group: chosen.length > 1 ? slug : null });
+        ids.push(t.id);
+      }
+      prog.done(chosen.length > 1 ? `${ids.length} agentes trabalhando em paralelo` : "Tarefa criada");
+      await work.load();
+      oncreated(ids);
+    } catch (e) { prog.fail(e); }
+    busy = false;
+  }
+</script>
+
+<Drawer title="Nova tarefa" subtitle={`${project.name} — branch e worktree próprios, sem mexer no seu checkout`} {onclose} width={620}>
+  <div class="form">
+    <label class="label">O que fazer<input class="input" bind:value={title} placeholder="ex.: Ajustar o cálculo do frete no carrinho" /></label>
+    <div class="row2">
+      <Segmented size="sm" bind:value={kind} options={[{ value: "feature", label: "feature/" }, { value: "fix", label: "fix/" }]} />
+      <span class="branch mono"><GitBranch size={12} /> {kind}/{slug}</span>
+    </div>
+    <label class="label">A partir de
+      <select class="input" bind:value={base}>{#each branches as b (b)}<option value={b}>{b}</option>{/each}</select></label>
+
+    {#if items.length}
+      <details class="wi" open={!!workItem}>
+        <summary>{workItem ? `#${workItem.number} ${workItem.title}` : "Ligar a um work item / issue (opcional)"}</summary>
+        <div class="wil">{#each items as i (i.key)}<button class:on={workItem?.key === i.key} onclick={() => pickItem(i)}><ProviderIcon provider={i.provider} size={12} /> <b>#{i.number}</b> <span class="ell">{i.title}</span></button>{/each}</div>
+      </details>
+    {/if}
+
+    <label class="label">Prompt para o agente <span class="muted">(vazio = o título)</span>
+      <textarea class="input" rows="5" bind:value={prompt} placeholder="Contexto, critérios de aceite, arquivos importantes…"></textarea></label>
+
+    <div class="label">Agentes <span class="muted">— marque mais de um para comparar soluções (cada um no próprio worktree)</span></div>
+    <div class="accs">
+      {#each work.ai.filter(a => a.installed) as a (a.id)}
+        <button class="acc" class:on={chosen.includes(a.id)} onclick={() => toggle(a.id)}>
+          <AgentIcon provider={a.provider} size={16} />
+          <span class="grow"><b>{a.name}</b><span class="tiny muted">{a.label}{a.email ? " · " + a.email : ""}</span></span>
+          {#if a.usage?.rateLimits?.[0]}<span class="tiny" class:warn={(a.usage.rateLimits[0].used || 0) > 80}>{Math.round(a.usage.rateLimits[0].used || 0)}%</span>{/if}
+        </button>
+      {:else}<div class="small muted">Nenhuma CLI de IA encontrada. Instale o Claude Code ou o Codex e configure em Contas e ajustes → IA.</div>{/each}
+    </div>
+    <div class="row2">
+      <span class="small muted">Modo</span>
+      <Segmented size="sm" bind:value={mode} options={[{ value: "default", label: "Pergunta antes" }, { value: "acceptEdits", label: "Aceita edições" }, { value: "plan", label: "Só planejar" }]} />
+    </div>
+  </div>
+  {#snippet footer()}
+    <span class="small muted">{chosen.length ? `${chosen.length} agente(s)` : "sem agente — só o worktree"}</span>
+    <span class="spacer"></span>
+    <button class="btn" onclick={onclose}>Cancelar</button>
+    <button class="btn primary" disabled={busy || !title.trim()} onclick={create}>{#if chosen.length > 1}<Sparkles size={14} />{:else}<Rocket size={14} />{/if} {chosen.length > 1 ? `Disparar ${chosen.length} agentes` : "Criar tarefa"}</button>
+  {/snippet}
+</Drawer>
+
+<style>
+  .form { display: grid; gap: 14px; padding-top: 12px; }
+  .row2 { display: flex; align-items: center; gap: 12px; }
+  .branch { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--text-2); }
+  textarea { resize: vertical; min-height: 90px; font: 13px/1.5 var(--font); padding: 8px 10px; height: auto; }
+  .accs { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 6px; }
+  .acc { display: flex; align-items: center; gap: 10px; padding: 9px 11px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface-2);
+    color: var(--text-2); font: 13px var(--font); text-align: left; cursor: pointer; transition: border-color var(--t), background var(--t), transform var(--t-fast); }
+  .acc:hover { border-color: var(--line-3); }
+  .acc.on { border-color: var(--accent); background: var(--accent-soft); color: var(--text); }
+  .acc:active { transform: scale(0.98); }
+  .acc .grow { display: grid; min-width: 0; flex: 1; }
+  .acc b { color: var(--text); font-weight: 600; }
+  .warn { color: var(--warn); font-weight: 650; }
+  .wi summary { cursor: pointer; font-size: 13px; color: var(--text-2); }
+  .wil { display: grid; gap: 2px; max-height: 180px; overflow: auto; margin-top: 6px; }
+  .wil button { display: flex; align-items: center; gap: 6px; padding: 6px 8px; border: 0; border-radius: 7px; background: none; color: var(--text-2);
+    font: 12.5px var(--font); text-align: left; cursor: pointer; min-width: 0; }
+  .wil button:hover, .wil button.on { background: var(--accent-soft); color: var(--text); }
+  .spacer { flex: 1; }
+</style>

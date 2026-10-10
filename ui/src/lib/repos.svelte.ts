@@ -10,6 +10,8 @@ class Repos {
   favorites = $state<FavRepo[]>([]);
   tags = $state<Tag[]>([]);
   loaded = $state(false);
+  /** pedido para abrir o "Criar PR" ao entrar na tela do repositório (vem da tarefa) */
+  prIntent = $state<string | null>(null);
   private inflight: Promise<void> | null = null;
 
   get pinned() { return this.local.filter(r => r.pinned); }

@@ -203,6 +203,27 @@ jobs:
           Stop-Process -Id $p.Id -Force
           if (-not $ok) { throw 'o backend não respondeu com o Python embutido' }
           Write-Host '✓ backend responde com o Python embutido'
+          # terminal de verdade (ConPTY via ctypes): abre um PowerShell, roda um comando e lê a saída
+          $env:COMMITDECK_DATA = "$env:RUNNER_TEMP\commitdeck-pty"
+          @'
+          import sys, time
+          sys.path.insert(0, "build/app/backend")
+          from pilot import terminals
+          t = terminals.create(".", command="echo conpty-ok-$((6*7)); echo conpty-ok-42", cols=100, rows=30)
+          seen = b""
+          for _ in range(40):
+              time.sleep(0.5)
+              seen = bytes(t.scroll)
+              if b"conpty-ok-42" in seen:
+                  break
+          t.resize(120, 40)
+          t.kill()
+          print(seen.decode("utf-8", "replace")[-400:])
+          sys.exit(0 if b"conpty-ok-42" in seen else 1)
+          '@ | Set-Content -Encoding utf8 pty-smoke.py
+          build/app/python/python.exe pty-smoke.py
+          if ($LASTEXITCODE -ne 0) { throw 'o terminal (ConPTY) não respondeu' }
+          Write-Host '✓ terminal ConPTY funciona com o Python embutido'
 
       - name: Runtime do Visual C++
         run: pwsh kit/tools/add-vc-runtime.ps1 -Bundle build/app -RedistOut build/redist

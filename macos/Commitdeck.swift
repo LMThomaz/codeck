@@ -510,7 +510,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKUI
         let winItem = NSMenuItem()
         let win = NSMenu(title: "Janela")
         win.addItem(withTitle: "Minimizar", action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m")
-        win.addItem(withTitle: "Fechar", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
+        // ⌘W fica para a tela (fecha a aba de terminal/arquivo); a janela fecha com ⇧⌘W
+        win.addItem(withTitle: "Fechar janela", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "W")
         win.addItem(withTitle: "Mostrar Commitdeck", action: #selector(showWindow), keyEquivalent: "0")
         winItem.submenu = win
         main.addItem(winItem)

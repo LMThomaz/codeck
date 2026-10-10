@@ -84,6 +84,10 @@
       diff = { title: f.path, text: d.diff, binary: d.binary, truncated: d.truncated };
     } catch (e) { ui.error(e); }
   }
+  // veio de uma tarefa com "Criar PR": abre o formulário assim que souber a branch
+  $effect(() => {
+    if (repos.prIntent === id && status?.branch) { prFrom = status.branch; repos.prIntent = null; }
+  });
   async function newBranch(start?: string, from?: string) {
     const name = await ui.ask({ title: from ? `Nova branch a partir de ${from}` : start ? "Criar branch a partir deste commit" : "Nova branch", input: { label: "Nome da branch", placeholder: "feature/minha-mudanca", required: true }, confirm: "Criar e fazer checkout" });
     if (name) run("branch", "branch-create", { name: name.trim(), start }, `Branch ${name} criada`);

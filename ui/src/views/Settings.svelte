@@ -1,6 +1,7 @@
 <script lang="ts">
   // Configurações: organizações do Azure DevOps, contas do GitHub, preferências e sobre/atualização.
   // Segredos (PAT/token) só vão para o servidor local, que os guarda no cofre do sistema — nunca voltam para a tela.
+  import { Bot } from "@lucide/svelte";
   import { Check, ExternalLink, KeyRound, LogIn, Monitor, Moon, Plus, RefreshCw, Shield, SlidersHorizontal, Sun, Terminal, Trash2, Info } from "@lucide/svelte";
   import { untrack } from "svelte";
   import { get, post } from "../lib/api";
@@ -14,6 +15,7 @@
   import Skeleton from "../components/Skeleton.svelte";
   import Switch from "../components/Switch.svelte";
   import Segmented from "../components/Segmented.svelte";
+  import AiAccounts from "../components/settings/AiAccounts.svelte";
   import TestResult from "../components/TestResult.svelte";
   import { chooseTheme, type ThemePref } from "../lib/theme";
 
@@ -21,6 +23,7 @@
   const TABS = [
     { id: "accounts", label: "Azure DevOps", provider: "azure" },
     { id: "github", label: "GitHub", provider: "github" },
+    { id: "ai", label: "IA", icon: Bot },
     { id: "prefs", label: "Preferências", icon: SlidersHorizontal },
     { id: "about", label: "Sobre", icon: Info },
   ];
@@ -183,6 +186,8 @@
           </div>
         </div>
 
+      {:else if tab === "ai"}
+        <AiAccounts />
       {:else if tab === "prefs"}
         <div class="head"><div><h2>Preferências</h2></div></div>
         <div class="card org">

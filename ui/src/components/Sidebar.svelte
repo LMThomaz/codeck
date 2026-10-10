@@ -1,8 +1,10 @@
 <script lang="ts">
-  import { BarChart3, RefreshCw, CircleDot, FolderGit2, GitPullRequest, Hammer, History, Inbox, Pin, Rocket, Search, Settings, Zap } from "@lucide/svelte";
+  import { BarChart3, Code2, RefreshCw, CircleDot, FolderGit2, GitPullRequest, Hammer, History, Inbox, Pin, Rocket, Search, Settings, Zap } from "@lucide/svelte";
   import { BRAND } from "../lib/brand";
   import { post } from "../lib/api";
   import { repos } from "../lib/repos.svelte";
+  import { work } from "../lib/work.svelte";
+  import AgentIcon from "./work/AgentIcon.svelte";
   import { go, router } from "../lib/router.svelte";
   import { store } from "../lib/store.svelte";
   import { ui } from "../lib/ui.svelte";
@@ -15,6 +17,8 @@
   const s = $derived(store.s);
   const running = $derived(s ? s.builds.filter(b => b.status !== "completed").length : 0);
   const nav = $derived([
+    { group: "Trabalho" },
+    { id: "work", label: "Projetos", icon: Code2, count: work.needsYou || undefined, hot: true, live: work.agents.some(a => a.session?.status === "working") },
     { group: "Visão geral" },
     { id: "inbox", label: "Fila", icon: Inbox, count: store.inbox.length + (s?.deploys.length || 0), hot: true },
     { id: "prs", label: "Pull requests", icon: GitPullRequest, count: s ? s.myPrs.length + store.open.length : undefined },
@@ -89,6 +93,15 @@
           {#if n.live}<span class="live"></span>{/if}
           {#if n.count !== undefined && n.count !== null}<span class="count" class:hot={n.hot && n.count > 0 && !isOn(n.id)}>{n.count}</span>{/if}
         </button>
+        {#if n.id === "work"}
+          {#each work.projects as x (x.id)}
+            {@const ags = work.agents.filter(a => a.project.id === x.id)}
+            <button class="item sub" class:on={router.view === "work" && (router.param === x.id || (!router.param && work.active === x.id))} onclick={() => go("/work/" + x.id)}>
+              <span class="lbl">{x.name}</span>
+              {#each ags.slice(0, 3) as a (a.term.id)}<span class="ag" class:busy={a.session?.status === "working"} class:need={a.session?.status === "needs-you"}><AgentIcon provider={a.term.meta.provider} size={11} /></span>{/each}
+            </button>
+          {/each}
+        {/if}
         {#if n.id === "repos"}
           <div class="tree" bind:this={treeEl}><CollectionsTree compact /></div>
           {#each repos.pinned as r (r.id)}
@@ -153,6 +166,9 @@
   .item.sub { height: 27px; padding-left: 36px; font-size: 12.5px; gap: 8px; }
   .item.sub:hover:not(.on) { padding-left: 38px; }
   .tree { position: relative; z-index: 1; }
+  .ag { display: inline-grid; place-items: center; border-radius: 50%; padding: 1px; }
+  .ag.busy { box-shadow: 0 0 0 2px var(--accent-soft); animation: live 1.6s infinite; }
+  .ag.need { box-shadow: 0 0 0 2px var(--warn); }
   .lbl { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .count { font: 650 11px/1 var(--font); font-variant-numeric: tabular-nums; padding: 3px 7px; border-radius: 99px; background: var(--surface-2); color: var(--text-2);
     border: 1px solid var(--line); transition: background var(--t), color var(--t); }
