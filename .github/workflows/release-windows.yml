@@ -333,6 +333,9 @@ jobs:
           remote="${FTP_ROOT%/}/$CHANNEL"
           lftp_run "mkdir -p -f $remote"
           tmp="$(mktemp -d)"
+          # O .exe sobe ANTES de ler o latest.json: ler, ajustar e gravar ficam em sequência (segundos), e a parte do
+          # Mac publicada pelo scripts/release-macos.sh nesse meio-tempo não é apagada.
+          lftp_run "cd $remote; put dist/$exe;"
           if lftp_run "cd $remote; cls -1" | grep -qx 'latest.json'; then
             lftp_run "cd $remote; lcd $tmp; get latest.json -o current.json" \
               || { echo "::error::não li o latest.json publicado — nada foi enviado"; exit 1; }
@@ -353,7 +356,7 @@ jobs:
               | ([.windows, .macos] | map(select(. != null)) | max_by(.build)) as $n
               | .version = $n.version | .build = $n.build' "$tmp/current.json" > dist/latest.json
           cat dist/latest.json
-          lftp_run "cd $remote; put dist/$exe; put dist/latest.json;"
+          lftp_run "cd $remote; put dist/latest.json;"
           old="$(lftp_run "cd $remote; cls -1" | sed -nE 's/^Commitdeck-[0-9.]+-([0-9]+)-setup\.exe$/\1/p' | sort -un | head -n -2)"
           for b in $old; do lftp_run "cd $remote; glob -a rm -f Commitdeck-*-$b-setup.exe;" || true; done
           code="$(curl -sS -o "$tmp/served.json" -w '%{http_code}' "$DOWNLOADS_BASE_URL/$CHANNEL/latest.json?t=$(date +%s)" || true)"
@@ -370,6 +373,7 @@ jobs:
           legacy="${FTP_ROOT%/}/pr-pilot"
           lexe="PR-Pilot-$BUILD_NAME-$BUILD_NUMBER-setup.exe"
           cp "dist/$exe" "$tmp/$lexe"
+          lftp_run "mkdir -p -f $legacy; cd $legacy; lcd $tmp; put $lexe;"
           if lftp_run "cd $legacy; cls -1" | grep -qx 'latest.json'; then
             lftp_run "cd $legacy; lcd $tmp; get latest.json -o legacy-current.json" || { echo "::error::não li o latest.json do canal antigo"; exit 1; }
           else
@@ -386,7 +390,7 @@ jobs:
               | .notes = $notes | .publishedAt = $date
               | ([.windows, .macos] | map(select(. != null)) | max_by(.build)) as $n
               | .version = $n.version | .build = $n.build' "$tmp/legacy-current.json" > "$tmp/legacy-latest.json"
-          lftp_run "mkdir -p -f $legacy; cd $legacy; lcd $tmp; put $lexe; put legacy-latest.json -o latest.json;"
+          lftp_run "cd $legacy; lcd $tmp; put legacy-latest.json -o latest.json;"
           old="$(lftp_run "cd $legacy; cls -1" | sed -nE 's/^PR-Pilot-[0-9.]+-([0-9]+)-setup\.exe$/\1/p' | sort -un | head -n -2)"
           for b in $old; do lftp_run "cd $legacy; glob -a rm -f PR-Pilot-*-$b-setup.exe;" || true; done
           echo "- ponte no canal antigo: $DOWNLOADS_BASE_URL/pr-pilot/latest.json" >> "$GITHUB_STEP_SUMMARY"

@@ -4,6 +4,8 @@
 #
 #   scripts/release-macos.sh            gera e publica
 #   scripts/release-macos.sh --dry-run  gera o .dmg; não publica
+#   scripts/release-macos.sh --verify   não gera nada: confere a parte do Mac nos dois latest.json e corrige se
+#                                       outra publicação (o Windows, no CI) a sobrescreveu
 #
 # Publica o que está na main (árvore limpa, commit já no origin/main), na versão do arquivo VERSION (x.y.z+N),
 # a mesma do Windows. Destinos:
@@ -15,9 +17,11 @@
 set -euo pipefail
 
 DRY_RUN=false
+VERIFY=false
 for arg in "$@"; do
   case "$arg" in
     --dry-run) DRY_RUN=true ;;
+    --verify) VERIFY=true ;;
     *) echo "argumento desconhecido: $arg" >&2; exit 2 ;;
   esac
 done
@@ -80,13 +84,62 @@ lftp_run() {
     bye"
 }
 
+out="$ROOT/dist/release-macos"
+dmg="$out/Commitdeck-$VERSION-$BUILD.dmg"
+
+# Grava a parte do Mac no latest.json de um canal. O instalador JÁ deve estar no servidor: ler, ajustar e gravar
+# acontecem em sequência, em segundos — a mesma ordem do CI do Windows, para um não apagar a parte do outro.
+#   publish_json <canal> <arquivo no servidor> <productId> <notas>
+publish_json() {
+  local ch="$1" file="$2" pid="$3" notes="$4" cur="$out/$1-current.json" next="$out/$1-latest.json"
+  rm -f "$cur"
+  if lftp_run "cd /$ch; cls -1" 2>/dev/null | grep -qx 'latest.json'; then
+    lftp_run "cd /$ch; lcd $out; get latest.json -o $(basename "$cur")" || fail "Não li o latest.json de $ch — nada foi enviado."
+    jq -e 'type == "object"' "$cur" >/dev/null || fail "O latest.json de $ch não é JSON — nada foi enviado."
+  else
+    echo '{}' > "$cur"   # primeira publicação
+  fi
+  jq --arg url "$BASE_URL/$ch/$file" \
+     --arg sha "$(shasum -a 256 "$dmg" | cut -d' ' -f1)" \
+     --argjson size "$(stat -f %z "$dmg")" \
+     --arg version "$VERSION" --argjson build "$BUILD" \
+     --arg pid "$pid" --arg notes "$notes" \
+     --arg date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+     '.productId = $pid
+      | .macos = {url: $url, sha256: $sha, size: $size, version: $version, build: $build}
+      | .notes = $notes | .publishedAt = $date
+      | ([.windows, .macos] | map(select(. != null)) | max_by(.build)) as $n
+      | .version = $n.version | .build = $n.build' "$cur" > "$next"
+  lftp_run "cd /$ch; lcd $out; put $(basename "$next") -o latest.json;"
+}
+
+# Confere os dois canais e regrava a parte do Mac onde ela não for a deste build.
+verify_channels() {
+  local ok=true ch file pid got
+  for ch in commitdeck pr-pilot; do
+    got="$(curl -fsS "$BASE_URL/$ch/latest.json?t=$(date +%s)" | jq -r '.macos.build // empty')"
+    [ "$got" = "$BUILD" ] && continue
+    ok=false
+    if [ "$ch" = commitdeck ]; then file="Commitdeck-$VERSION-$BUILD.dmg"; pid=commitdeck; else file="PR-Pilot-$VERSION-$BUILD.dmg"; pid=pr-pilot; fi
+    curl -fsSI "$BASE_URL/$ch/$file" >/dev/null || fail "$ch: o $file não está no servidor — publique de novo."
+    say "$ch servia o Mac no build ${got:-nenhum} — corrigindo para $BUILD"
+    publish_json "$ch" "$file" "$pid" "$([ "$ch" = pr-pilot ] && echo "Agora se chama Commitdeck. ")$(git log -1 --format=%s)"
+  done
+  $ok && echo "✓ commitdeck e pr-pilot servem o Mac no build $BUILD"
+  return 0
+}
+
+if [ "$VERIFY" = true ]; then
+  [ -f "$dmg" ] || fail "Não achei $dmg (o --verify usa o .dmg da última publicação deste build)."
+  verify_channels
+  exit 0
+fi
+
 say "Build"
 bash scripts/build-macos.sh --no-install
-out="$ROOT/dist/release-macos"
 rm -rf "$out"; mkdir -p "$out/stage"
 cp -R "$ROOT/dist/Commitdeck.app" "$out/stage/"
 ln -s /Applications "$out/stage/Aplicativos"
-dmg="$out/Commitdeck-$VERSION-$BUILD.dmg"
 create-dmg --volname "Commitdeck" --volicon macos/AppIcon.icns \
   --window-pos 200 120 --window-size 600 380 --icon-size 104 --text-size 13 \
   --icon "Commitdeck.app" 160 180 --hide-extension "Commitdeck.app" --icon "Aplicativos" 440 180 \
@@ -97,27 +150,9 @@ if [ "$DRY_RUN" = true ]; then say "Ensaio: o .dmg está em $out — nada foi pu
 
 # O .dmg primeiro, o latest.json por último — só a parte do Mac; a do Windows fica como o CI a deixou.
 say "Publicando no site"
-rm -f "$out/current.json"
-if lftp_run "cd /$CHANNEL; cls -1" 2>/dev/null | grep -qx 'latest.json'; then
-  lftp_run "cd /$CHANNEL; lcd $out; get latest.json -o current.json" || fail "Não li o latest.json publicado — nada foi enviado."
-  jq -e 'type == "object"' "$out/current.json" >/dev/null || fail "O latest.json publicado não é JSON — nada foi enviado."
-else
-  echo '{}' > "$out/current.json"   # primeira publicação
-fi
 name="$(basename "$dmg")"
-jq --arg url "$BASE_URL/$CHANNEL/$name" \
-   --arg sha "$(shasum -a 256 "$dmg" | cut -d' ' -f1)" \
-   --argjson size "$(stat -f %z "$dmg")" \
-   --arg version "$VERSION" --argjson build "$BUILD" \
-   --arg notes "$(git log -1 --format=%s)" \
-   --arg date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-   '.productId = "commitdeck"
-    | .macos = {url: $url, sha256: $sha, size: $size, version: $version, build: $build}
-    | .notes = $notes | .publishedAt = $date
-    | ([.windows, .macos] | map(select(. != null)) | max_by(.build)) as $n
-    | .version = $n.version | .build = $n.build' \
-   "$out/current.json" > "$out/latest.json"
-lftp_run "mkdir -p -f /$CHANNEL; cd /$CHANNEL; put $dmg; put $out/latest.json;"
+lftp_run "mkdir -p -f /$CHANNEL; cd /$CHANNEL; put $dmg;"
+publish_json "$CHANNEL" "$name" commitdeck "$(git log -1 --format=%s)"
 old="$(lftp_run "cd /$CHANNEL; cls -1" | sed -nE 's/^Commitdeck-[0-9.]+-([0-9]+)\.dmg$/\1/p' | sort -un | awk '{a[NR]=$0} END {for (i = 1; i <= NR - 2; i++) print a[i]}')"
 for b in $old; do lftp_run "cd /$CHANNEL; glob -a rm -f Commitdeck-*-$b.dmg;" || true; done
 got="$(curl -fsS "$BASE_URL/$CHANNEL/latest.json?t=$(date +%s)" | jq -r .macos.build)"
@@ -131,31 +166,18 @@ LEGACY=pr-pilot
 legacy="$out/PR-Pilot-$VERSION-$BUILD.dmg"
 cp "$dmg" "$legacy"
 say "Ponte no canal antigo ($LEGACY)"
-rm -f "$out/legacy-current.json"
-if lftp_run "cd /$LEGACY; cls -1" 2>/dev/null | grep -qx 'latest.json'; then
-  lftp_run "cd /$LEGACY; lcd $out; get latest.json -o legacy-current.json" || fail "Não li o latest.json do canal antigo."
-  jq -e 'type == "object"' "$out/legacy-current.json" >/dev/null || fail "O latest.json do canal antigo não é JSON."
-else
-  echo '{}' > "$out/legacy-current.json"
-fi
-jq --arg url "$BASE_URL/$LEGACY/$(basename "$legacy")" \
-   --arg sha "$(shasum -a 256 "$legacy" | cut -d' ' -f1)" \
-   --argjson size "$(stat -f %z "$legacy")" \
-   --arg version "$VERSION" --argjson build "$BUILD" \
-   --arg notes "Agora se chama Commitdeck. $(git log -1 --format=%s)" \
-   --arg date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-   '.productId = "pr-pilot"
-    | .macos = {url: $url, sha256: $sha, size: $size, version: $version, build: $build}
-    | .notes = $notes | .publishedAt = $date
-    | ([.windows, .macos] | map(select(. != null)) | max_by(.build)) as $n
-    | .version = $n.version | .build = $n.build' \
-   "$out/legacy-current.json" > "$out/legacy-latest.json"
-lftp_run "mkdir -p -f /$LEGACY; cd /$LEGACY; put $legacy; put $out/legacy-latest.json -o latest.json;"
+lftp_run "mkdir -p -f /$LEGACY; cd /$LEGACY; put $legacy;"
+publish_json "$LEGACY" "$(basename "$legacy")" pr-pilot "Agora se chama Commitdeck. $(git log -1 --format=%s)"
 old="$(lftp_run "cd /$LEGACY; cls -1" | sed -nE 's/^PR-Pilot-[0-9.]+-([0-9]+)\.dmg$/\1/p' | sort -un | awk '{a[NR]=$0} END {for (i = 1; i <= NR - 2; i++) print a[i]}')"
 for b in $old; do lftp_run "cd /$LEGACY; glob -a rm -f PR-Pilot-*-$b.dmg;" || true; done
 
 say "GitHub Releases ($TAG)"
 gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --title "Commitdeck $VERSION (build $BUILD)" \
   --notes "$(git log -1 --format=%B)" --target "$(git rev-parse HEAD)"
-gh release upload "$TAG" "$dmg" "$out/latest.json" --clobber
+gh release upload "$TAG" "$dmg" --clobber
+cp "$out/$CHANNEL-latest.json" "$out/latest.json" && gh release upload "$TAG" "$out/latest.json" --clobber
+
+say "Conferindo os canais"
+sleep 20
+verify_channels
 say "Publicado: $BASE_URL/$CHANNEL/latest.json"
