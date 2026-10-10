@@ -48,11 +48,12 @@
         minimap: { enabled: false }, scrollBeyondLastLine: false, renderOverviewRuler: true, fixedOverflowWidgets: true });
       diff.getModifiedEditor().addCommand(m.KeyMod.CtrlCmd | m.KeyCode.KeyS, () => save());
       diff.getModifiedEditor().addCommand(m.KeyMod.CtrlCmd | m.KeyMod.Shift | m.KeyCode.KeyC, () => comment());
-      if (sel) show(sel);
+      if (sel) show(sel).catch(() => {});
     });
     return () => { dead = true; const m = diff?.getModel(); diff?.dispose(); diff = null; m?.original.dispose(); m?.modified.dispose(); };
   });
-  $effect(() => { const s = sel; if (s && diff) show(s); });
+  // a tarefa pode ter sido removida enquanto o diff carregava: a resposta (404) é ignorada, não vira erro solto
+  $effect(() => { const s = sel; if (s && diff) show(s).catch(() => {}); });
 
   async function show(path: string) {
     if (!diff || !monaco) return;
