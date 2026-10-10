@@ -125,9 +125,9 @@
     else v.files = [...v.files, { k: "file", key, path, scope: v.scope || null, line }];
     focusTab(key);
   }
-  /** Projeto numa janela própria (outro monitor). No navegador (dev), abre outra aba. */
+  /** Projeto numa janela própria (outro monitor) — janela nativa do app. */
   function popOut(x: Project) {
-    if (!send({ type: "openWindow", hash: "/solo/" + x.id, title: `${x.name} — Commitdeck` })) window.open(location.origin + "/#/solo/" + x.id, "_blank");
+    send({ type: "openWindow", hash: "/solo/" + x.id, title: `${x.name} — Commitdeck` });
   }
   async function openProjectMenu() { /* menu montado em projectItems */ }
   const projectItems = $derived([

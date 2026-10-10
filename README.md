@@ -127,7 +127,7 @@ enviar por HTTPS; remotos SSH usam as suas chaves.
 backend/        server.py + pacote pilot/ (Python, só biblioteca padrão) — igual nas duas plataformas
   pilot/        http (rotas) · engine (leitura periódica) · azure · github · git · catalogs · rules · secrets · update
   static/       a interface compilada (gerada, não versionada)
-ui/             interface em Svelte 5 + Vite + TypeScript (npm run build → backend/static)
+ui/             interface do app em Svelte 5 + TypeScript, compilada com Vite (npm run build → backend/static)
 brand/          make-logo.py gera logo.svg e icon.svg; make-icons.sh gera .icns e .ico
 macos/          Commitdeck.swift — janela nativa (AppKit + WebKit), Dock, barra de menus, notificações, troca do .app
 windows/        Commitdeck (C# .NET 8, WinForms + WebView2) — janela, bandeja, notificações, atualização pelo ThomSoft Setup
@@ -146,8 +146,8 @@ reconhecimento do remoto em `git.parse_remote`. A interface já trata os itens p
 
 ## Desenvolver
 
-No VS Code ou no Cursor, dê ▶ em **Commitdeck (dev, macOS)**, **Commitdeck (dev, Windows)** ou
-**Commitdeck (dev, interface no navegador)** — esta última sobe o Vite (porta `47823`, recarrega ao salvar).
+O Commitdeck só existe como app de desktop (macOS e Windows) — não há versão web. No VS Code ou no Cursor, dê ▶ em
+**Commitdeck (dev, macOS)** ou **Commitdeck (dev, Windows)**.
 
 - O backend sobe em depuração (porta `47822`, dados em `data-sandbox/`) e o app nativo se conecta a ele.
 - `cd ui && npm run check` confere os tipos; `npm run build` gera `backend/static/`.

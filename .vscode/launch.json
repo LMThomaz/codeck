@@ -1,7 +1,6 @@
 {
   // ▶ "Commitdeck (dev)": sobe o backend em depuração (porta 47822, dados em data-sandbox/) e abre o app nativo
-  // conectado nele — sem tocar no app instalado nem nas suas contas reais. "interface no navegador" sobe o Vite
-  // (porta 47823, hot reload) apontando para esse backend: o jeito mais rápido de mexer na tela.
+  // conectado nele — sem tocar no app instalado nem nas suas contas reais. O Commitdeck só roda como app de desktop.
   "version": "0.2.0",
   "configurations": [
     {
@@ -35,13 +34,6 @@
       "env": { "COMMITDECK_ATTACH": "1", "COMMITDECK_PORT": "47822" }
     },
     {
-      "name": "Interface (Vite, recarrega ao salvar)",
-      "type": "node-terminal",
-      "request": "launch",
-      "cwd": "${workspaceFolder}/ui",
-      "command": "npm install --no-audit --no-fund && npm run dev -- --open"
-    },
-    {
       "name": "Instalar o app no meu Mac",
       "type": "node-terminal",
       "request": "launch",
@@ -50,7 +42,6 @@
   ],
   "compounds": [
     { "name": "Commitdeck (dev, macOS)", "configurations": ["Backend (depurar)", "App macOS (conecta no backend em depuração)"], "stopAll": true },
-    { "name": "Commitdeck (dev, interface no navegador)", "configurations": ["Backend (depurar)", "Interface (Vite, recarrega ao salvar)"], "stopAll": true },
     { "name": "Commitdeck (dev, Windows)", "configurations": ["Backend (depurar)", "App Windows (conecta no backend em depuração)"], "stopAll": true }
   ]
 }

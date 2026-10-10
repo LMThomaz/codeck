@@ -16,9 +16,8 @@ export function send(msg: Record<string, unknown>) {
 export const isNative = () => !!(window.webkit?.messageHandlers?.commitdeck || window.chrome?.webview);
 export const platform = () => window.COMMITDECK_PLATFORM || (navigator.userAgent.includes("Windows") ? "windows" : "macos");
 
-/** Abre o seletor de pasta do sistema. Sem app nativo (dev no navegador), pede o caminho num prompt. */
+/** Abre o seletor de pasta do sistema (janela nativa). */
 export function pickFolder(title = "Escolha uma pasta"): Promise<string | null> {
-  if (!isNative()) return Promise.resolve(window.prompt(`${title} — caminho completo:`) || null);
   const id = Math.random().toString(36).slice(2);
   return new Promise(resolve => {
     pending.set(id, resolve);
