@@ -1375,7 +1375,7 @@ def download_update():
 def update_loop():
     while True:
         check_update()
-        time.sleep(6 * 3600)
+        time.sleep(3600)
 
 
 def rule_stats():

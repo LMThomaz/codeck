@@ -191,6 +191,18 @@ jobs:
       - name: Runtime do Visual C++
         run: pwsh kit/tools/add-vc-runtime.ps1 -Bundle build/app -RedistOut build/redist
 
+      # O ThomSoft Setup é um .exe genérico com o ícone do LuriSystem gravado: sem trocar, a janela e a barra de
+      # tarefas do instalador (e o desinstalador) mostram a marca errada. O kit só troca o ícone do .exe de fora.
+      - name: Ícone do PR Pilot no ThomSoft Setup
+        run: |
+          $rc = Join-Path $env:RUNNER_TEMP 'rcedit-x64.exe'
+          Invoke-WebRequest -Uri 'https://github.com/electron/rcedit/releases/download/v2.0.0/rcedit-x64.exe' -OutFile $rc
+          $got = (Get-FileHash -Algorithm SHA256 $rc).Hash.ToLower()
+          if ($got -ne '3e7801db1a5edbec91b49a24a094aad776cb4515488ea5a4ca2289c400eade2a') { throw "rcedit com hash inesperado ($got)" }
+          & $rc kit/setup/setup.exe --set-icon windows/PRPilot/app.ico --set-version-string FileDescription 'Instalador do PR Pilot' `
+            --set-version-string ProductName 'PR Pilot'
+          if ($LASTEXITCODE -ne 0) { throw 'rcedit falhou' }
+
       - name: Instalador (montar e executar)
         run: |
           New-Item -ItemType Directory -Force dist | Out-Null
