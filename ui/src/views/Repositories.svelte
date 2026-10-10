@@ -1,7 +1,7 @@
 <script lang="ts">
   // Repositórios: os locais registrados, os favoritos (de qualquer conta, com tags) e os catálogos (repositórios de uma
   // org/projeto, clonados ou não — criados sozinhos ao conectar a conta).
-  import { Download, FolderPlus, FolderSearch, Link, Pencil, Plus, RefreshCw, Search, WifiOff } from "@lucide/svelte";
+  import { Download, FolderPlus, FolderSearch, Link, Pencil, Plus, RefreshCw, Search, WifiOff, FolderCog } from "@lucide/svelte";
   import { untrack } from "svelte";
   import { get, post } from "../lib/api";
   import { pickFolder } from "../lib/native";
@@ -56,10 +56,9 @@
   $effect(() => { if (searching) { void sq; untrack(runSearch); } });
 
   async function cloneFav(r: FavRepo) {
-    const ch = await ui.chooseCloneDir({ title: `Clonar ${r.name}`, names: [r.name], current: tagInfo?.baseDir, rememberLabel: tagName ? `a tag ${tagName}` : undefined });
-    if (!ch) return;
-    if (ch.remember && tagName) { await post("library/tag", { name: tagName, baseDir: ch.base }); repos.loadLibrary(); }
-    try { watch(r.key, await post("library/clone", { key: r.key, dest: join(ch.base, r.name) })); } catch (e) { ui.error(e); }
+    const base = await askBase([r.name], `${r.provider}:${r.account}`);
+    if (!base) return;
+    try { watch(r.key, await post("library/clone", { key: r.key, dest: join(base, r.name) })); } catch (e) { ui.error(e); }
   }
   let view = $state<CatalogView | null>(null);
   let loading = $state(false);
@@ -113,31 +112,35 @@
     setTimeout(tick, 500);
   }
   const join = (base: string, name: string) => base.replace(/[\\/]$/, "") + (base.includes("\\") ? "\\" : "/") + name;
-  /** Pergunta a pasta (pré-seleciona a lembrada) e, se pedido, lembra na conta/catálogo. */
-  async function askBase(names: string[]) {
-    const ch = await ui.chooseCloneDir({ title: names.length === 1 ? `Clonar ${names[0]}` : `Clonar ${names.length} repositórios`, names,
-      current: view?.baseDir, rememberLabel: isAccount ? `a conta ${view?.name}` : `o catálogo ${view?.name}` });
+  const accName = (key: string) => repos.accounts.find(a => a.key === key)?.name || key.split(":").pop() || key;
+  /** Pergunta a pasta — as pastas base da CONTA do repositório vêm primeiro; pasta nova pode virar pasta da conta. */
+  async function askBase(names: string[], account: string) {
+    const ch = await ui.chooseCloneDir({ title: names.length === 1 ? `Clonar ${names[0]}` : `Clonar ${names.length} repositórios de ${accName(account)}`, names,
+      account, accountName: accName(account) });
     if (!ch) return null;
-    if (ch.remember && ch.base !== view?.baseDir) {
-      if (isAccount) await post("catalogs/account-dir", { key: catalogId!.slice(8), baseDir: ch.base });
-      else await post("catalogs/save", { ...view, baseDir: ch.base });
-    }
+    if (ch.remember) { await post("accounts/dirs", { key: account, add: ch.base }); repos.load(false); }
     return ch.base;
   }
   async function clone(key: string) {
     const r = view?.repos.find(x => x.key === key);
     if (!r) return;
-    const base = await askBase([r.name]);
+    const base = await askBase([r.name], r.accountKey || `${r.provider}:${r.account}`);
     if (!base) return;
     try { watch(key, await post("catalogs/clone", { id: catalogId, repoKey: key, dest: join(base, r.name) })); } catch (e) { ui.error(e); }
   }
   async function cloneAll() {
     const pending = view!.repos.filter(r => !r.cloned && !r.archived);
-    const base = await askBase(pending.map(r => r.name));
-    if (!base) return;
+    // catálogo pode misturar contas: pergunta a pasta uma vez por conta
+    const bases: Record<string, string> = {};
+    for (const acc of [...new Set(pending.map(r => r.accountKey || `${r.provider}:${r.account}`))]) {
+      const b = await askBase(pending.filter(r => (r.accountKey || `${r.provider}:${r.account}`) === acc).map(r => r.name), acc);
+      if (!b) return;
+      bases[acc] = b;
+    }
     const prog = ui.progress(`Clonando ${pending.length} repositório(s)…`);
     let n = 0;
     for (const r of pending) {
+      const base = bases[r.accountKey || `${r.provider}:${r.account}`];
       prog.update(`Clonando ${r.name} (${++n} de ${pending.length})…`);
       try {
         const job = await post("catalogs/clone", { id: catalogId, repoKey: r.key, dest: join(base, r.name) });
@@ -185,8 +188,8 @@
 </script>
 
 <Page title={catalogId ? view?.name || (isAccount ? catalogId.split(":").pop() || "" : "Catálogo") : tagName ? tagName : favMode ? "Favoritos" : "Repositórios"}
-  sub={catalogId ? (view ? `${view.counts.cloned} de ${view.counts.total} clonados${view.baseDir ? " · " + view.baseDir.replace(/^\/Users\/[^/]+/, "~") : ""}` : "carregando…")
-    : favMode ? `${favCounts.cloned} de ${favCounts.all} clonados · GitHub e Azure DevOps juntos${tagInfo?.baseDir ? " · " + tagInfo.baseDir.replace(/^\/Users\/[^/]+/, "~") : ""}`
+  sub={catalogId ? (view ? `${view.counts.cloned} de ${view.counts.total} clonados${isAccount && view.dirs?.length ? " · " + view.dirs.map(d => d.replace(/^\/Users\/[^/]+/, "~")).join(", ") : ""}` : "carregando…")
+    : favMode ? `${favCounts.cloned} de ${favCounts.all} clonados · GitHub e Azure DevOps juntos`
     : "Seus repositórios locais, favoritos e catálogos de GitHub e Azure DevOps"}>
   {#snippet actions()}
     {#if favMode}
@@ -195,7 +198,8 @@
     {:else if catalogId && view}
       <button class="btn sm ghost" onclick={() => loadCatalog(true)} title="Ler a lista de novo"><RefreshCw size={14} /></button>
       {#if counts?.notCloned}<button class="btn sm" onclick={cloneAll}><Download size={14} /> Clonar todos ({counts.notCloned})</button>{/if}
-      {#if !isAccount}<button class="btn sm" onclick={() => (editing = "edit")}><Pencil size={14} /> Editar</button>{/if}
+      {#if isAccount}<button class="btn sm" onclick={() => (ui.editAccount = catalogId!.slice(8))}><FolderCog size={14} /> Pastas base</button>
+      {:else}<button class="btn sm" onclick={() => (editing = "edit")}><Pencil size={14} /> Editar</button>{/if}
       <button class="btn sm" onclick={() => (editing = "new")}><Plus size={14} /> Novo catálogo</button>
     {:else}
       <button class="btn sm" onclick={() => (adding = true)}><FolderPlus size={14} /> Adicionar local</button>

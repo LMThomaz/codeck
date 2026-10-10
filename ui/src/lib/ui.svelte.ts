@@ -14,7 +14,7 @@ export interface OpenMenu {
   owner: symbol | null;
 }
 /** Pergunta onde clonar: devolve a pasta BASE escolhida (o repositório vai para base/<nome>) e se é para lembrar. */
-export interface CloneAsk { title: string; names: string[]; current?: string | null; rememberLabel?: string; resolve: (v: { base: string; remember: boolean } | null) => void }
+export interface CloneAsk { title: string; names: string[]; account?: string | null; accountName?: string; resolve: (v: { base: string; remember: boolean } | null) => void }
 /** Aviso de uma ação em andamento: nasce girando e vira sucesso ou erro no mesmo lugar. */
 export interface Progress { done: (text: string) => void; fail: (e: unknown) => void; update: (text: string) => void }
 
@@ -26,6 +26,8 @@ class UI {
   palette = $state(false);
   menu = $state<OpenMenu | null>(null);
   cloneAsk = $state<CloneAsk | null>(null);
+  /** conta cujas pastas base estão sendo editadas ("provider:conta") */
+  editAccount = $state<string | null>(null);
   /** quantos envios (POST) estão em andamento — alimenta a barra de progresso do topo */
   inflight = $state(0);
   private seq = 0;

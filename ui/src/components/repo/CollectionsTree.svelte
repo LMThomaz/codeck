@@ -3,9 +3,8 @@
   //   Contas    — cada conta conectada lista TODOS os repositórios dela (logo do provedor + quantidade)
   //   Favoritos — de qualquer conta;  Tags — coleções pelas tags dos favoritos;  Catálogos — categorias manuais
   // Os contadores vêm do cache do backend; "…" enquanto a lista da conta/catálogo ainda não foi lida.
-  import { ChevronRight, FolderKanban, FolderOpen, Palette, Pencil, Plus, Star, Tags, Trash2, Users } from "@lucide/svelte";
+  import { ChevronRight, FolderCog, FolderKanban, FolderOpen, Palette, Pencil, Plus, Star, Tags, Trash2, Users } from "@lucide/svelte";
   import { post } from "../../lib/api";
-  import { pickFolder } from "../../lib/native";
   import { repos } from "../../lib/repos.svelte";
   import { go, router } from "../../lib/router.svelte";
     import { ui } from "../../lib/ui.svelte";
@@ -46,7 +45,6 @@
   const tagMenu = (name: string, color: string) => [
     { label: "Renomear", icon: Pencil, onclick: () => rename(name) },
     { label: "Trocar a cor", icon: Palette, onclick: () => editTag(name, { color: PALETTE[(PALETTE.indexOf(color) + 1) % PALETTE.length] }) },
-    { label: "Pasta para clonar…", icon: FolderOpen, onclick: async () => { const p = await pickFolder(`Onde clonar os repositórios de ${name}?`); if (p) editTag(name, { baseDir: p }); } },
     { separator: true },
     { label: "Apagar tag", icon: Trash2, danger: true, onclick: () => remove(name) },
   ];
@@ -63,10 +61,16 @@
     {@render head("accounts", "Contas", Users, repos.accounts.length)}
     <div class="kids" class:closed={isClosed("accounts")}><div>
       {#each repos.accounts as a (a.key)}
-        <button class="it sub" class:on={at("account/" + a.key)} onclick={() => go("/repos/account/" + enc(a.key), "soft")}
-          title={`${a.provider === "azure" ? "Azure DevOps" : "GitHub"} · todos os repositórios de ${a.name}`}>
-          <ProviderIcon provider={a.provider} size={13} /><span class="grow ell">{a.name}</span><span class="n">{num(a.count)}</span>
-        </button>
+        <div class="row">
+          <button class="it sub" class:on={at("account/" + a.key)} onclick={() => go("/repos/account/" + enc(a.key), "soft")}
+            title={`${a.provider === "azure" ? "Azure DevOps" : "GitHub"} · todos os repositórios de ${a.name}${a.dirs.length ? "\nPastas: " + a.dirs.join(", ") : ""}`}>
+            <ProviderIcon provider={a.provider} size={13} /><span class="grow ell">{a.name}</span><span class="n">{num(a.count)}</span>
+          </button>
+          <span class="more"><Menu items={[
+            { label: "Ver todos os repositórios", icon: FolderOpen, onclick: () => go("/repos/account/" + enc(a.key), "soft") },
+            { label: a.dirs.length ? `Pastas base (${a.dirs.length})…` : "Definir pastas base…", icon: FolderCog, onclick: () => (ui.editAccount = a.key) },
+          ]} /></span>
+        </div>
       {/each}
     </div></div>
   {/if}

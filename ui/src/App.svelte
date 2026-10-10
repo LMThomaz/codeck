@@ -6,6 +6,7 @@
   import Toaster from "./components/Toaster.svelte";
   import MenuHost from "./components/MenuHost.svelte";
   import CloneDialog from "./components/repo/CloneDialog.svelte";
+  import AccountEditor from "./components/repo/AccountEditor.svelte";
   import { ui } from "./lib/ui.svelte";
   import OfflineBanner from "./components/OfflineBanner.svelte";
   import TopProgress from "./components/TopProgress.svelte";
@@ -69,6 +70,7 @@
 <DialogHost />
 <MenuHost />
 {#if ui.cloneAsk}<CloneDialog />{/if}
+{#if ui.editAccount}<AccountEditor />{/if}
 <Toaster />
 
 <style>

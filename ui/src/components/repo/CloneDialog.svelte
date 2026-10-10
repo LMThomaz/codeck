@@ -1,12 +1,12 @@
 <script lang="ts">
-  // "Clonar em…": escolhe entre as pastas de trabalho (as de Preferências e as que já têm clones, com quantos cada uma
-  // tem) ou outra pasta. O repositório vai para <pasta>/<nome>. "Lembrar" grava a escolha na conta/catálogo/tag.
+  // "Clonar em…": primeiro as pastas base da conta do repositório, depois as das outras contas e as que já têm clones
+  // (com quantos cada uma tem), ou outra pasta. O repositório vai para <pasta>/<nome>. Pasta nova pode virar pasta da conta.
   import { Check, Download, Folder, FolderPlus } from "@lucide/svelte";
   import { get } from "../../lib/api";
   import { pickFolder } from "../../lib/native";
   import { ui } from "../../lib/ui.svelte";
 
-  type Target = { path: string; short: string; label: string; count: number; configured: boolean };
+  type Target = { path: string; short: string; label: string; count: number; configured: boolean; account?: boolean };
   const a = $derived(ui.cloneAsk!);
   let targets = $state<Target[]>([]);
   let chosen = $state<string | null>(null);
@@ -14,14 +14,12 @@
   const home = (p: string) => p.replace(/^\/Users\/[^/]+|^C:\\Users\\[^\\]+/i, "~");
 
   $effect(() => {
-    const cur = a.current;
-    get<{ targets: Target[] }>("clone-targets").then(r => {
+    get<{ targets: Target[] }>("clone-targets", { account: a.account || undefined }).then(r => {
       targets = r.targets;
-      if (cur && !targets.some(t => t.path === cur)) targets = [{ path: cur, short: home(cur), label: cur.split(/[\\/]/).pop() || cur, count: 0, configured: false }, ...targets];
-      chosen = cur || targets[0]?.path || null;
-      remember = !cur;
+      chosen = targets[0]?.path || null;
     }).catch(e => ui.error(e));
   });
+  const isAccountDir = $derived(!!targets.find(t => t.path === chosen)?.account);
   async function other() {
     const p = await pickFolder("Pasta onde clonar");
     if (!p) return;
@@ -41,7 +39,8 @@
           <span class="radio">{#if chosen === t.path}<Check size={11} strokeWidth={3} />{/if}</span>
           <Folder size={15} />
           <span class="grow"><b>{t.label}</b><span class="small muted mono ell">{t.short}</span></span>
-          <span class="tiny muted">{t.count ? `${t.count} repo${t.count > 1 ? "s" : ""}` : t.configured ? "pasta de trabalho" : ""}</span>
+          {#if t.account}<span class="pill accent">{a.accountName || "conta"}</span>{/if}
+          <span class="tiny muted">{t.count ? `${t.count} repo${t.count > 1 ? "s" : ""}` : ""}</span>
         </button>
       {:else}
         <div class="small muted">Nenhuma pasta conhecida ainda — escolha uma.</div>
@@ -50,10 +49,10 @@
     </div>
     {#if chosen}<div class="dest small">Vai para <span class="mono">{home(chosen)}{sep(chosen)}{a.names.length === 1 ? a.names[0] : "<nome>"}</span></div>{/if}
     <div class="foot">
-      {#if a.rememberLabel}<label class="rem"><input type="checkbox" bind:checked={remember} /> Usar sempre para {a.rememberLabel}</label>{/if}
+      {#if a.account && chosen && !isAccountDir}<label class="rem"><input type="checkbox" bind:checked={remember} /> Guardar como pasta base de {a.accountName}</label>{/if}
       <span class="spacer"></span>
       <button class="btn" onclick={() => a.resolve(null)}>Cancelar</button>
-      <button class="btn primary" disabled={!chosen} onclick={() => a.resolve({ base: chosen!, remember: !!a.rememberLabel && remember })}><Download size={14} /> Clonar</button>
+      <button class="btn primary" disabled={!chosen} onclick={() => a.resolve({ base: chosen!, remember: !!a.account && !isAccountDir && remember })}><Download size={14} /> Clonar</button>
     </div>
   </div>
 </div>

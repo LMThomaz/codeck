@@ -1,8 +1,6 @@
 <script lang="ts">
   // Configurações: organizações do Azure DevOps, contas do GitHub, preferências e sobre/atualização.
   // Segredos (PAT/token) só vão para o servidor local, que os guarda no cofre do sistema — nunca voltam para a tela.
-  import { FolderOpen, FolderPlus, X } from "@lucide/svelte";
-  import { pickFolder } from "../lib/native";
   import { Check, ExternalLink, KeyRound, LogIn, Monitor, Moon, Plus, RefreshCw, Shield, SlidersHorizontal, Sun, Terminal, Trash2, Info } from "@lucide/svelte";
   import { untrack } from "svelte";
   import { get, post } from "../lib/api";
@@ -199,15 +197,7 @@
             <select class="input" value={String(cfg.pollSeconds)} onchange={(e) => savePrefs({ pollSeconds: Number((e.target as HTMLSelectElement).value) })}>
               {#each [15, 30, 60, 120, 300, 600] as s (s)}<option value={String(s)}>{s < 60 ? `${s} s` : `${s / 60} min`}</option>{/each}
             </select></div>
-          <div class="pref col"><div><b>Pastas de trabalho</b><div class="small muted">Onde ficam os seus clones (ex.: …/cifal/apis e …/cifal/mobile). O app reconhece sozinho
-            os repositórios dentro delas e as oferece na hora de clonar — junto com as pastas onde você já tem clones.</div></div>
-            <div class="roots">
-              {#each cfg.workspaceRoots || [] as r (r)}
-                <div class="root"><FolderOpen size={14} /><span class="mono ell grow">{r.replace(/^\/Users\/[^/]+/, "~")}</span>
-                  <button class="btn sm ghost icon" title="Tirar da lista (a pasta continua no disco)" onclick={() => savePrefs({ workspaceRoots: cfg.workspaceRoots.filter((x: string) => x !== r) })}><X size={13} /></button></div>
-              {/each}
-              <button class="btn sm" onclick={async () => { const p = await pickFolder("Pasta de trabalho"); if (p) savePrefs({ workspaceRoots: [...(cfg.workspaceRoots || []), p] }); }}><FolderPlus size={13} /> Adicionar pasta</button>
-            </div></div>
+          <div class="pref"><div><b>Pastas dos clones</b><div class="small muted">Ficam em cada conta: Repositórios → Contas → “⋯” → Pastas base.</div></div></div>
           <div class="pref"><div><b>Pasta de dados</b><div class="small muted mono">{cfg.dataDir}</div></div></div>
         </div>
 
@@ -257,11 +247,6 @@
   .pref { display: flex; align-items: center; gap: 16px; justify-content: space-between; }
   .pref + .pref { border-top: 1px solid var(--line); padding-top: 12px; }
   .pref select { width: 220px; }
-  .pref.col { flex-direction: column; align-items: stretch; gap: 10px; }
-  .roots { display: grid; gap: 6px; justify-items: start; }
-  .root { display: flex; align-items: center; gap: 8px; width: 100%; padding: 6px 6px 6px 10px; border-radius: 8px; background: var(--surface-2); border: 1px solid var(--line);
-    font-size: 12.5px; color: var(--text-2); animation: rise 0.25s var(--ease-out); }
-  .root .grow { flex: 1; min-width: 0; }
   .test { border-top: 1px solid var(--line); padding-top: 10px; }
   @media (max-width: 900px) { .layout { grid-template-columns: 1fr; } .tabs { flex-direction: row; flex-wrap: wrap; } .sec-note { display: none; } .fields { grid-template-columns: 1fr; } }
 </style>

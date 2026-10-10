@@ -2,8 +2,9 @@
 organização/conta do GitHub ou avulsos) e mostram, para cada um, se está clonado nesta máquina.
 
 catalogs.json: [{id, name, color, baseDir, sources: [{provider, account, owner, project}], extra: [chave], exclude: [chave]}]
-Catálogos são MANUAIS (categorias do usuário). Cada CONTA conectada é, por si, a lista de todos os repositórios dela
-(account_view) — não vira catálogo.
+Catálogos são MANUAIS e servem só para filtrar/agrupar. Quem gere é a CONTA: cada conta conectada lista todos os
+repositórios dela (account_view) e guarda as PASTAS BASE onde os clones dela ficam (várias: …/apis, …/mobile…). As
+pastas das contas servem para reconhecer clones existentes e são o destino sugerido ao clonar.
 
 A lista remota de cada origem fica em cache (remote-cache.json, em disco): é relida após 10 minutos, mas a última
 lista boa continua valendo sem internet e alimenta os contadores do painel. O casamento com o clone local é pela URL
@@ -20,7 +21,7 @@ import threading
 from .core import CATALOGS_FILE, DATA, ctx, is_network_error, load_json, save_json
 
 CACHE_FILE = os.path.join(DATA, "remote-cache.json")
-ACCOUNT_DIRS_FILE = os.path.join(DATA, "account-dirs.json")   # "provider:conta" -> pasta onde clonar
+ACCOUNT_DIRS_FILE = os.path.join(DATA, "account-dirs.json")   # "provider:conta" -> [pastas base]
 _cache_lock = threading.Lock()
 _remote_cache = None   # "provider|conta|owner|projeto" -> [ts, repos]; carregado do disco na 1ª vez
 COLORS = ["#3F8CF0", "#22C38E", "#F0A23F", "#E5577B", "#8B6CF0", "#2EC4D6", "#F06A3F", "#9AA4B2"]
@@ -50,7 +51,7 @@ def upsert(body):
     cid = body.get("id") or uuid.uuid4().hex[:10]
     entry = {
         "id": cid, "name": name[:60], "color": body.get("color") or COLORS[len(cats) % len(COLORS)],
-        "baseDir": os.path.expanduser((body.get("baseDir") or "").strip()) or None,
+        "baseDir": None,   # pasta-base é da conta (account-dirs); catálogo só filtra/agrupa
         "sources": [_clean_source(s) for s in body.get("sources", [])],
         "extra": [str(x) for x in body.get("extra", [])][:500], "exclude": [str(x) for x in body.get("exclude", [])][:500],
         "description": (body.get("description") or "").strip()[:200],
@@ -126,19 +127,49 @@ def remote_repos(source, force=False):
 _discover = {"at": 0.0}
 
 
+def account_dirs(key):
+    v = load_json(ACCOUNT_DIRS_FILE, {}).get(key)
+    return [v] if isinstance(v, str) else list(v or [])   # versões anteriores guardavam uma pasta só
+
+
+def set_account_dirs(key, dirs):
+    clean = []
+    for p in dirs or []:
+        p = os.path.abspath(os.path.expanduser(str(p).strip())) if str(p).strip() else ""
+        if p and p not in clean:
+            clean.append(p)
+    data = load_json(ACCOUNT_DIRS_FILE, {})
+    data[key] = clean[:30]
+    save_json(ACCOUNT_DIRS_FILE, data)
+    _discover["at"] = 0   # já procura clones nas pastas novas na próxima leitura
+    return clean
+
+
+def add_account_dir(key, path):
+    return set_account_dirs(key, account_dirs(key) + [path])
+
+
 def workspace_roots():
-    return [os.path.expanduser(p) for p in (ctx.config.get("workspaceRoots") or []) if p]
+    """Todas as pastas base: as das contas (+ as de Preferências de versões anteriores)."""
+    out = []
+    for v in load_json(ACCOUNT_DIRS_FILE, {}).values():
+        out += [v] if isinstance(v, str) else (v or [])
+    out += [os.path.expanduser(p) for p in (ctx.config.get("workspaceRoots") or []) if p]
+    return list(dict.fromkeys(out))
 
 
-def clone_targets():
-    """Destinos sugeridos para clonar: pastas configuradas e pastas que já têm clones, com quantos repositórios cada uma tem."""
+def clone_targets(account=None):
+    """Destinos para clonar: primeiro as pastas base da conta do repositório, depois as das outras contas e as pastas
+    onde já há clones — cada uma com quantos repositórios tem."""
     counts = {}
     for r in git.list_repos(with_status=False):
         if r.get("exists"):
             parent = os.path.dirname(r["path"].rstrip(os.sep))
             counts[parent] = counts.get(parent, 0) + 1
-    out = [{"path": p, "count": counts.pop(p, 0), "configured": True} for p in workspace_roots()]
-    out += [{"path": p, "count": n, "configured": False} for p, n in sorted(counts.items(), key=lambda kv: -kv[1])]
+    mine = account_dirs(account) if account else []
+    out = [{"path": p, "count": counts.pop(p, 0), "configured": True, "account": True} for p in mine]
+    out += [{"path": p, "count": counts.pop(p, 0), "configured": True, "account": False} for p in workspace_roots() if p not in mine]
+    out += [{"path": p, "count": n, "configured": False, "account": False} for p, n in sorted(counts.items(), key=lambda kv: -kv[1])]
     home = os.path.expanduser("~")
     for t in out:
         t["label"] = os.path.basename(t["path"].rstrip(os.sep)) or t["path"]
@@ -167,7 +198,7 @@ def local_index():
     return out
 
 
-def _build(meta, sources, exclude=(), base_dir=None, force=False):
+def _build(meta, sources, exclude=(), force=False):
     repos, errors, seen, stale = [], {}, set(), None
     for s in sources:
         try:
@@ -184,17 +215,15 @@ def _build(meta, sources, exclude=(), base_dir=None, force=False):
     repos = [dict(r) for r in repos if r["key"] not in exclude]
     discover()
     local = local_index()
-    if base_dir and adopt_existing(base_dir, repos, local):
-        local = local_index()
     for r in repos:
         lk = git.normalize_remote(r.get("cloneUrl") or r.get("sshUrl") or "")
         loc = local.get(lk)
         r["remoteKey"] = lk
         r["local"] = {k: loc.get(k) for k in ("id", "path", "status", "lastCommit", "exists", "pinned")} if loc else None
         r["cloned"] = bool(loc and loc.get("exists"))
-        r["clonePath"] = os.path.join(base_dir, r["name"]) if base_dir else None
+        r["accountKey"] = f"{r['provider']}:{r['account']}"
     repos.sort(key=lambda r: (not r["cloned"], (r.get("updated") or "") == "", (r.get("name") or "").lower()))
-    return {**meta, "baseDir": base_dir, "repos": repos, "errors": errors, "staleSince": stale,
+    return {**meta, "repos": repos, "errors": errors, "staleSince": stale,
             "counts": {"total": len(repos), "cloned": sum(r["cloned"] for r in repos)}}
 
 
@@ -204,7 +233,7 @@ def view(cid, force=False):
     cat = next((c for c in load() if c["id"] == cid), None)
     if not cat:
         raise ValueError("Catálogo não encontrado")
-    return _build(cat, cat["sources"], cat.get("exclude"), cat.get("baseDir"), force)
+    return _build(cat, cat["sources"], cat.get("exclude"), force)
 
 
 # ---------------------------------------------------------------- contas: todos os repositórios de cada uma
@@ -223,13 +252,7 @@ def account_view(key, force=False):
     prov, _, name = key.partition(":")
     meta = {"id": "account:" + key, "name": name, "provider": prov, "account": True, "sources": [_account_source(key)],
             "color": "", "extra": [], "exclude": []}
-    return _build(meta, meta["sources"], (), load_json(ACCOUNT_DIRS_FILE, {}).get(key), force)
-
-
-def set_account_dir(key, base):
-    dirs = load_json(ACCOUNT_DIRS_FILE, {})
-    dirs[key] = os.path.expanduser((base or "").strip()) or None
-    save_json(ACCOUNT_DIRS_FILE, dirs)
+    return {**_build(meta, meta["sources"], (), force), "dirs": account_dirs(key)}
 
 
 def summary():
@@ -243,7 +266,7 @@ def summary():
             keys |= {r["key"] for r in got}
         return len(keys - set(exclude or []))
     return {"catalogs": [{**c, "count": count(c["sources"], c.get("exclude"))} for c in load()],
-            "accounts": [{**a, "count": count([_account_source(a["key"])])} for a in accounts()]}
+            "accounts": [{**a, "count": count([_account_source(a["key"])]), "dirs": account_dirs(a["key"])} for a in accounts()]}
 
 
 def warm():
@@ -269,24 +292,21 @@ def cleanup_auto():
         save(keep)
     if os.path.exists(os.path.join(DATA, "catalogs-auto.json")):
         os.remove(os.path.join(DATA, "catalogs-auto.json"))
+    migrate_dirs()
 
 
-def adopt_existing(base, repos, local):
-    """Clones que já existem na pasta-base (feitos fora do app) entram no registro sozinhos."""
-    wanted = {git.normalize_remote(r.get("cloneUrl") or r.get("sshUrl") or ""): r for r in repos}
-    candidates = [base] + [os.path.join(base, r["name"]) for r in repos]
-    adopted = False
-    for path in candidates:
-        if not os.path.exists(os.path.join(path, ".git")):
-            continue
-        try:
-            key = git.normalize_remote(git.remote_info(path).get("remoteUrl"))
-        except Exception:  # noqa: BLE001
-            continue
-        if key in wanted and key not in local:
-            git.add_repo(path)
-            adopted = True
-    return adopted
+def migrate_dirs():
+    """Pasta-base agora é da CONTA. A pasta que um catálogo guardava vai para a(s) conta(s) das origens dele (uma vez)."""
+    cats, changed = load(), False
+    for c in cats:
+        if c.get("baseDir"):
+            for key in {f"{s['provider']}:{s['account']}" for s in c.get("sources", [])}:
+                if c["baseDir"] not in account_dirs(key):
+                    add_account_dir(key, c["baseDir"])
+            c["baseDir"] = None
+            changed = True
+    if changed:
+        save(cats)
 
 
 def _account_suggestions(provider, name):
@@ -334,9 +354,8 @@ def clone(cid, repo_key, dest=None):
         raise ValueError("Repositório não está no catálogo")
     if r["cloned"]:
         raise ValueError("Já está clonado")
-    dest = dest or r.get("clonePath")
     if not dest:
-        raise ValueError("Defina a pasta onde clonar (pasta-base do catálogo)")
+        raise ValueError("Escolha a pasta onde clonar")
     url = r.get("cloneUrl")
     if r["provider"] == "azure" and url:
         url = re.sub(r"^https://[^@/]+@", "https://", url)   # o Azure põe o usuário na URL; a credencial vai pelo header

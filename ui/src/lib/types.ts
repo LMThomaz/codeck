@@ -81,7 +81,7 @@ export interface RemoteRepo {
   key: string; provider: Provider; account: string; owner: string; name: string; fullName: string; cloneUrl?: string;
   sshUrl?: string; webUrl?: string; defaultBranch?: string; private: boolean; archived?: boolean; fork?: boolean;
   description: string; updated?: string | null; language?: string | null; cloned: boolean; clonePath?: string | null;
-  local: (Partial<LocalRepo> & { id: string; path: string }) | null; remoteKey?: string; favorite?: boolean;
+  local: (Partial<LocalRepo> & { id: string; path: string }) | null; remoteKey?: string; favorite?: boolean; accountKey?: string;
 }
 /** Favorito: retrato do repositório (de qualquer conta) + tags livres. `key` = remoto normalizado, ou "local:<id>". */
 export interface FavRepo extends Omit<RemoteRepo, "account" | "owner"> { account?: string; owner?: string; tags: string[]; addedAt?: string }
@@ -92,8 +92,8 @@ export interface Catalog {
   description?: string; auto?: string; count?: number | null;
 }
 /** Conta conectada vista como coleção: todos os repositórios dela. key = "azure:<org>" | "github:<login>" */
-export interface AccountColl { key: string; provider: Provider; name: string; count: number | null }
-export interface CatalogView extends Catalog { repos: RemoteRepo[]; errors: Record<string, string>; counts: { total: number; cloned: number }; staleSince?: number | null; provider?: Provider; account?: boolean }
+export interface AccountColl { key: string; provider: Provider; name: string; count: number | null; dirs: string[] }
+export interface CatalogView extends Catalog { repos: RemoteRepo[]; errors: Record<string, string>; counts: { total: number; cloned: number }; staleSince?: number | null; provider?: Provider; account?: boolean; dirs?: string[] }
 
 export interface FileChange { path: string; status: string; from?: string | null; add?: number | null; del?: number | null }
 export interface RepoStatus {

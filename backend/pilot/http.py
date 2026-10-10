@@ -454,13 +454,15 @@ def get_catalogs(qs, body):
 
 @route("GET", "/api/clone-targets")
 def get_clone_targets(qs, body):
-    return {"targets": catalogs.clone_targets()}
+    return {"targets": catalogs.clone_targets(q1(qs, "account"))}
 
 
-@route("POST", "/api/catalogs/account-dir")
-def post_catalog_account_dir(qs, body):
-    catalogs.set_account_dir(body.get("key"), body.get("baseDir"))
-    return {"ok": True}
+@route("POST", "/api/accounts/dirs")
+def post_account_dirs(qs, body):
+    """Pastas base de uma conta: {key, dirs: [...]} substitui a lista; {key, add: pasta} acrescenta uma."""
+    if body.get("add"):
+        return {"dirs": catalogs.add_account_dir(body.get("key"), body["add"])}
+    return {"dirs": catalogs.set_account_dirs(body.get("key"), body.get("dirs") or [])}
 
 
 @route("GET", "/api/catalog")

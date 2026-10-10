@@ -1,8 +1,7 @@
 <script lang="ts">
   // Editor de catálogo: nome, cor, pasta-base para clonar e as origens (organização/projeto do Azure, organização/conta do GitHub).
-  import { Check, FolderOpen, Plus, X } from "@lucide/svelte";
+  import { Check, Plus, X } from "@lucide/svelte";
   import { get, post } from "../../lib/api";
-  import { pickFolder } from "../../lib/native";
   import { repos } from "../../lib/repos.svelte";
   import { go } from "../../lib/router.svelte";
   import { store } from "../../lib/store.svelte";
@@ -18,7 +17,6 @@
   // svelte-ignore state_referenced_locally
   let color = $state(catalog?.color || COLORS[repos.catalogs.length % COLORS.length]);
   // svelte-ignore state_referenced_locally
-  let baseDir = $state(catalog?.baseDir || "");
   // svelte-ignore state_referenced_locally
   let description = $state(catalog?.description || "");
   // svelte-ignore state_referenced_locally
@@ -41,14 +39,10 @@
     if (!has(s)) sources = [...sources, s];
     custom = { ...custom, owner: "", project: "" };
   }
-  async function choose() {
-    const p = await pickFolder("Pasta onde os repositórios deste catálogo são clonados");
-    if (p) baseDir = p;
-  }
   async function save() {
     saving = true;
     try {
-      const c = await post<Catalog>("catalogs/save", { id: catalog?.id, name, color, baseDir, description, sources, extra: catalog?.extra || [], exclude: catalog?.exclude || [] });
+      const c = await post<Catalog>("catalogs/save", { id: catalog?.id, name, color, description, sources, extra: catalog?.extra || [], exclude: catalog?.exclude || [] });
       await repos.load(false);
       ui.toast(catalog ? "Catálogo salvo" : "Catálogo criado");
       onclose();
@@ -71,12 +65,6 @@
     <label class="label">Nome<input class="input" bind:value={name} placeholder="ex.: Cifal" /></label>
     <div class="colors">{#each COLORS as c (c)}<button class="sw" class:on={c === color} style="background:{c}" aria-label={c} onclick={() => (color = c)}>{#if c === color}<Check size={13} />{/if}</button>{/each}</div>
     <label class="label">Descrição <span class="muted">(opcional)</span><input class="input" bind:value={description} placeholder="ex.: APIs e bibliotecas do ERP" /></label>
-  </section>
-
-  <section>
-    <h4>Pasta-base</h4>
-    <p class="small muted">Onde os repositórios deste catálogo são clonados. Os que já estiverem nela são reconhecidos sozinhos.</p>
-    <div class="row"><input class="input mono" bind:value={baseDir} placeholder="~/Documents/projetos/cifal" /><button class="btn" onclick={choose}><FolderOpen size={14} /> Escolher</button></div>
   </section>
 
   <section>
