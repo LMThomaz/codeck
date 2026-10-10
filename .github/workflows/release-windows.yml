@@ -1,0 +1,349 @@
+# Release do PR Pilot para Windows (o Mac sai do Mac: scripts/release-macos.sh).
+#
+# CUSTO ZERO: a cota gratuita do Actions conta o Windows em dobro e o macOS dez vezes. Por isso este workflow só
+# roda quando a VERSÃO muda (arquivo VERSION, `x.y.z+N`). Versão nova = subir o `+N`.
+#
+# A cada versão:
+#   1. Windows: o app (C# + WebView2), o Python embutido, o backend e o runtime do Visual C++, empacotados pelo
+#      ThomSoft Setup — o mesmo instalador do Chefinho: instala no perfil do usuário (sem administrador),
+#      atualiza por cima com o app aberto (`--update --wait-pid`) e desinstala limpo. Antes de sair, o instalador
+#      é EXECUTADO no runner: instala sem janela, abre o app, atualiza por cima e desinstala.
+#   2. Publica no site da ThomSoft (downloads/pr-pilot/) e atualiza a parte do Windows no latest.json que o app
+#      instalado consulta. A parte do Mac fica como o script local a deixou. Uma cópia vai para o GitHub Releases.
+#
+# Nenhum segredo vai para o instalador: o PAT de cada dev é cadastrado no app e fica cifrado (DPAPI) na máquina
+# dele. Os segredos daqui são os do FTP do site, e só os jobs Linux os veem.
+
+name: Release Windows
+
+on:
+  push:
+    branches: [main]
+    paths: [VERSION]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Ensaio: builda e testa o instalador, mas NÃO publica."
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-windows-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  DOWNLOADS_BASE_URL: https://thomsoft.com.br/downloads
+  CHANNEL: pr-pilot
+  # Python embutido, por hash fixo: o .exe que o dev roda não pode levar um binário que mudou sem ninguém ver.
+  PYTHON_EMBED_URL: https://www.python.org/ftp/python/3.12.10/python-3.12.10-embed-amd64.zip
+  PYTHON_EMBED_SHA256: 4acbed6dd1c744b0376e3b1cf57ce906f9dc9e95e68824584c8099a63025a3c3
+
+jobs:
+  version:
+    name: Versão
+    runs-on: ubuntu-latest
+    outputs:
+      build_name: ${{ steps.ver.outputs.build_name }}
+      build_number: ${{ steps.ver.outputs.build_number }}
+      skip: ${{ steps.ver.outputs.skip }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compute version
+        id: ver
+        run: |
+          line="$(sed -nE 's/^([0-9]+\.[0-9]+\.[0-9]+)\+([0-9]+)$/\1 \2/p' VERSION)"
+          [ -n "$line" ] || { echo "::error::VERSION precisa ser x.y.z+N"; exit 1; }
+          read -r BUILD_NAME BUILD_NUMBER <<< "$line"
+          echo "build_name=$BUILD_NAME" >> "$GITHUB_OUTPUT"
+          echo "build_number=$BUILD_NUMBER" >> "$GITHUB_OUTPUT"
+          echo "### PR Pilot $BUILD_NAME (build $BUILD_NUMBER)" >> "$GITHUB_STEP_SUMMARY"
+          # Push que mexeu no VERSION sem subir o build não gasta cota.
+          got="$(curl -fsS "$DOWNLOADS_BASE_URL/$CHANNEL/latest.json?t=$(date +%s)" 2>/dev/null | jq -r '.windows.build // 0' 2>/dev/null || true)"
+          if [ "$GITHUB_EVENT_NAME" = push ] && [ "${got:-0}" -ge "$BUILD_NUMBER" ]; then
+            echo "O build $BUILD_NUMBER já está publicado — nada a fazer." >> "$GITHUB_STEP_SUMMARY"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  # O kit do ThomSoft Setup, lido pelo FTP e entregue ao Windows como artefato (por HTTP o Cloudflare responde
+  # 403 a runners do GitHub de vez em quando). O runner do Windows só confere o SHA-256.
+  kit:
+    name: Kit do ThomSoft Setup
+    needs: version
+    if: needs.version.outputs.skip != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Certificado do servidor de FTP
+        timeout-minutes: 3
+        env:
+          FTP_SERVER: ${{ secrets.DOWNLOADS_FTP_SERVER }}
+        run: |
+          set -euo pipefail
+          CERT=$(mktemp)
+          openssl s_client -starttls ftp -connect "$FTP_SERVER:21" \
+            -CAfile /etc/ssl/certs/ca-certificates.crt \
+            -verify_return_error -verify 5 </dev/null 2>/dev/null | openssl x509 > "$CERT"
+          openssl x509 -in "$CERT" -noout -checkend 0
+          openssl x509 -in "$CERT" -noout -ext subjectAltName | grep -q 'DNS:\*\.hstgr\.io'
+      - name: Ler pelo FTP
+        env:
+          FTP_USERNAME: ${{ secrets.DOWNLOADS_FTP_USER }}
+          LFTP_PASSWORD: ${{ secrets.DOWNLOADS_FTP_PASSWORD }}
+          FTP_SERVER: ${{ secrets.DOWNLOADS_FTP_SERVER }}
+          FTP_ROOT: ${{ vars.DOWNLOADS_FTP_ROOT || '/' }}
+        run: |
+          set -euo pipefail
+          sudo apt-get install -y lftp >/dev/null
+          mkdir kit
+          lftp_run() {
+            lftp -u "$FTP_USERNAME" --env-password "ftp://$FTP_SERVER" -e "
+              set ssl:ca-file /etc/ssl/certs/ca-certificates.crt;
+              set ftp:ssl-force true;
+              set ftp:ssl-protect-data true;
+              set ssl:verify-certificate true;
+              set ssl:check-hostname false;
+              set ftp:passive-mode true;
+              set net:max-retries 3;
+              set net:timeout 30;
+              set cmd:fail-exit true;
+              $1
+              bye"
+          }
+          remote="${FTP_ROOT%/}/thomsoft-setup"
+          lftp_run "cd $remote; lcd kit; get kit.json"
+          zip="$(jq -r '.url' kit/kit.json | sed 's#.*/##')"
+          case "$zip" in thomsoft-setup-kit-*.zip) ;; *) echo "::error::kit.json com URL inválida"; exit 1 ;; esac
+          lftp_run "cd $remote; lcd kit; get $zip"
+          mv "kit/$zip" kit/kit.zip
+          got="$(sha256sum kit/kit.zip | cut -d' ' -f1)"
+          [ "$got" = "$(jq -r '.sha256' kit/kit.json)" ] || { echo "::error::kit com hash inesperado ($got)"; exit 1; }
+          echo "✓ ThomSoft Setup $(jq -r '.version' kit/kit.json)+$(jq -r '.build' kit/kit.json)"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: thomsoft-setup-kit
+          path: kit/
+          retention-days: 1
+
+  windows:
+    name: Windows
+    needs: [version, kit]
+    if: needs.version.outputs.skip != 'true'
+    runs-on: windows-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      BUILD_NAME: ${{ needs.version.outputs.build_name }}
+      BUILD_NUMBER: ${{ needs.version.outputs.build_number }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: thomsoft-setup-kit
+          path: kit-download
+      - name: Kit do ThomSoft Setup
+        run: |
+          $kitInfo = Get-Content kit-download/kit.json -Raw | ConvertFrom-Json
+          Move-Item kit-download/kit.zip kit.zip
+          $got = (Get-FileHash -Algorithm SHA256 kit.zip).Hash.ToLower()
+          if ($got -ne $kitInfo.sha256) { throw "kit com hash inesperado ($got)" }
+          Expand-Archive kit.zip -DestinationPath kit
+          Write-Host "✓ ThomSoft Setup $($kitInfo.version)+$($kitInfo.build)"
+
+      - name: App (C# + WebView2)
+        run: |
+          dotnet publish windows/PRPilot/PRPilot.csproj -c Release -o build/app `
+            -p:Version=$env:BUILD_NAME -p:FileVersion="$env:BUILD_NAME.$env:BUILD_NUMBER" `
+            --source https://api.nuget.org/v3/index.json
+          if ($LASTEXITCODE -ne 0) { throw 'dotnet publish falhou' }
+          Get-ChildItem build/app | Format-Table Name, Length
+
+      - name: Python embutido + backend
+        run: |
+          Invoke-WebRequest -Uri $env:PYTHON_EMBED_URL -OutFile python.zip
+          $got = (Get-FileHash -Algorithm SHA256 python.zip).Hash.ToLower()
+          if ($got -ne $env:PYTHON_EMBED_SHA256) { throw "Python embutido com hash inesperado ($got)" }
+          Expand-Archive python.zip -DestinationPath build/app/python
+          New-Item -ItemType Directory -Force build/app/backend | Out-Null
+          Copy-Item backend/server.py, backend/index.html build/app/backend/
+          # o backend sobe e responde com o Python embutido (sem token: só nesta conferência)
+          $p = Start-Process build/app/python/python.exe -ArgumentList 'build/app/backend/server.py' -PassThru -NoNewWindow `
+            -Environment @{ PR_PILOT_PORT = '47899'; PR_PILOT_DATA = "$env:RUNNER_TEMP\prpilot-data" }
+          $ok = $false
+          for ($i = 0; $i -lt 30 -and -not $ok; $i++) {
+            Start-Sleep -Seconds 1
+            try { $ok = (Invoke-WebRequest http://127.0.0.1:47899/api/summary -UseBasicParsing).StatusCode -eq 200 } catch { }
+          }
+          Stop-Process -Id $p.Id -Force
+          if (-not $ok) { throw 'o backend não respondeu com o Python embutido' }
+          Write-Host '✓ backend responde com o Python embutido'
+
+      - name: Runtime do Visual C++
+        run: pwsh kit/tools/add-vc-runtime.ps1 -Bundle build/app -RedistOut build/redist
+
+      - name: Instalador (montar e executar)
+        run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
+          $manifest = [ordered]@{
+            productId = 'pr-pilot'
+            productName = 'PR Pilot'
+            publisher = 'ThomSoft'
+            version = $env:BUILD_NAME
+            build = [int]$env:BUILD_NUMBER
+            exeName = 'PRPilot.exe'
+            brand = @{ primaryDark = '#3f95f2'; primaryLight = '#1d5fc2' }
+            updateUrl = "$env:DOWNLOADS_BASE_URL/$env:CHANNEL/latest.json"
+            replaces = @()
+          }
+          $manifest | ConvertTo-Json -Depth 4 | Out-File -Encoding utf8 build/setup.json
+          $out = "dist/PR-Pilot-$env:BUILD_NAME-$env:BUILD_NUMBER-setup.exe"
+          pwsh kit/tools/package-installer.ps1 `
+            -Setup kit/setup -App build/app -Redist build/redist -Manifest build/setup.json -Ops kit/ops/setup-ops.ps1 `
+            -Logo macos/icon.svg -Icon windows/PRPilot/app.ico -Out $out
+          if ($LASTEXITCODE -ne 0) { throw 'pacote' }
+          pwsh kit/tools/smoke-installer.ps1 -Installer $out -Manifest build/setup.json
+          if ($LASTEXITCODE -ne 0) { throw 'o instalador não passou no teste' }
+
+      - name: Logs (se falhou)
+        if: failure()
+        run: |
+          Get-ChildItem $env:TEMP -Filter '*-setup.log' | ForEach-Object { "== $($_.Name)"; Get-Content $_.FullName -Tail 80 }
+          $log = Join-Path $env:APPDATA 'PR Pilot\pr-pilot.log'
+          if (Test-Path $log) { "== pr-pilot.log"; Get-Content $log -Tail 80 }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pr-pilot-windows
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 30
+
+  publish:
+    name: Publicar (site da ThomSoft + GitHub Releases)
+    needs: [version, windows]
+    if: ${{ github.ref == 'refs/heads/main' && !inputs.dry_run }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    env:
+      BUILD_NAME: ${{ needs.version.outputs.build_name }}
+      BUILD_NUMBER: ${{ needs.version.outputs.build_number }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: pr-pilot-windows
+          path: dist
+
+      - name: Credenciais do site configuradas?
+        id: ftp
+        env:
+          SERVER: ${{ secrets.DOWNLOADS_FTP_SERVER }}
+        run: |
+          if [ -z "$SERVER" ]; then
+            echo "::warning title=Site não configurado::Defina DOWNLOADS_FTP_SERVER, DOWNLOADS_FTP_USER e DOWNLOADS_FTP_PASSWORD. O instalador está nos artefatos desta execução."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Certificado do servidor de FTP
+        if: steps.ftp.outputs.ready == 'true'
+        timeout-minutes: 3
+        env:
+          FTP_SERVER: ${{ secrets.DOWNLOADS_FTP_SERVER }}
+        run: |
+          set -euo pipefail
+          CERT=$(mktemp)
+          openssl s_client -starttls ftp -connect "$FTP_SERVER:21" \
+            -CAfile /etc/ssl/certs/ca-certificates.crt \
+            -verify_return_error -verify 5 </dev/null 2>/dev/null | openssl x509 > "$CERT"
+          openssl x509 -in "$CERT" -noout -checkend 0
+          openssl x509 -in "$CERT" -noout -ext subjectAltName | grep -q 'DNS:\*\.hstgr\.io'
+
+      # O instalador primeiro, o latest.json por último: o app nunca vê um canal apontando para um instalador que
+      # ainda está subindo. A parte do Mac (e o `required`) vêm do publicado, lido pelo FTP.
+      - name: Enviar ao site
+        if: steps.ftp.outputs.ready == 'true'
+        timeout-minutes: 20
+        env:
+          FTP_USERNAME: ${{ secrets.DOWNLOADS_FTP_USER }}
+          LFTP_PASSWORD: ${{ secrets.DOWNLOADS_FTP_PASSWORD }}
+          FTP_SERVER: ${{ secrets.DOWNLOADS_FTP_SERVER }}
+          FTP_ROOT: ${{ vars.DOWNLOADS_FTP_ROOT || '/' }}
+          COMMIT_MSG: ${{ github.event.head_commit.message || 'Nova versão do PR Pilot.' }}
+        run: |
+          set -euo pipefail
+          sudo apt-get install -y lftp >/dev/null
+          lftp_run() {
+            lftp -u "$FTP_USERNAME" --env-password "ftp://$FTP_SERVER" -e "
+              set ssl:ca-file /etc/ssl/certs/ca-certificates.crt;
+              set ftp:ssl-force true;
+              set ftp:ssl-protect-data true;
+              set ssl:verify-certificate true;
+              set ssl:check-hostname false;
+              set ftp:passive-mode true;
+              set net:max-retries 3;
+              set net:timeout 30;
+              set net:reconnect-interval-base 5;
+              set cmd:fail-exit true;
+              $1
+              bye"
+          }
+          exe="PR-Pilot-$BUILD_NAME-$BUILD_NUMBER-setup.exe"
+          remote="${FTP_ROOT%/}/$CHANNEL"
+          lftp_run "mkdir -p -f $remote"
+          tmp="$(mktemp -d)"
+          echo '{}' > "$tmp/current.json"
+          if lftp_run "cd $remote; cls -1" | grep -qx 'latest.json'; then
+            lftp_run "cd $remote; lcd $tmp; get latest.json -o current.json" \
+              || { echo "::error::não li o latest.json publicado — nada foi enviado"; exit 1; }
+            jq -e 'type == "object"' "$tmp/current.json" >/dev/null \
+              || { echo "::error::o latest.json publicado não é JSON — nada foi enviado"; exit 1; }
+          fi
+          jq --arg url "$DOWNLOADS_BASE_URL/$CHANNEL/$exe" \
+             --arg sha "$(sha256sum "dist/$exe" | cut -d' ' -f1)" \
+             --argjson size "$(stat -c %s "dist/$exe")" \
+             --arg version "$BUILD_NAME" --argjson build "$BUILD_NUMBER" \
+             --arg notes "$(printf '%s' "$COMMIT_MSG" | head -n 1)" \
+             --arg date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+             '.productId = "pr-pilot"
+              | .windows = {url: $url, sha256: $sha, size: $size, version: $version, build: $build}
+              | .notes = $notes | .publishedAt = $date
+              | ([.windows, .macos] | map(select(. != null)) | max_by(.build)) as $n
+              | .version = $n.version | .build = $n.build' "$tmp/current.json" > dist/latest.json
+          cat dist/latest.json
+          lftp_run "cd $remote; put dist/$exe; put dist/latest.json;"
+          old="$(lftp_run "cd $remote; cls -1" | sed -nE 's/^PR-Pilot-[0-9.]+-([0-9]+)-setup\.exe$/\1/p' | sort -un | head -n -2)"
+          for b in $old; do lftp_run "cd $remote; glob -a rm -f PR-Pilot-*-$b-setup.exe;" || true; done
+          code="$(curl -sS -o "$tmp/served.json" -w '%{http_code}' "$DOWNLOADS_BASE_URL/$CHANNEL/latest.json?t=$(date +%s)" || true)"
+          if [ "$code" = 403 ]; then
+            echo "::warning::o site respondeu 403 ao runner — confira $DOWNLOADS_BASE_URL/$CHANNEL/latest.json de fora"
+          else
+            got="$(jq -r .windows.build "$tmp/served.json")"
+            [ "$got" = "$BUILD_NUMBER" ] || { echo "::error::o site ainda serve o build $got"; exit 1; }
+          fi
+          echo "- [latest.json]($DOWNLOADS_BASE_URL/$CHANNEL/latest.json): build $BUILD_NUMBER no ar" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: GitHub Releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="v$BUILD_NAME-$BUILD_NUMBER"
+          gh release view "$tag" >/dev/null 2>&1 || gh release create "$tag" --title "PR Pilot $BUILD_NAME (build $BUILD_NUMBER)" \
+            --notes "$(git log -1 --format=%B)" --target "$GITHUB_SHA"
+          files=(dist/PR-Pilot-*-setup.exe)
+          [ -f dist/latest.json ] && files+=(dist/latest.json)
+          gh release upload "$tag" "${files[@]}" --clobber

@@ -1,29 +1,47 @@
 {
+  // ▶ "PR Pilot (dev)": sobe o backend em depuração (porta 47822, dados em data-sandbox/) e abre o app nativo
+  // conectado nele — sem tocar no app instalado nem nas suas contas reais.
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "PR Pilot",
+      "name": "Backend (depurar)",
       "type": "debugpy",
       "request": "launch",
-      "program": "${workspaceFolder}/server.py",
-      "cwd": "${workspaceFolder}",
-      "console": "integratedTerminal",
-      "justMyCode": true,
-      "env": { "PR_PILOT_OPEN": "1" }
-    },
-    {
-      "name": "PR Pilot (sandbox: outra porta e dados separados)",
-      "type": "debugpy",
-      "request": "launch",
-      "program": "${workspaceFolder}/server.py",
+      "program": "${workspaceFolder}/backend/server.py",
       "cwd": "${workspaceFolder}",
       "console": "integratedTerminal",
       "justMyCode": true,
       "env": {
-        "PR_PILOT_OPEN": "1",
         "PR_PILOT_PORT": "47822",
-        "PR_PILOT_DATA": "${workspaceFolder}/data-sandbox"
+        "PR_PILOT_DATA": "${workspaceFolder}/data-sandbox",
+        "PR_PILOT_NATIVE_NOTIFY": "1"
       }
+    },
+    {
+      "name": "App macOS (conecta no backend em depuração)",
+      "type": "node-terminal",
+      "request": "launch",
+      "preLaunchTask": "Compilar app macOS",
+      "command": "PR_PILOT_ATTACH=1 PR_PILOT_PORT=47822 \"${workspaceFolder}/dist/PR Pilot.app/Contents/MacOS/PR Pilot\""
+    },
+    {
+      "name": "App Windows (conecta no backend em depuração)",
+      "type": "coreclr",
+      "request": "launch",
+      "preLaunchTask": "Compilar app Windows",
+      "program": "${workspaceFolder}/windows/PRPilot/bin/Debug/net8.0-windows/win-x64/PRPilot.exe",
+      "cwd": "${workspaceFolder}",
+      "env": { "PR_PILOT_ATTACH": "1", "PR_PILOT_PORT": "47822" }
+    },
+    {
+      "name": "Instalar o app no meu Mac",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "bash scripts/build-macos.sh"
     }
+  ],
+  "compounds": [
+    { "name": "PR Pilot (dev, macOS)", "configurations": ["Backend (depurar)", "App macOS (conecta no backend em depuração)"], "stopAll": true },
+    { "name": "PR Pilot (dev, Windows)", "configurations": ["Backend (depurar)", "App Windows (conecta no backend em depuração)"], "stopAll": true }
   ]
 }

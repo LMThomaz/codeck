@@ -1,0 +1,11 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    { "label": "Compilar app macOS", "type": "shell", "command": "bash scripts/build-macos.sh --no-install", "problemMatcher": [] },
+    {
+      "label": "Compilar app Windows", "type": "shell",
+      "command": "dotnet build windows/PRPilot/PRPilot.csproj --source https://api.nuget.org/v3/index.json", "problemMatcher": "$msCompile"
+    },
+    { "label": "Publicar versão macOS", "type": "shell", "command": "bash scripts/release-macos.sh", "problemMatcher": [] }
+  ]
+}

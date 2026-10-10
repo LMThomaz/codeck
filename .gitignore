@@ -1,5 +1,6 @@
-# dados locais (PATs, regras, histórico) — nunca vão para o git
+# dados locais nunca vão para o git (PATs ficam no Keychain/DPAPI, não em arquivo)
 data/
+data-*/
 config.json
 rules.json
 archive.json
@@ -9,5 +10,6 @@ activity.jsonl
 *.tmp
 __pycache__/
 .DS_Store
-data-*/
 dist/
+windows/**/bin/
+windows/**/obj/

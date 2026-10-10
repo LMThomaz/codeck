@@ -346,6 +346,16 @@
   .card > .sect:first-child { border-top: 0; border-radius: 10px 10px 0 0; }
   .res { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 11.5px; }
   .env { display: inline-flex; gap: 4px; flex-wrap: wrap; }
+  #updBlock { position: fixed; inset: 0; z-index: 70; background: rgba(10, 14, 22, .6); display: grid; place-items: center; padding: 24px; }
+  #updBlock .card { max-width: 480px; }
+  .failbox { border: 1px solid color-mix(in srgb, var(--bad) 30%, var(--line)); background: color-mix(in srgb, var(--bad-bg) 40%, var(--surface));
+             border-radius: 8px; padding: 9px 11px; margin-bottom: 8px; display: grid; gap: 4px; }
+  pre.log { margin: 6px 0 0; max-height: 260px; overflow: auto; font: 11.5px/1.45 ui-monospace, "SF Mono", Menlo, monospace; background: var(--surface-2);
+            border: 1px solid var(--line); border-radius: 6px; padding: 8px; white-space: pre-wrap; word-break: break-word; color: var(--text-2); }
+  .st-p-good { background: var(--good-bg); color: var(--good); } .st-p-bad { background: var(--bad-bg); color: var(--bad); }
+  .st-p-warn { background: var(--warn-bg); color: var(--warn); }
+  .avatar.dep-ic { font-size: 14px; font-weight: 700; }
+  .nw { white-space: nowrap; }
   /* ambiente */
   .orgform { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr) minmax(0, 1.3fr) auto; gap: 10px; align-items: end; padding: 14px 16px; border-top: 1px solid var(--line); }
   .orgform:first-of-type { border-top: 0; }
@@ -390,6 +400,9 @@
 <datalist id="dl-repos"></datalist>
 
 <script>
+// O backend só responde a quem tem a chave desta execução — o app injeta window.PR_PILOT_TOKEN.
+const _fetch = window.fetch.bind(window);
+window.fetch = (u, o = {}) => _fetch(u, {...o, headers: {...(o.headers || {}), "X-PR-Pilot-Token": window.PR_PILOT_TOKEN || ""}});
 const VOTES = {10: ["Aprovada", "p-good"], 5: ["Aprovada c/ sugestões", "p-good"], [-5]: ["Aguardando autor", "p-warn"], [-10]: ["Recusada", "p-bad"]};
 const POLICY = {approved: ["✓", "p-good"], rejected: ["✗", "p-bad"], broken: ["✗", "p-bad"], running: ["⟳", "p-warn"], queued: ["⟳", "p-warn"], notApplicable: ["–", "p-neutral"]};
 const ORG_COLORS = ["var(--org-1)", "var(--org-2)", "var(--org-3)"];
@@ -397,7 +410,7 @@ const AVATAR_COLORS = ["#2a78d6", "#eb6834", "#1baf7a", "#6250d6", "#e34948", "#
 
 let S = null;              // estado do servidor
 const [hashTab, hashRule] = location.hash.slice(1).split("/");
-const TAB_IDS = ["fila", "todas", "releases", "arquivadas", "auto", "analise", "historico", "ambiente"];
+const TAB_IDS = ["fila", "minhas", "todas", "builds", "releases", "arquivadas", "auto", "analise", "historico", "ambiente"];
 let tab = TAB_IDS.includes(hashTab) ? hashTab : "fila";
 let F = {q: "", org: "", creator: "", conflict: false, kind: ""};
 let relOnlyProd = false;
@@ -406,6 +419,8 @@ let focusKey = null;                       // item mostrado no painel lateral (t
 const wide = () => innerWidth >= 1180;
 const ICON = {
   fila: '<path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/>',
+  minhas: '<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>',
+  builds: '<path d="m15 12-8.5 8.5a2.12 2.12 0 1 1-3-3L12 9"/><path d="M17.64 15 22 10.64"/><path d="m20.91 11.7-1.25-1.25a2.4 2.4 0 0 1-.7-1.7V7.5L16.5 5h-1.25a2.4 2.4 0 0 1-1.7-.7L12.3 3"/>',
   todas: '<circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M13 6h3a2 2 0 0 1 2 2v7"/><path d="M6 9v12"/>',
   releases: '<path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z"/><path d="m12 15-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z"/><path d="M9 12H4s.55-3.03 2-4c1.62-1.08 5 0 5 0"/><path d="M12 15v5s3.03-.55 4-2c1.08-1.62 0-5 0-5"/>',
   arquivadas: '<rect x="2" y="4" width="20" height="5" rx="1"/><path d="M4 9v9a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9"/><path d="M10 13h4"/>',
@@ -418,6 +433,8 @@ const svg = path => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" 
 const VIEW_HEAD = {
   fila: ["Fila", "Tudo que espera você — PRs, releases e permissões"],
   todas: ["PRs abertas", "Pull requests de outras pessoas, inclusive as que você já votou"],
+  minhas: ["Minhas PRs", "O que está travando as suas PRs abertas"],
+  builds: ["Builds", "Execuções recentes de pipeline nas suas organizações"],
   releases: ["Releases", "Aprovações de release, ambientes YAML e pipelines pedindo permissão"],
   arquivadas: ["Arquivadas", "Fora da fila — o piloto não age nelas"],
   auto: ["Automação", "Regras que agem sozinhas, avaliadas de cima para baixo"],
@@ -453,9 +470,12 @@ function toast(msg) {
 }
 
 async function load() {
-  try { S = await (await fetch("/api/state")).json(); }
-  catch { $("#health").innerHTML = `<span><i class="dot" style="background:var(--bad)"></i>servidor fora do ar</span>`; return; }
+  try { const r = await fetch("/api/state"); S = await r.json(); if (!r.ok) throw new Error(S.error); }
+  catch (e) { $("#health").innerHTML = `<span><i class="dot" style="background:var(--bad)"></i>${esc(e.message || "servidor fora do ar")}</span>`; return; }
   if (!S.configured && !load.onboarded) { load.onboarded = true; tab = "ambiente"; }
+  if (hashRule && ["fila", "todas", "builds", "minhas"].includes(hashTab) && !load.focused) {  // link direto: #builds/<org>|<id>
+    load.focused = true; focusKey = decodeURIComponent(location.hash.slice(1).split("/").slice(1).join("/")); expanded.add(focusKey);
+  }
   render();
   if (hashRule && !load.opened) {  // link direto: #auto/nova ou #auto/<id da regra>
     load.opened = true;
@@ -470,7 +490,10 @@ function render() {
   const pending = S.prs.filter(p => !p.archived && p.myVote === 0);
   const active = S.prs.filter(p => !p.archived);
   const archived = S.prs.filter(p => p.archived);
-  const tabs = [["fila", "Fila", pending.length + S.deploys.length, true], ["todas", "PRs abertas", active.length], ["releases", "Releases", S.deploys.length, true],
+  const myBlocked = S.myPrs.filter(p => p.blockers.length).length;
+  const running = S.builds.filter(b => b.status !== "completed").length;
+  const tabs = [["fila", "Fila", pending.length + S.deploys.length, true], ["minhas", "Minhas PRs", myBlocked || S.myPrs.length, myBlocked > 0],
+                ["todas", "PRs abertas", active.length], ["builds", "Builds", running || undefined], ["releases", "Releases", S.deploys.length, true],
                 ["arquivadas", "Arquivadas", archived.length], "Configurar", ["auto", "Automação"], ["analise", "Análise"], ["historico", "Histórico"], ["ambiente", "Ambiente"]];
   $("#tabs").innerHTML = tabs.map(t => typeof t === "string" ? `<div class="grp">${t}</div>` :
     `<button class="${tab === t[0] ? "on" : ""}" data-tab="${t[0]}">${svg(ICON[t[0]])}<span>${t[1]}</span>${t[2] !== undefined ? `<span class="count ${t[3] && t[2] && tab !== t[0] ? "hot" : ""}">${t[2]}</span>` : ""}</button>`).join("");
@@ -483,7 +506,8 @@ function render() {
   const paused = S.rules.settings.paused;
   $("#autoOn").checked = !paused;
   $("#autoLabel").textContent = paused ? "Automação pausada" : "Automação ativa";
-  $("#errors").innerHTML = Object.entries(S.errors).map(([o, e]) => `<div class="error"><b>${esc(o)}:</b> ${esc(e)}</div>`).join("")
+  $("#errors").innerHTML = updateBanner() + Object.entries(S.errors).map(([o, e]) => `<div class="error"><b>${esc(o)}:</b> ${esc(e)}</div>`).join("")
+    + Object.entries(S.buildErrors || {}).map(([o, e]) => `<div class="error"><b>${esc(o)} · builds:</b> ${esc(e)}</div>`).join("")
     + Object.entries(S.deployErrors || {}).map(([o, e]) => `<div class="error"><b>${esc(o)} · releases:</b> ${esc(e)}</div>`).join("");
   const waitingMe = pending.length + S.deploys.length;
   document.title = waitingMe ? `(${waitingMe}) PR Pilot` : "PR Pilot";
@@ -491,7 +515,7 @@ function render() {
   $("#dl-creators").innerHTML = S.creators.map(c => `<option value="${esc(c)}">`).join("");
   $("#dl-repos").innerHTML = S.repos.map(c => `<option value="${esc(c)}">`).join("");
 
-  ({fila: renderQueue, todas: renderQueue, releases: renderReleases, arquivadas: renderArchived, auto: renderAuto,
+  ({fila: renderQueue, todas: renderQueue, minhas: renderMine, builds: renderBuilds, releases: renderReleases, arquivadas: renderArchived, auto: renderAuto,
     analise: renderAnalytics, historico: renderHistory, ambiente: renderEnv})[tab]();
 }
 
@@ -773,6 +797,231 @@ function renderReleases() {
       </tbody></table></div></div></div>`;
 }
 
+/* ------------------------------------------------------------------ minhas PRs */
+function myPrRow(p) {
+  const k = key(p), open = !wide() && expanded.has(k), sel = wide() && focusKey === k;
+  const req = p.reviewers.filter(r => r.required), reqOk = req.filter(r => r.vote >= 5).length;
+  const pills = [
+    ...p.blockers.map(b => `<span class="pill ${b.code === "waiting" ? "p-warn" : "p-bad"}">${b.code === "conflict" ? "⚠ " : ""}${esc(b.label)}</span>`),
+    p.isDraft ? `<span class="pill p-neutral">rascunho</span>` : "",
+    `<span class="pill ${p.approvals ? "p-good" : "p-neutral"}" title="${esc(p.reviewers.map(r => `${r.name}: ${(VOTES[r.vote] || ["sem voto"])[0]}`).join("\n"))}">👍 ${p.approvals}${req.length ? ` · obrigatórios ${reqOk}/${req.length}` : ""}</span>`,
+    p.build === "ok" ? `<span class="pill p-good">Build ✓</span>` : p.build === "running" || p.build === "pending" ? `<span class="pill p-warn">Build ⟳</span>` : "",
+    p.autoComplete ? `<span class="pill p-neutral">auto-complete</span>` : "",
+  ].filter(Boolean);
+  return `<div class="pr ${open ? "open" : ""} ${sel ? "sel" : ""} ${p.mergeStatus === "conflicts" ? "conflict" : ""}" data-row="${k}">
+    <span></span>
+    <div class="avatar dep-ic" style="background:${p.blockers.length ? "var(--bad-bg)" : "var(--good-bg)"}">${p.blockers.length ? "⛔" : "✓"}</div>
+    <div class="main" data-expand="${k}">
+      <div class="t"><span class="prid">#${p.prId}</span><span class="title" title="${esc(p.title)}">${esc(p.title)}</span></div>
+      <div class="meta"><span><i class="dot" style="background:${orgColor(p.org)}"></i> ${esc(p.org)}</span><span class="sep">/</span><span>${esc(p.repo)}</span>
+        <span class="branch">${esc(p.source)} → <b>${esc(p.target)}</b></span><span>aberta há ${fmtH(hoursSince(p.created))}</span>${pills.join("")}</div>
+    </div>
+    <div class="actions"><a class="btn sm" href="${esc(p.url)}" target="_blank" rel="noopener" style="text-decoration:none">Abrir ↗</a></div>
+    ${open ? prDetail(p) : ""}
+  </div>`;
+}
+
+function renderMine() {
+  const q = F.q.trim().toLowerCase();
+  const list = S.myPrs.filter(p => (!F.org || p.org === F.org) && (!q || `${p.prId} ${p.title} ${p.repo} ${p.source} ${p.target}`.toLowerCase().includes(q)));
+  queueOrder = list.map(key);
+  if (wide() && !queueOrder.includes(focusKey)) focusKey = queueOrder[0] || null;
+  const blocked = list.filter(p => p.blockers.length);
+  const p = S.myPrs.find(x => key(x) === focusKey);
+  $("#view").innerHTML = `
+    <div class="kpis">
+      <div class="kpi"><div class="l">Abertas</div><div class="v">${S.myPrs.length}</div><div class="s">${S.myPrs.filter(x => x.isDraft).length} rascunho(s)</div></div>
+      <div class="kpi ${blocked.length ? "alert" : ""}"><div class="l">Travadas</div><div class="v">${blocked.length}</div><div class="s">conflito, build ou voto contra</div></div>
+      <div class="kpi"><div class="l">Sem nenhuma aprovação</div><div class="v">${S.myPrs.filter(x => !x.approvals && !x.isDraft).length}</div><div class="s">esperando revisor</div></div>
+      <div class="kpi"><div class="l">Mais antiga</div><div class="v">${S.myPrs.length ? fmtH(Math.max(...S.myPrs.map(x => hoursSince(x.created)))) : "—"}</div><div class="s">aberta há</div></div>
+    </div>
+    <div class="toolbar"><input type="search" id="q" placeholder="Buscar nas minhas PRs…" value="${esc(F.q)}">
+      <div class="seg">${["", ...S.orgs].map(o => `<button class="${F.org === o ? "on" : ""}" data-org="${esc(o)}">${o ? esc(o) : "Todas"}</button>`).join("")}</div></div>
+    <div class="${wide() ? "split" : ""}"><div class="card">
+      ${list.length ? list.map(myPrRow).join("") : `<div class="empty"><b>Nenhuma PR sua aberta</b>${q || F.org ? "Nada bate com os filtros." : "Quando você abrir uma, ela aparece aqui com o que estiver travando."}</div>`}
+    </div>${wide() ? `<aside class="card pane">${p ? `<div class="ph">
+        <div class="small muted"><i class="dot" style="background:${orgColor(p.org)}"></i> ${esc(p.org)} / ${esc(p.repo)} · <span class="prid">#${p.prId}</span></div>
+        <h2>${esc(p.title)}</h2>
+        <div class="meta"><span class="branch">${esc(p.source)} → <b>${esc(p.target)}</b></span>${p.blockers.map(b => `<span class="pill p-bad">${esc(b.label)}</span>`).join("")}</div>
+        <div class="pact"><a class="btn sm" href="${esc(p.url)}" target="_blank" rel="noopener" style="text-decoration:none">Abrir no Azure ↗</a></div>
+      </div><div class="pb">${prDetail(p)}</div>` : `<div class="pane-empty">Selecione uma PR.</div>`}</aside>` : ""}</div>`;
+}
+
+/* ------------------------------------------------------------------ builds */
+const BST = b => b.status === "inProgress" ? ["⟳", "p-warn", "rodando"] : b.status === "notStarted" ? ["⏱", "p-neutral", "na fila"]
+  : b.status === "cancelling" ? ["⊘", "p-neutral", "cancelando"] : ({succeeded: ["✓", "p-good", "sucesso"], failed: ["✗", "p-bad", "falhou"],
+    partiallySucceeded: ["!", "p-warn", "parcial"], canceled: ["⊘", "p-neutral", "cancelado"]})[b.result] || ["?", "p-neutral", b.result || b.status];
+const REASON = {individualCI: "CI", batchedCI: "CI", pullRequest: "PR", manual: "manual", schedule: "agendado", resourceTrigger: "gatilho", buildCompletion: "gatilho"};
+let BF = {status: "", prot: false, mine: false}, buildDetail = {};
+function fmtDur(a, b) {
+  if (!a) return "—";
+  return fmtMs((b ? new Date(b) : Date.now()) - new Date(a));
+}
+function fmtMs(ms) {
+  const s = Math.max(0, Math.round(ms / 1000));
+  return s < 60 ? `${s} s` : s < 3600 ? `${Math.floor(s / 60)} min ${String(s % 60).padStart(2, "0")} s` : `${Math.floor(s / 3600)} h ${Math.floor(s % 3600 / 60)} min`;
+}
+const branchLabel = b => b.branch.startsWith("refs/pull/") ? `PR #${b.prNumber}` : b.branch;
+const waitingOn = b => S.deploys.find(d => d.buildId === b.id && d.org === b.org);
+
+function filterBuilds() {
+  const q = F.q.trim().toLowerCase(), myIds = Object.values(S.me).map(m => m?.id);
+  return S.builds.filter(b => (!F.org || b.org === F.org)
+    && (!BF.status || (BF.status === "running" ? b.status !== "completed" : BF.status === "failed" ? ["failed", "partiallySucceeded"].includes(b.result) : b.result === "succeeded"))
+    && (!BF.prot || isProtected(b.branch)) && (!BF.mine || myIds.includes(b.requestedForId))
+    && (!q || `${b.pipeline} ${b.number} ${b.branch} ${b.message} ${b.requestedFor} ${b.prNumber || ""}`.toLowerCase().includes(q)));
+}
+
+function buildRow(b) {
+  const [ic, cls, label] = BST(b), open = !wide() && expanded.has(b.key), sel = wide() && focusKey === b.key, w = waitingOn(b);
+  return `<div class="pr brow ${open ? "open" : ""} ${sel ? "sel" : ""}" data-row="${esc(b.key)}">
+    <span></span>
+    <div class="avatar dep-ic st-${cls}" title="${esc(label)}">${ic}</div>
+    <div class="main" data-expand="${esc(b.key)}">
+      <div class="t"><span class="title">${esc(b.pipeline)}</span><span class="prid">${esc(b.number)}</span></div>
+      <div class="meta">
+        <span><i class="dot" style="background:${orgColor(b.org)}"></i> ${esc(b.org)}</span>
+        <span class="branch">${isProtected(b.branch) ? "🔒 " : ""}<b>${esc(branchLabel(b))}</b></span>
+        <span class="pill p-neutral">${esc(REASON[b.reason] || b.reason)}</span>
+        ${b.message ? `<span class="msg" title="${esc(b.message)}">${esc(b.message)}</span>` : ""}
+        <span>${esc(b.requestedFor.split(" ").slice(0, 2).join(" "))} · há ${fmtH(hoursSince(b.queued))}</span>
+        ${w ? `<span class="pill p-warn">${w.kind === "permission" ? "🔑 esperando permissão" : "🚀 esperando aprovação"}</span>` : ""}
+      </div>
+    </div>
+    <div class="actions"><span class="pill ${cls}">${ic} ${esc(label)}</span><span class="small muted nw" style="min-width:74px;text-align:right">${fmtDur(b.started, b.finished)}</span></div>
+    ${open ? `<div class="detail" style="grid-column:1/-1">${buildDetailHtml(b)}</div>` : ""}
+  </div>`;
+}
+
+function loadBuildDetail(b) {
+  const ck = `${b.key}|${b.status}|${b.result}`;
+  if (buildDetail[b.key]?.ck === ck) return;
+  buildDetail[b.key] = {ck, loading: true};
+  fetch(`/api/build?key=${encodeURIComponent(b.key)}`).then(async r => { const j = await r.json(); if (!r.ok) throw new Error(j.error); return j; })
+    .then(j => { buildDetail[b.key] = {ck, data: j}; }).catch(e => { buildDetail[b.key] = {ck, error: e.message}; })
+    .finally(() => { if (tab === "builds") renderBuilds(); });
+}
+
+function buildDetailHtml(b) {
+  loadBuildDetail(b);
+  const d = buildDetail[b.key], w = waitingOn(b);
+  const acts = `<div class="pact">
+      ${["failed", "partiallySucceeded", "canceled"].includes(b.result) ? `<button class="sm primary" data-bact="retry" data-k="${esc(b.key)}" title="Reexecuta só o que falhou, no mesmo run">↻ Tentar de novo</button>` : ""}
+      ${b.status === "completed" ? `<button class="sm" data-bact="rerun" data-k="${esc(b.key)}" title="Novo run do mesmo commit">▶ Rodar de novo</button>` : ""}
+      ${b.status !== "completed" ? `<button class="sm reject" data-bact="cancel" data-k="${esc(b.key)}">Cancelar</button>` : ""}
+      ${w ? `<button class="sm" data-gofila="${esc(w.key)}">${w.kind === "permission" ? "🔑 Ver permissão" : "🚀 Ver aprovação"}</button>` : ""}
+      <a class="btn sm" href="${esc(b.url)}" target="_blank" rel="noopener" style="text-decoration:none">Abrir no Azure ↗</a></div>`;
+  const kv = `<div class="kv"><span>Branch</span><span class="branch"><b>${esc(b.branch)}</b></span></div>
+    <div class="kv"><span>Commit</span><span class="small">${esc(b.message || (b.sourceVersion || "").slice(0, 8) || "—")}</span></div>
+    <div class="kv"><span>Disparado por</span><span>${esc(b.requestedFor)} <span class="muted small">(${esc(REASON[b.reason] || b.reason)})</span></span></div>
+    <div class="kv"><span>Na fila / início / fim</span><span class="small">${[b.queued, b.started, b.finished].map(t => t ? new Date(t).toLocaleTimeString("pt-BR", {hour: "2-digit", minute: "2-digit"}) : "—").join(" · ")}</span></div>
+    <div class="kv"><span>Duração</span><span>${fmtDur(b.started, b.finished)}</span></div>`;
+  let body = `<div class="muted small">Carregando etapas…</div>`;
+  if (d?.error) body = `<div class="error">${esc(d.error)}</div>`;
+  else if (d?.data) {
+    const st = d.data.stages.map(x => { const c = x.result === "succeeded" ? "p-good" : x.result === "failed" ? "p-bad" : x.state === "inProgress" ? "p-warn" : "p-neutral";
+      return `<span class="pill ${c}">${esc(x.name)}</span>`; }).join(" ");
+    body = `${st ? `<h4>Etapas</h4><div class="env" style="flex-wrap:wrap">${st}</div>` : ""}
+      ${d.data.failed.length ? `<h4 style="margin-top:14px">Onde falhou</h4>${d.data.failed.map(f => `<div class="failbox"><b>${esc(f.name)}</b> <span class="muted small">${esc(f.type)}</span>
+        ${f.issues.map(i => `<div class="small" style="color:${i.type === "error" ? "var(--bad)" : "var(--warn)"}">${esc(i.message)}</div>`).join("")}
+        ${f.logTail ? `<details><summary class="small">últimas linhas do log</summary><pre class="log">${esc(f.logTail)}</pre></details>` : ""}</div>`).join("")}` : ""}`;
+  }
+  return `${wide() ? "" : acts}<div>${kv}</div><div>${body}</div>`.replace(/^/, wide() ? "" : "");
+}
+
+function renderBuilds() {
+  if (document.activeElement && document.activeElement.closest("#view details[open]")) return;
+  const list = filterBuilds();
+  queueOrder = list.map(b => b.key);
+  if (wide() && !queueOrder.includes(focusKey)) focusKey = queueOrder[0] || null;
+  const day = S.builds.filter(b => hoursSince(b.queued) <= 24), done = day.filter(b => b.status === "completed" && b.result !== "canceled");
+  const failedDay = day.filter(b => b.result === "failed");
+  const durations = S.builds.filter(b => b.result === "succeeded" && b.started && b.finished).map(b => new Date(b.finished) - new Date(b.started)).sort((a, b) => a - b);
+  const med = durations.length ? durations[Math.floor(durations.length / 2)] : null;
+  const b = S.builds.find(x => x.key === focusKey);
+  $("#view").innerHTML = `
+    <div class="kpis">
+      <div class="kpi"><div class="l">Rodando agora</div><div class="v">${S.builds.filter(x => x.status !== "completed").length}</div><div class="s">${S.builds.filter(x => x.status === "notStarted").length} na fila</div></div>
+      <div class="kpi ${failedDay.length ? "alert" : ""}"><div class="l">Falharam (24 h)</div><div class="v">${failedDay.length}</div><div class="s">${failedDay.filter(x => isProtected(x.branch)).length} em branch protegida</div></div>
+      <div class="kpi"><div class="l">Sucesso (24 h)</div><div class="v">${done.length ? Math.round(100 * done.filter(x => x.result === "succeeded").length / done.length) + "%" : "—"}</div><div class="s">${done.length} concluídos</div></div>
+      <div class="kpi"><div class="l">Duração mediana</div><div class="v">${med ? fmtMs(med) : "—"}</div><div class="s">builds com sucesso</div></div>
+      <div class="kpi"><div class="l">Esperando você</div><div class="v">${S.builds.filter(waitingOn).length}</div><div class="s">permissão ou aprovação</div></div>
+    </div>
+    <div class="toolbar">
+      <div class="seg">${[["", "Todos"], ["running", "Rodando"], ["failed", "Falharam"], ["ok", "Sucesso"]].map(([k, l]) => `<button class="${BF.status === k ? "on" : ""}" data-bstatus="${k}">${l}</button>`).join("")}</div>
+      <input type="search" id="q" placeholder="Buscar pipeline, branch, PR, commit, pessoa…" value="${esc(F.q)}">
+      <div class="seg">${["", ...S.orgs].map(o => `<button class="${F.org === o ? "on" : ""}" data-org="${esc(o)}">${o ? esc(o) : "Todas"}</button>`).join("")}</div>
+      <button class="sm ${BF.prot ? "primary" : ""}" data-btoggle="prot">🔒 Só protegidas</button>
+      <button class="sm ${BF.mine ? "primary" : ""}" data-btoggle="mine">Só os meus</button>
+    </div>
+    <div class="${wide() ? "split" : ""}"><div class="card">
+      ${list.length ? `<div class="list-head"><span class="small muted">${list.length} de ${S.builds.length} execuções recentes · mais novas primeiro</span></div>` + list.map(buildRow).join("")
+        : `<div class="empty"><b>Nenhum build</b>Nada bate com os filtros.</div>`}
+    </div>${wide() ? `<aside class="card pane">${b ? (() => { const [ic, cls, label] = BST(b); return `<div class="ph">
+        <div class="small muted"><i class="dot" style="background:${orgColor(b.org)}"></i> ${esc(b.org)}${b.folder ? ` · ${esc(b.folder)}` : ""} · <span class="pill ${cls}">${ic} ${esc(label)}</span></div>
+        <h2>${esc(b.pipeline)} <span class="prid">${esc(b.number)}</span></h2>
+        <div class="pact">
+          ${["failed", "partiallySucceeded", "canceled"].includes(b.result) ? `<button class="sm primary" data-bact="retry" data-k="${esc(b.key)}" title="Reexecuta só o que falhou, no mesmo run">↻ Tentar de novo</button>` : ""}
+          ${b.status === "completed" ? `<button class="sm" data-bact="rerun" data-k="${esc(b.key)}" title="Novo run do mesmo commit">▶ Rodar de novo</button>` : ""}
+          ${b.status !== "completed" ? `<button class="sm reject" data-bact="cancel" data-k="${esc(b.key)}">Cancelar</button>` : ""}
+          ${waitingOn(b) ? `<button class="sm" data-gofila="${esc(waitingOn(b).key)}">${waitingOn(b).kind === "permission" ? "🔑 Ver permissão" : "🚀 Ver aprovação"}</button>` : ""}
+          <a class="btn sm" href="${esc(b.url)}" target="_blank" rel="noopener" style="text-decoration:none">Abrir no Azure ↗</a>
+          ${b.prNumber ? `<button class="sm ghost" data-gopr="${esc(b.org)}|${b.prNumber}">PR #${b.prNumber}</button>` : ""}</div>
+      </div><div class="pb"><div class="detail">${buildDetailHtml(b).replace(/^<div class="pact">[\s\S]*?<\/div>/, "")}</div></div>`; })()
+      : `<div class="pane-empty">Selecione um build.</div>`}</aside>` : ""}</div>`;
+}
+
+async function buildAction(k, action, btn) {
+  const b = S.builds.find(x => x.key === k);
+  if (!b) return;
+  const msg = {retry: `Tentar de novo os jobs que falharam em ${b.pipeline} ${b.number}?`, rerun: `Rodar ${b.pipeline} de novo no mesmo commit (${b.branch})?`,
+               cancel: `Cancelar ${b.pipeline} ${b.number}?`}[action];
+  if (!confirm(msg + (isProtected(b.branch) && action !== "cancel" ? "\n\n⚠ Branch protegida — pode disparar deploy em produção." : ""))) return;
+  if (btn) btn.disabled = true;
+  try { await post("/api/build-action", {key: k, action}); toast({retry: "Reexecutando o que falhou", rerun: "Novo run na fila", cancel: "Cancelando"}[action]); await post("/api/refresh"); setTimeout(load, 4000); }
+  catch (e) { alert("Falhou: " + e.message); if (btn) btn.disabled = false; }
+}
+
+/* ------------------------------------------------------------------ atualização do app */
+// O backend consulta o latest.json e baixa o instalador conferindo o SHA-256; a troca fica com o app nativo.
+const native = msg => (window.webkit?.messageHandlers?.prpilot?.postMessage(msg)) ?? window.chrome?.webview?.postMessage(msg);
+let updBusy = false;
+function updateBanner() {
+  const u = S.update || {};
+  if (!u.available) return "";
+  const txt = `<b>PR Pilot ${esc(u.version)}</b> (build ${u.build}) disponível${u.notes ? ` — ${esc(u.notes)}` : ""}`;
+  const btn = `<button class="primary sm" data-update ${updBusy ? "disabled" : ""}>${updBusy ? "Baixando…" : "Atualizar agora"}</button>`;
+  if (u.required) return `<div id="updBlock"><div class="card"><div class="card-b" style="text-align:center;padding:28px">
+      <div style="font-size:30px">⬆️</div><h2 style="margin:8px 0">Atualização obrigatória</h2>
+      <p class="muted">${txt}. Esta versão (${esc(S.app.version)}) não é mais suportada.</p>${btn}</div></div></div>`;
+  return `<div class="notice" style="background:var(--accent-soft);color:var(--text)">⬆️ <span>${txt}</span><span class="spacer"></span>${btn}</div>`;
+}
+async function runUpdate() {
+  updBusy = true; render();
+  try {
+    const r = await post("/api/update/download");
+    toast("Instalando a versão nova — o PR Pilot reabre sozinho");
+    native({type: "install", path: r.path});
+  } catch (e) { alert("Não atualizou: " + e.message); }
+  updBusy = false; render();
+}
+window.checkUpdate = async manual => {
+  try {
+    const u = await post("/api/update/check");
+    if (manual) toast(u.disabled ? "Atualização automática só no app instalado" : u.available ? `Versão ${u.version} disponível` : u.error ? "Não consegui consultar agora" : "Você está na versão mais nova");
+    await load();
+  } catch (e) { if (manual) alert(e.message); }
+};
+
+/* abre um item vindo de notificação do app: "aba/chave" */
+window.openTarget = target => {
+  const [t, ...rest] = (target || "").split("/"), k = rest.join("/");
+  if (TAB_IDS.includes(t)) tab = t;
+  if (k) { focusKey = k; expanded.add(k); }
+  history.replaceState(null, "", "#" + tab);
+  load();
+};
+
 /* ------------------------------------------------------------------ arquivadas */
 function renderArchived() {
   const entries = Object.entries(S.archive).map(([k, a]) => ({...a, k, live: S.prs.find(p => key(p) === k)}))
@@ -898,6 +1147,8 @@ function renderAuto() {
           ${sw("notifyAuto", "Notificar auto-aprovação", "Aviso do macOS a cada aprovação feita pelo piloto.", st.notifyAuto)}
           ${sw("resurfaceOnPush", "Desarquivar com push novo", "PR arquivada volta para a fila se o autor subir commit.", st.resurfaceOnPush)}
           ${sw("notifyDeploys", "Notificar release/permissão pendente", "Aviso do macOS quando uma release ou pipeline passa a esperar você.", st.notifyDeploys)}
+          ${sw("notifyMyPrs", "Notificar problema nas minhas PRs", "Conflito, build vermelho, recusa ou “aguardando autor” numa PR sua.", st.notifyMyPrs)}
+          ${sw("notifyBuildFailures", "Notificar build que falhou", "Builds de branch protegida ou disparados por você.", st.notifyBuildFailures)}
         </div>
       </div>
     </div></div>`;
@@ -1227,7 +1478,7 @@ const e_isInteractive = t => t.closest("button, a, input, details") && !t.matche
 
 document.addEventListener("keydown", async e => {
   if (e.key === "Escape" && (ed || ded)) { closeEditor(); return; }
-  if ((e.key === "ArrowDown" || e.key === "ArrowUp" || e.key === "j" || e.key === "k") && !ed && !ded && wide() && (tab === "fila" || tab === "todas")
+  if ((e.key === "ArrowDown" || e.key === "ArrowUp" || e.key === "j" || e.key === "k") && !ed && !ded && wide() && ["fila", "todas", "minhas", "builds"].includes(tab)
       && !e.target.closest("input, select, textarea") && queueOrder.length) {
     e.preventDefault();
     const i = queueOrder.indexOf(focusKey), next = (e.key === "ArrowDown" || e.key === "j") ? Math.min(i + 1, queueOrder.length - 1) : Math.max(i - 1, 0);
@@ -1348,6 +1599,7 @@ function renderAnalytics() {
 function renderHistory() {
   const label = a => {
     const dl = {"deploy-approve": ["Aprovou release", "p-good"], "deploy-reject": ["Rejeitou release", "p-bad"],
+                "build-retry": ["Tentou build de novo", "p-neutral"], "build-rerun": ["Rodou build de novo", "p-neutral"], "build-cancel": ["Cancelou build", "p-bad"],
                 permit: ["Liberou permissão", "p-good"], cancel: ["Cancelou run", "p-bad"]}[a.action];
     if (dl) return dl;
     if (a.action === "archive") return [`Arquivou`, "p-neutral"];
@@ -1363,7 +1615,7 @@ function renderHistory() {
       <td class="small muted" style="white-space:nowrap">${new Date(a.ts).toLocaleString("pt-BR")}</td>
       <td>${a.by === "auto" ? `<span class="pill p-auto">⚡ piloto</span>` : `<span class="pill p-neutral">você</span>`}${a.detail ? `<div class="small muted">${esc(a.detail)}</div>` : ""}</td>
       <td><span class="pill ${c}">${l}</span></td>
-      <td>${a.kind ? `<a href="${esc(a.url)}" target="_blank" rel="noopener" style="text-decoration:none">${a.kind === "permission" ? "🔑" : "🚀"} ${esc(a.pipeline)}${a.stage ? ` → <b>${esc(a.stage)}</b>` : ""}</a>
+      <td>${a.kind ? `<a href="${esc(a.url)}" target="_blank" rel="noopener" style="text-decoration:none">${a.kind === "permission" ? "🔑" : a.kind === "build" ? "🛠" : "🚀"} ${esc(a.pipeline)}${a.stage ? ` → <b>${esc(a.stage)}</b>` : ""}</a>
         <div class="small muted"><i class="dot" style="background:${orgColor(a.org)}"></i> ${esc(a.org)} · ${esc(a.branch || "")} ${esc(a.version || "")}${a.prNumber ? ` · PR #${a.prNumber}` : ""}</div>`
         : `<a href="${esc(a.url)}" target="_blank" rel="noopener" style="text-decoration:none"><span class="prid">#${a.prId}</span> ${esc(a.title)}</a>
         <div class="small muted"><i class="dot" style="background:${orgColor(a.org)}"></i> ${esc(a.org)} · ${esc(a.creatorName)} → ${esc(a.target)}</div>`}</td></tr>`; }).join("")
@@ -1375,7 +1627,7 @@ function renderHistory() {
 async function loadConfig() {
   CFG = await (await fetch("/api/config")).json();
   cfgDraft = CFG.orgs.map(o => ({originalName: o.name, name: o.name, url: o.url, pat: "", enabled: o.enabled, hasPat: o.hasPat,
-                                 patCommand: o.patCommand, me: o.me, test: null}));
+                                 patCommand: o.patCommand, patStore: o.patStore, me: o.me, test: null}));
   cfgDraft.pollSeconds = CFG.pollSeconds;
   if (!cfgDraft.length) cfgDraft.push(newOrgDraft());
   if (tab === "ambiente") renderEnv();
@@ -1395,7 +1647,7 @@ function renderEnv() {
         <button class="sm" data-cftest="${i}" ${cfgBusy ? "disabled" : ""}>Testar</button>
         <button class="ghost sm" data-cfdel="${i}" title="Remover">✕</button>
       </div>
-      ${o.me && !o.test ? `<div class="who">Conectado como <b>${esc(o.me.name)}</b>${o.me.email && o.me.email !== o.me.name ? ` · ${esc(o.me.email)}` : ""}</div>` : ""}
+      ${o.me && !o.test ? `<div class="who">Conectado como <b>${esc(o.me.name)}</b>${o.me.email && o.me.email !== o.me.name ? ` · ${esc(o.me.email)}` : ""}${o.patStore ? ` · 🔒 PAT no ${esc(o.patStore)}` : ""}</div>` : ""}
       ${o.test ? `<div class="tests">${o.test.error ? `<div class="chk"><span class="ko">✗</span>${esc(o.test.error)}</div>` : o.test.running ? `<div class="muted small">Testando…</div>`
         : o.test.checks.map(c => `<div class="chk"><span class="${c.ok ? "ok" : "ko"}">${c.ok ? "✓" : "✗"}</span><span><b>${esc(c.label)}</b> <span class="muted">${esc(c.detail)}</span></span></div>`).join("")}</div>` : ""}
     </div>`).join("");
@@ -1423,10 +1675,15 @@ function renderEnv() {
             <div>Para liberar permissão de recurso, inclua o escopo do recurso (ex.: <code>Variable Groups</code> Read, create &amp; manage) — e sua conta precisa ser admin dele.</div></li>
           <li>Cole aqui, clique <b>Testar</b> e depois <b>Salvar e conectar</b>.</li>
         </ol></div></div>
+      <div class="card"><div class="card-h"><h3>Sobre</h3><span class="spacer"></span><button class="sm" data-checkupd>Procurar atualização</button></div><div class="card-b help">
+        PR Pilot <b>${esc(S.app?.version)}</b> (build ${esc(S.app?.build)}, ${esc(S.app?.platform)})
+        ${S.update?.available ? ` · <b>${esc(S.update.version)}</b> disponível` : S.update?.disabled ? " · atualização automática desligada (build de desenvolvimento)" : S.update?.checkedAt ? " · versão mais nova" : ""}
+      </div></div>
       <div class="card"><div class="card-h"><h3>Onde ficam os dados</h3></div><div class="card-b help">
-        Tudo é local: <code>${esc(CFG?.dataDir || "")}</code> (fora do repositório). O <code>config.json</code> com os PATs fica com permissão <code>600</code> — só o seu usuário lê.
-        <br>A tela só atende em <code>127.0.0.1:${esc(CFG?.port || "")}</code>; nada é exposto na rede.
-        <br>Para outra pessoa usar: clonar o repositório, rodar <code>./build-app.sh</code> (ou dar ▶) e cadastrar as próprias contas aqui.</div></div>
+        Tudo é local: <code>${esc(CFG?.dataDir || "")}</code> (fora do repositório). O PAT <b>nunca</b> fica em texto: vai cifrado para o ${S.app?.platform === "windows" ? "cofre do Windows (DPAPI — só a sua conta do Windows decifra)" : "Keychain do macOS"}, e o <code>config.json</code> guarda só a referência. A tela nunca recebe o PAT de volta.
+        <br>O backend atende só em <code>127.0.0.1:${esc(CFG?.port || "")}</code>; nada é exposto na rede.
+        <br>A tela só responde ao app: cada execução gera uma chave nova, então outros programas da máquina não agem por você.
+        <br>Para outra pessoa usar: clonar o repositório, rodar <code>./build-app.sh</code> e cadastrar as próprias contas aqui.</div></div>
     </div></div>`;
 }
 
@@ -1491,6 +1748,13 @@ document.addEventListener("click", async e => {
   if (await handleDeployRuleClick(t, d)) return;
   if (await handleRuleClick(t, d)) return;
   if (d.dep) { t.closest("details")?.removeAttribute("open"); return decideDeploy(d.k, d.dep, t); }
+  if (d.bact) return buildAction(d.k, d.bact, t);
+  if (d.update !== undefined) return runUpdate();
+  if (d.checkupd !== undefined) return window.checkUpdate(true);
+  if (d.bstatus !== undefined) { BF.status = d.bstatus; render(); return; }
+  if (d.btoggle) { BF[d.btoggle] = !BF[d.btoggle]; render(); return; }
+  if (d.gofila) { window.openTarget(`fila/${d.gofila}`); return; }
+  if (d.gopr) { const p = S.prs.find(x => key(x) === d.gopr); window.openTarget(p ? `todas/${d.gopr}` : S.myPrs.some(x => key(x) === d.gopr) ? `minhas/${d.gopr}` : "builds/"); return; }
   if (d.kind !== undefined && !ded) { F.kind = d.kind; render(); return; }
   if (d.goto) { tab = d.goto; history.replaceState(null, "", "#" + tab); render(); window.scrollTo(0, 0); return; }
   if (d.kfilter) { F.conflict = !F.conflict; render(); return; }

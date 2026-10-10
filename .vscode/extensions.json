@@ -1,1 +1,1 @@
-{ "recommendations": ["ms-python.python", "ms-python.debugpy"] }
+{ "recommendations": ["ms-python.python", "ms-python.debugpy", "ms-dotnettools.csharp", "swiftlang.swift-vscode"] }

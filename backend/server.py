@@ -1,6 +1,15 @@
 #!/usr/bin/env python3
-"""PR Pilot — fila única do Azure DevOps (várias organizações/contas): PRs, aprovações de release e
-permissões de pipeline, com regras de automação e uma tela local. Roda só na sua máquina.
+"""PR Pilot — backend do app: fila única do Azure DevOps (várias organizações/contas) com PRs, builds,
+aprovações de release e permissões de pipeline, regras de automação e a tela que o app mostra.
+
+Quem sobe este processo é o app — macos/PRPilot.swift ou windows/PRPilot (C#). Ele passa:
+  PR_PILOT_TOKEN       chave por execução — sem ela nenhuma rota /api responde (outros programas da máquina não agem por você)
+  PR_PILOT_PARENT_PID  o processo encerra junto com o app
+  PR_PILOT_NATIVE_NOTIFY=1  notificações saem pelo app (clicáveis), não pelo osascript
+  PR_PILOT_VERSION / PR_PILOT_BUILD / PR_PILOT_PLATFORM / PR_PILOT_UPDATE_URL  versão instalada e canal de atualização
+
+PATs nunca ficam em texto: no macOS vão para o Keychain, no Windows são cifrados com DPAPI (só o seu usuário
+do Windows decifra). O config.json guarda apenas a referência.
 
 Dados locais por usuário (macOS: ~/Library/Application Support/PR Pilot; PR_PILOT_DATA muda o lugar):
   config.json    organizações + PATs (chmod 600, editado pela tela Ambiente)
@@ -10,13 +19,15 @@ Dados locais por usuário (macOS: ~/Library/Application Support/PR Pilot; PR_PIL
   activity.jsonl histórico de votos e ações
 """
 import base64
+import ctypes
+import hashlib
 import fnmatch
+import hmac
 import json
 import os
 import re
 import shutil
 import sys
-import webbrowser
 import statistics
 import subprocess
 import threading
@@ -55,6 +66,11 @@ NOTIFIED_FILE = os.path.join(DATA, "notified.json")
 ACTIVITY_FILE = os.path.join(DATA, "activity.jsonl")
 UI_FILE = os.path.join(BASE, "index.html")
 DEFAULT_PORT = 47821  # porta incomum de propósito: não briga com APIs/fronts locais
+APP_VERSION = os.environ.get("PR_PILOT_VERSION") or "dev"
+APP_BUILD = int(os.environ.get("PR_PILOT_BUILD") or 0)
+APP_PLATFORM = os.environ.get("PR_PILOT_PLATFORM") or ("macos" if sys.platform == "darwin" else "windows" if os.name == "nt" else "linux")
+UPDATE_URL = os.environ.get("PR_PILOT_UPDATE_URL") or ""
+UPDATES_DIR = os.path.join(DATA, "updates")
 API = "api-version=7.0"
 API_PREVIEW = "api-version=7.1-preview.1"
 ACTIONS = ("approve", "archive", "notify")
@@ -67,6 +83,8 @@ DEFAULT_SETTINGS = {
     "notifyAuto": True,       # notificação quando o piloto aprova sozinho
     "resurfaceOnPush": True,  # PR arquivada volta para a fila se receber push novo
     "notifyDeploys": True,    # notificação para release/permissão nova esperando você
+    "notifyMyPrs": True,      # minha PR com conflito, build vermelho ou voto de recusa/espera
+    "notifyBuildFailures": True,  # build falhou em branch protegida ou disparado por mim
 }
 # Regra: listas vazias = "qualquer". targets vazio = qualquer branch NÃO protegida.
 DEFAULT_RULES = {
@@ -78,8 +96,12 @@ DEFAULT_RULES = {
 
 lock = threading.RLock()
 wake = threading.Event()
-state = {"prs": [], "errors": {}, "lastPoll": None, "me": {}, "pollMs": None,
+state = {"prs": [], "myPrs": [], "builds": [], "buildErrors": {}, "errors": {}, "lastPoll": None, "me": {}, "pollMs": None,
          "deploys": [], "releases": [], "deployErrors": {}, "lastDeployPoll": None}
+TOKEN = os.environ.get("PR_PILOT_TOKEN") or ""
+NATIVE_NOTIFY = os.environ.get("PR_PILOT_NATIVE_NOTIFY") == "1"
+notifications = []    # fila lida pelo app: {"seq", "title", "subtitle", "message", "target"}
+notify_seq = 0
 build_cache = {}      # (org, buildId) -> {"message", "requestedFor", "branch", ...} — dado imutável do build
 deploy_failures = {}  # key -> ts da última falha automática (não insiste a cada ciclo)
 analytics_cache = {}  # org -> {"at": ts, "prs": [...]} (PRs concluídas)
@@ -140,6 +162,14 @@ def log_deploy(by, action, item, detail=None, rule_id=None):
     print(f"[{entry['ts']}] {by} {action} {item['org']} {item['title']}", flush=True)
 
 
+def log_build(by, action, b):
+    entry = {"ts": now_iso(), "by": by, "action": f"build-{action}", "kind": "build", "org": b["org"],
+             "title": f"{b['pipeline']} {b['number']}", "pipeline": b["pipeline"], "branch": b["branch"],
+             "version": b["number"], "prNumber": b.get("prNumber"), "url": b["url"], "prId": None}
+    with lock, open(ACTIVITY_FILE, "a", encoding="utf-8") as f:
+        f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+
+
 def read_activity(limit=None):
     try:
         with open(ACTIVITY_FILE, encoding="utf-8") as f:
@@ -158,7 +188,16 @@ def read_activity(limit=None):
     return out
 
 
-def notify(title, subtitle, message):
+def notify(title, subtitle, message, target=None):
+    """target = "aba/chave" que o app abre quando a notificação é clicada (ex.: "fila/GlorySoft|7604")."""
+    global notify_seq
+    if NATIVE_NOTIFY:
+        with lock:
+            notify_seq += 1
+            notifications.append({"seq": notify_seq, "title": title, "subtitle": subtitle, "message": message, "target": target})
+            del notifications[:-50]
+        return
+
     def q(s):
         return '"' + str(s).replace("\\", "\\\\").replace('"', '\\"') + '"'
     script = f"display notification {q(message)} with title {q(title)} subtitle {q(subtitle)}"
@@ -166,6 +205,82 @@ def notify(title, subtitle, message):
         subprocess.run(["osascript", "-e", script], timeout=5, capture_output=True)
     except Exception:  # noqa: BLE001 — notificação nunca derruba o ciclo
         pass
+
+
+# ---------------------------------------------------------------- cofre do PAT
+KEYCHAIN_SERVICE = "dev.prpilot.pat"
+_DPAPI_ENTROPY = b"PR Pilot / Azure DevOps PAT"
+
+
+class _Blob(ctypes.Structure):
+    _fields_ = [("cbData", ctypes.c_uint32), ("pbData", ctypes.POINTER(ctypes.c_char))]
+
+
+def _dpapi(data, protect):
+    crypt32, kernel32 = ctypes.windll.crypt32, ctypes.windll.kernel32
+    src = ctypes.create_string_buffer(data, len(data))
+    ent = ctypes.create_string_buffer(_DPAPI_ENTROPY, len(_DPAPI_ENTROPY))
+    blob_in = _Blob(len(data), ctypes.cast(src, ctypes.POINTER(ctypes.c_char)))
+    blob_ent = _Blob(len(_DPAPI_ENTROPY), ctypes.cast(ent, ctypes.POINTER(ctypes.c_char)))
+    blob_out = _Blob()
+    fn = crypt32.CryptProtectData if protect else crypt32.CryptUnprotectData
+    args = (ctypes.byref(blob_in), "PR Pilot" if protect else None, ctypes.byref(blob_ent), None, None, 0x1, ctypes.byref(blob_out))
+    if not fn(*args):  # 0x1 = CRYPTPROTECT_UI_FORBIDDEN
+        raise RuntimeError("DPAPI recusou a operação")
+    try:
+        return ctypes.string_at(blob_out.pbData, blob_out.cbData)
+    finally:
+        kernel32.LocalFree(blob_out.pbData)
+
+
+def secret_put(org_id, pat):
+    """Guarda o PAT cifrado e devolve a referência que vai para o config.json."""
+    if sys.platform == "darwin":
+        # `security -i` lê o comando do stdin: o PAT não aparece na lista de processos (ps).
+        cmd = f'add-generic-password -U -s {KEYCHAIN_SERVICE} -a {org_id} -l "PR Pilot — PAT" -w "{pat}"\n'
+        r = subprocess.run(["/usr/bin/security", "-i"], input=cmd, text=True, capture_output=True, timeout=20)
+        if r.returncode != 0 or "error" in (r.stderr or "").lower():
+            raise RuntimeError("Não consegui gravar o PAT no Keychain")
+        return {"store": "keychain"}
+    if os.name == "nt":
+        return {"store": "dpapi", "blob": base64.b64encode(_dpapi(pat.encode(), True)).decode()}
+    raise RuntimeError("Sistema sem cofre suportado (use macOS ou Windows)")
+
+
+def secret_get(org_id, ref):
+    if not ref:
+        return None
+    if ref.get("store") == "keychain":
+        r = subprocess.run(["/usr/bin/security", "find-generic-password", "-s", KEYCHAIN_SERVICE, "-a", org_id, "-w"],
+                           capture_output=True, text=True, timeout=20)
+        if r.returncode != 0:
+            raise RuntimeError("PAT não encontrado no Keychain — cadastre de novo na tela Ambiente")
+        return r.stdout.strip()
+    if ref.get("store") == "dpapi":
+        return _dpapi(base64.b64decode(ref["blob"]), False).decode()
+    return None
+
+
+def secret_delete(org_id, ref):
+    if (ref or {}).get("store") == "keychain":
+        subprocess.run(["/usr/bin/security", "delete-generic-password", "-s", KEYCHAIN_SERVICE, "-a", org_id],
+                       capture_output=True, timeout=20)
+
+
+def migrate_plain_pats():
+    """Versões antigas gravavam o PAT em texto no config.json: move para o cofre e apaga do arquivo."""
+    cfg = load_json(CONFIG_FILE, {})
+    changed = False
+    for o in cfg.get("orgs", []):
+        if not o.get("id"):
+            o["id"] = uuid.uuid4().hex[:12]
+            changed = True
+        if o.get("pat"):
+            o["secret"] = secret_put(o["id"], o.pop("pat"))
+            changed = True
+    if changed:
+        save_json(CONFIG_FILE, cfg)
+        os.chmod(CONFIG_FILE, 0o600)
 
 
 class Org:
@@ -179,7 +294,9 @@ class Org:
 
     def pat(self):
         if self._pat is None:
-            if self.cfg.get("pat"):
+            if self.cfg.get("secret"):
+                self._pat = secret_get(self.cfg["id"], self.cfg["secret"])
+            elif self.cfg.get("pat"):  # só em teste de conexão, antes de salvar
                 self._pat = self.cfg["pat"]
             elif self.cfg.get("patCommand"):
                 self._pat = subprocess.run(self.cfg["patCommand"], shell=True, capture_output=True,
@@ -188,7 +305,7 @@ class Org:
                 raise RuntimeError("PAT não configurado (config.json)")
         return self._pat
 
-    def req(self, method, path, body=None):
+    def req(self, method, path, body=None, raw=False):
         url = path if path.startswith("http") else f"{self.url}/{path.lstrip('/')}"
         data = json.dumps(body).encode() if body is not None else None
         r = urllib.request.Request(url, data=data, method=method)
@@ -199,10 +316,12 @@ class Org:
         try:
             with urllib.request.urlopen(r, timeout=30) as resp:
                 # PAT inválido/expirado: o Azure responde 203 com a página HTML de login, não 401.
-                if resp.status == 203 or "json" not in resp.headers.get("Content-Type", ""):
+                if resp.status == 203 or (not raw and "json" not in resp.headers.get("Content-Type", "")):
                     raise RuntimeError("PAT inválido ou expirado (Azure devolveu página de login)")
-                raw = resp.read()
-                return json.loads(raw) if raw else None
+                data = resp.read(2_000_000)
+                if raw:
+                    return data.decode(errors="replace")
+                return json.loads(data) if data else None
         except urllib.error.HTTPError as e:
             msg = e.read().decode(errors="replace")[:300]
             raise RuntimeError(f"HTTP {e.code} em {method} {url}: {msg}") from None
@@ -250,22 +369,25 @@ class Org:
 
     def fetch_prs(self):
         me = self.identity()
-        prs = []
+        prs, mine = [], []
         for p in self.projects():
             proj = urllib.parse.quote(p["name"])
             data = self.req("GET", f"{proj}/_apis/git/pullrequests?searchCriteria.status=active&$top=500&{API}")
             for raw in data["value"]:
                 pr = self._shape(p, raw)
-                if pr["creatorId"] == me["id"] or pr["isDraft"]:
-                    continue  # minhas PRs e rascunhos ficam de fora
                 pr["myVote"] = next((rv["vote"] for rv in pr["reviewers"] if rv["id"] == me["id"]), 0)
                 pr["approvals"] = sum(1 for rv in pr["reviewers"] if rv["vote"] >= 5)
-                prs.append(pr)
+                if pr["creatorId"] == me["id"]:
+                    mine.append(pr)  # as minhas vão para "Minhas PRs", inclusive rascunhos
+                elif not pr["isDraft"]:
+                    prs.append(pr)
         with ThreadPoolExecutor(8) as ex:
-            for pr, pol in zip(prs, ex.map(self.policies, prs)):
+            for pr, pol in zip(prs + mine, ex.map(self.policies, prs + mine)):
                 pr["policies"] = pol
                 pr["build"] = build_status(pol)
-        return prs
+        for pr in mine:
+            pr["blockers"] = my_pr_blockers(pr)
+        return prs, mine
 
     def policies(self, pr):
         artifact = urllib.parse.quote(f"vstfs:///CodeReview/CodeReviewId/{pr['projectId']}/{pr['prId']}", safe="")
@@ -304,6 +426,67 @@ class Org:
         return out
 
     # ------------------------------------------------------------ releases / pipelines
+    # ------------------------------------------------------------ builds
+    def fetch_builds(self):
+        out = []
+        for p in self.projects():
+            proj = urllib.parse.quote(p["name"])
+            for b in self.req("GET", f"{proj}/_apis/build/builds?$top=80&queryOrder=queueTimeDescending&{API}")["value"]:
+                ti = b.get("triggerInfo") or {}
+                branch = b.get("sourceBranch") or ""
+                msg = ti.get("ci.message") or ti.get("pr.title") or ""
+                pr_ref = re.match(r"refs/pull/(\d+)/", branch)
+                merged = re.search(r"Merge pull request (\d+)", msg)
+                pr_number = ti.get("pr.number") or (pr_ref and pr_ref.group(1)) or (merged and merged.group(1))
+                out.append({
+                    "key": f"{self.name}|{b['id']}", "org": self.name, "project": p["name"], "id": b["id"],
+                    "number": b.get("buildNumber"), "pipeline": b["definition"]["name"], "pipelineId": b["definition"]["id"],
+                    "folder": (b["definition"].get("path") or "\\").strip("\\"), "sourceBranch": branch,
+                    "branch": branch.removeprefix("refs/heads/"), "sourceVersion": b.get("sourceVersion"),
+                    "status": b.get("status"), "result": b.get("result"), "reason": b.get("reason"),
+                    "requestedFor": (b.get("requestedFor") or {}).get("displayName", ""),
+                    "requestedForId": (b.get("requestedFor") or {}).get("id"),
+                    "queued": b.get("queueTime"), "started": b.get("startTime"), "finished": b.get("finishTime"),
+                    "message": msg.split("\n")[0][:200], "prNumber": int(pr_number) if pr_number else None,
+                    "repo": (b.get("repository") or {}).get("name"),
+                    "url": f"{self.url}/{proj}/_build/results?buildId={b['id']}",
+                })
+        return out
+
+    def build_detail(self, project, build_id):
+        proj = urllib.parse.quote(project)
+        records = (self.req("GET", f"{proj}/_apis/build/builds/{build_id}/timeline?{API}") or {}).get("records") or []
+        stages = sorted(({"name": r["name"], "state": r.get("state"), "result": r.get("result"), "order": r.get("order") or 0}
+                         for r in records if r["type"] == "Stage"), key=lambda x: x["order"])
+        failed = []
+        for r in records:
+            if r["type"] not in ("Task", "Job", "Checkpoint") or r.get("result") not in ("failed", "canceled", "abandoned"):
+                continue
+            issues = [{"type": i.get("type"), "message": (i.get("message") or "")[:600]} for i in (r.get("issues") or [])][:6]
+            item = {"name": r["name"], "type": r["type"], "result": r["result"], "issues": issues, "logTail": None}
+            if r["type"] == "Task" and r["result"] == "failed" and (r.get("log") or {}).get("url") and len(failed) < 3:
+                try:
+                    log = self.req("GET", r["log"]["url"])  # vem como {"count", "value": [linhas]}
+                    lines = log.get("value", []) if isinstance(log, dict) else str(log).splitlines()
+                    item["logTail"] = "\n".join(re.sub(r"^\S+Z ", "", ln) for ln in lines[-40:])
+                except Exception:  # noqa: BLE001 — sem log, fica só a mensagem
+                    pass
+            failed.append(item)
+        failed.sort(key=lambda f: f["type"] != "Task")
+        return {"stages": stages, "failed": failed[:8]}
+
+    def build_action(self, b, action):
+        proj = urllib.parse.quote(b["project"])
+        if action == "retry":      # reexecuta só os jobs que falharam, no mesmo run
+            self.req("PATCH", f"{proj}/_apis/build/builds/{b['id']}?retry=true&{API}", {})
+        elif action == "rerun":    # run novo do mesmo commit
+            self.req("POST", f"{proj}/_apis/build/builds?{API}",
+                     {"definition": {"id": b["pipelineId"]}, "sourceBranch": b["sourceBranch"], "sourceVersion": b["sourceVersion"]})
+        elif action == "cancel":
+            self.req("PATCH", f"{proj}/_apis/build/builds/{b['id']}?{API}", {"status": "cancelling"})
+        else:
+            raise ValueError("ação inválida")
+
     def build_info(self, project, build_id):
         ck = (self.name, int(build_id))
         if ck not in build_cache:
@@ -469,6 +652,21 @@ class Org:
                  {"vote": vote})
 
 
+def my_pr_blockers(pr):
+    """O que trava a MINHA PR — cada item vira um aviso (uma vez por commit)."""
+    out = []
+    if pr.get("mergeStatus") == "conflicts":
+        out.append(("conflict", "conflito de merge"))
+    if pr.get("build") == "failed":
+        out.append(("build", "build falhou"))
+    for rv in pr["reviewers"]:
+        if rv["vote"] == -10:
+            out.append(("rejected", f"recusada por {rv['name']}"))
+        elif rv["vote"] == -5:
+            out.append(("waiting", f"{rv['name']} aguarda você"))
+    return [{"code": c, "label": l} for c, l in out]
+
+
 def build_status(policies):
     builds = [p["status"] for p in policies if p["type"] == "Build"]
     if not builds:
@@ -483,6 +681,10 @@ def build_status(policies):
 
 
 def load_orgs():
+    try:
+        migrate_plain_pats()
+    except Exception as e:  # noqa: BLE001 — sem cofre, não sobe nada com PAT em texto
+        print(f"Não migrei os PATs para o cofre: {e}", flush=True)
     cfg = load_json(CONFIG_FILE, {})
     return {o["name"]: Org(o) for o in cfg.get("orgs", []) if o.get("enabled", True)}, cfg
 
@@ -646,18 +848,29 @@ def poll_once():
     settings = rules_cfg["settings"]
     archive = load_json(ARCHIVE_FILE, {})
     notified = set(load_json(NOTIFIED_FILE, []))
-    all_prs, errors, me, ok_orgs = [], {}, {}, set()
+    all_prs, all_mine, errors, me, ok_orgs = [], [], {}, {}, set()
 
-    for org in ORGS.values():
+    for org in list(ORGS.values()):
         try:
-            prs = org.fetch_prs()
+            prs, mine = org.fetch_prs()
             me[org.name] = org.me
             ok_orgs.add(org.name)
         except Exception as e:  # noqa: BLE001 — uma org fora não derruba a outra
             errors[org.name] = str(e)
             with lock:
                 all_prs.extend(p for p in state["prs"] if p["org"] == org.name)
+                all_mine.extend(p for p in state["myPrs"] if p["org"] == org.name)
             continue
+
+        for pr in mine:
+            for b in pr["blockers"]:
+                nkey = f"{pr['org']}|mine:{pr['prId']}:{b['code']}:{(pr['commit'] or '')[:8]}"
+                if nkey not in notified:
+                    notified.add(nkey)
+                    if settings["notifyMyPrs"] and state["lastPoll"] is not None:  # 1º ciclo só marca
+                        notify(f"PR Pilot — sua PR: {b['label']}", f"{pr['org']} #{pr['prId']} → {pr['target']}", pr["title"],
+                               f"minhas/{pr_key(pr['org'], pr['prId'])}")
+        all_mine.extend(mine)
 
         for pr in prs:
             key = pr_key(pr["org"], pr["prId"])
@@ -693,7 +906,8 @@ def poll_once():
                         pr["approvals"] += 1
                         log_activity("auto", "vote", pr, vote=10, detail=rule_label(rules_cfg, pr["rule"]), rule_id=rule["id"])
                         if settings["notifyAuto"]:
-                            notify("PR Pilot — aprovada", f"{pr['org']} #{pr['prId']} · {pr['creatorName']} → {pr['target']}", pr["title"])
+                            notify("PR Pilot — aprovada", f"{pr['org']} #{pr['prId']} · {pr['creatorName']} → {pr['target']}", pr["title"],
+                                   f"todas/{key}")
                     except Exception as e:  # noqa: BLE001
                         errors[org.name] = f"Falha ao auto-aprovar #{pr['prId']}: {e}"
                 continue
@@ -702,21 +916,33 @@ def poll_once():
                 notified.add(nkey)
                 if any(n.startswith(key + "|") for n in notified - {nkey}):
                     continue  # já avisei esta PR; push novo não renotifica
-                notify("PR Pilot — aguardando seu voto", f"{pr['org']} #{pr['prId']} · {pr['creatorName']} → {pr['target']}", pr["title"])
+                notify("PR Pilot — aguardando seu voto", f"{pr['org']} #{pr['prId']} · {pr['creatorName']} → {pr['target']}", pr["title"],
+                       f"fila/{key}")
         all_prs.extend(prs)
 
     # Arquivo e notificações só guardam PRs ainda ativas (das orgs lidas com sucesso).
     active = {pr_key(p["org"], p["prId"]) for p in all_prs}
+    active_mine = {f"{p['org']}|mine:{p['prId']}" for p in all_mine}
+
+    def keep(n):
+        org, rest = n.split("|", 1)[0], n.split("|", 1)[1]
+        if org not in ok_orgs:
+            return True
+        if rest.startswith("mine:"):
+            return f"{org}|mine:{rest.split(':')[1]}" in active_mine
+        if ":" in rest.split("|")[0]:
+            return True  # releases/permissões/builds: cuidados pelos ciclos deles
+        return "|".join(n.split("|")[:2]) in active
+
     archive = {k: v for k, v in archive.items() if k in active or k.split("|")[0] not in ok_orgs}
-    notified = {n for n in notified if "|".join(n.split("|")[:2]) in active or n.split("|")[0] not in ok_orgs
-                or ":" in n.split("|")[1]}
+    notified = {n for n in notified if keep(n)}
     save_json(ARCHIVE_FILE, archive)
     save_json(NOTIFIED_FILE, sorted(notified))
 
     all_prs.sort(key=lambda p: p["created"] or "", reverse=True)
     with lock:
-        state.update(prs=all_prs, errors=errors, lastPoll=now_iso(), me=me,
-                     pollMs=int((time.monotonic() - started) * 1000))
+        state.update(prs=all_prs, myPrs=sorted(all_mine, key=lambda p: p["created"] or "", reverse=True), errors=errors,
+                     lastPoll=now_iso(), me=me, pollMs=int((time.monotonic() - started) * 1000))
 
 
 def poll_deploys():
@@ -763,7 +989,8 @@ def poll_deploys():
                                    detail=it["ruleName"], rule_id=rule["id"])
                         if settings["notifyAuto"]:
                             notify("PR Pilot — " + ("permissão liberada" if it["kind"] == "permission" else "release aprovada"),
-                                   f"{it['org']} · {it['pipeline']}", f"{it.get('stage') or ''} {it.get('version') or ''}".strip())
+                                   f"{it['org']} · {it['pipeline']}", f"{it.get('stage') or ''} {it.get('version') or ''}".strip(),
+                                   "historico/")
                         continue
                     except Exception as e:  # noqa: BLE001
                         deploy_failures[it["key"]] = time.time()
@@ -774,11 +1001,13 @@ def poll_deploys():
                 what = {"release": "release aguardando aprovação", "approval": "pipeline aguardando aprovação",
                         "permission": "pipeline pedindo permissão"}[it["kind"]]
                 notify(f"PR Pilot — {what}", f"{it['org']} · {it['pipeline']}",
-                       ", ".join(x["name"] for x in it["resources"]) or f"{it.get('stage') or ''} · {it.get('branch') or ''}")
+                       ", ".join(x["name"] for x in it["resources"]) or f"{it.get('stage') or ''} · {it.get('branch') or ''}",
+                       f"fila/{it['key']}")
             all_items.append(it)
         all_rel.extend(rels)
     live = {d["key"] for d in all_items}
-    notified = {n for n in notified if ":" not in n.split("|")[1] or n in live or n.split("|")[0] not in ok_orgs}
+    notified = {n for n in notified if not n.split("|", 1)[1].startswith(("rel:", "appr:", "perm:")) or n in live
+                or n.split("|")[0] not in ok_orgs}
     save_json(NOTIFIED_FILE, sorted(notified))
     all_items.sort(key=lambda d: d.get("created") or "", reverse=True)
     all_rel.sort(key=lambda r: r.get("created") or "", reverse=True)
@@ -786,9 +1015,46 @@ def poll_deploys():
         state.update(deploys=all_items, releases=all_rel, deployErrors=errors, lastDeployPoll=now_iso())
 
 
+def poll_builds():
+    settings = get_rules()["settings"]
+    rules_cfg = get_rules()
+    protected = protected_set(rules_cfg)
+    notified = set(load_json(NOTIFIED_FILE, []))
+    all_b, errors, ok_orgs = [], {}, set()
+    for org in list(ORGS.values()):
+        try:
+            builds = org.fetch_builds()
+            ok_orgs.add(org.name)
+        except Exception as e:  # noqa: BLE001
+            errors[org.name] = str(e)
+            with lock:
+                all_b.extend(b for b in state["builds"] if b["org"] == org.name)
+            continue
+        me_id = (org.me or {}).get("id")
+        recent = now() - timedelta(hours=3)
+        for b in builds:
+            if b["result"] != "failed" or not b["finished"] or parse_dt(b["finished"]) < recent:
+                continue
+            if b["branch"].lower() not in protected and b["requestedForId"] != me_id:
+                continue
+            nkey = f"{b['org']}|build:{b['id']}"
+            if nkey not in notified:
+                notified.add(nkey)
+                if settings["notifyBuildFailures"] and state["builds"]:  # 1º ciclo só marca: não despeja o passado
+                    notify("PR Pilot — build falhou", f"{b['org']} · {b['pipeline']} · {b['branch']}",
+                           b["message"] or b["number"], f"builds/{b['key']}")
+        all_b.extend(builds)
+    live = {f"{b['org']}|build:{b['id']}" for b in all_b}
+    notified = {n for n in notified if not n.split("|", 1)[1].startswith("build:") or n in live or n.split("|")[0] not in ok_orgs}
+    save_json(NOTIFIED_FILE, sorted(notified))
+    all_b.sort(key=lambda b: b.get("queued") or "", reverse=True)
+    with lock:
+        state.update(builds=all_b, buildErrors=errors)
+
+
 def poll_loop():
     while True:
-        for fn in (poll_once, poll_deploys):
+        for fn in (poll_once, poll_deploys, poll_builds):
             try:
                 fn()
             except Exception as e:  # noqa: BLE001
@@ -972,7 +1238,8 @@ def public_config():
         "port": cfg.get("port", DEFAULT_PORT),
         "dataDir": DATA,
         "orgs": [{"name": o["name"], "url": o["url"], "enabled": o.get("enabled", True),
-                  "hasPat": bool(o.get("pat") or o.get("patCommand")), "patCommand": bool(o.get("patCommand")),
+                  "hasPat": bool(o.get("secret") or o.get("patCommand")), "patCommand": bool(o.get("patCommand")),
+                  "patStore": {"keychain": "Keychain do macOS", "dpapi": "cofre do Windows (DPAPI)"}.get((o.get("secret") or {}).get("store"), ""),
                   "me": (ORGS[o["name"]].me if o["name"] in ORGS else None)} for o in cfg.get("orgs", [])],
     }
 
@@ -987,7 +1254,7 @@ def normalize_org_url(url):
 def test_org(body):
     """Testa uma organização (nova ou salva) sem gravar nada. PAT vazio = usa o já salvo."""
     url = normalize_org_url(body.get("url"))
-    cfg = {"name": body.get("name") or "teste", "url": url, "pat": (body.get("pat") or "").strip()}
+    cfg = {"id": "teste", "name": body.get("name") or "teste", "url": url, "pat": (body.get("pat") or "").strip()}
     if not cfg["pat"]:
         saved = next((o for o in load_json(CONFIG_FILE, {}).get("orgs", []) if o["name"] == body.get("originalName")), None)
         if not saved:
@@ -1028,21 +1295,87 @@ def save_config(body):
             raise ValueError(f"Nome repetido: {name}")
         names.add(name.lower())
         prev = old.get(o.get("originalName") or name, {})
-        entry = {"name": name, "url": url, "enabled": bool(o.get("enabled", True))}
+        entry = {"id": prev.get("id") or uuid.uuid4().hex[:12], "name": name, "url": url, "enabled": bool(o.get("enabled", True))}
         pat = (o.get("pat") or "").strip()
         if pat:
-            entry["pat"] = pat
-        elif prev.get("pat"):
-            entry["pat"] = prev["pat"]
+            if not re.fullmatch(r"[A-Za-z0-9]{20,200}", pat):
+                raise ValueError(f"{name}: o PAT tem caracteres inesperados — copie de novo do Azure")
+            entry["secret"] = secret_put(entry["id"], pat)
+        elif prev.get("secret"):
+            entry["secret"] = prev["secret"]
         elif prev.get("patCommand"):
             entry["patCommand"] = prev["patCommand"]
         else:
             raise ValueError(f"{name}: informe o PAT")
         orgs.append(entry)
+    kept = {e["id"] for e in orgs}
+    for o in current.get("orgs", []):
+        if o.get("id") and o["id"] not in kept:
+            secret_delete(o["id"], o.get("secret"))  # organização removida: some do cofre também
     cfg = {**current, "orgs": orgs, "pollSeconds": min(max(int(body.get("pollSeconds") or 60), 15), 3600)}
     save_json(CONFIG_FILE, cfg)
     os.chmod(CONFIG_FILE, 0o600)
     reload_orgs()
+
+
+# ---------------------------------------------------------------- atualização (mesmo contrato do latest.json da ThomSoft)
+update_state = {"available": False, "checkedAt": None, "error": None, "downloading": False}
+
+
+def check_update():
+    """Fail-open: qualquer falha de rede/JSON só deixa "sem atualização"."""
+    if not UPDATE_URL:
+        update_state.update(available=False, checkedAt=now_iso(), error=None, disabled=True)
+        return update_state
+    try:
+        r = urllib.request.Request(f"{UPDATE_URL}?t={int(time.time())}", headers={"Cache-Control": "no-cache", "User-Agent": "PR-Pilot"})
+        with urllib.request.urlopen(r, timeout=15) as resp:
+            info = json.loads(resp.read(200_000))
+        asset = info.get(APP_PLATFORM) or {}
+        build = int(asset.get("build") or 0)
+        required = int(info.get("required") or 0)
+        update_state.update(
+            available=bool(asset.get("url")) and build > APP_BUILD, checkedAt=now_iso(), error=None, disabled=False,
+            version=asset.get("version"), build=build, notes=info.get("notes"), publishedAt=info.get("publishedAt"),
+            required=APP_BUILD < required <= build, url=asset.get("url"), sha256=(asset.get("sha256") or "").lower(),
+            size=asset.get("size"))
+    except Exception as e:  # noqa: BLE001
+        update_state.update(available=False, checkedAt=now_iso(), error=str(e)[:200])
+    return update_state
+
+
+def download_update():
+    u = check_update()
+    if not u.get("available"):
+        raise ValueError("Não há versão nova para baixar")
+    if not u.get("sha256") or not str(u.get("url", "")).startswith("https://"):
+        raise ValueError("A versão publicada não traz a assinatura do instalador — nada foi baixado")
+    os.makedirs(UPDATES_DIR, exist_ok=True)
+    name = os.path.basename(urllib.parse.urlparse(u["url"]).path)
+    if not re.fullmatch(r"PR-Pilot-[\w.\-]+\.(dmg|exe)", name):
+        raise ValueError("Nome de instalador inesperado no latest.json")
+    path = os.path.join(UPDATES_DIR, name)
+    update_state["downloading"] = True
+    try:
+        digest = hashlib.sha256()
+        req = urllib.request.Request(u["url"], headers={"User-Agent": "PR-Pilot"})
+        with urllib.request.urlopen(req, timeout=60) as resp, open(path + ".part", "wb") as f:
+            while chunk := resp.read(1 << 16):
+                digest.update(chunk)
+                f.write(chunk)
+        if digest.hexdigest() != u["sha256"] or (u.get("size") and os.path.getsize(path + ".part") != int(u["size"])):
+            os.remove(path + ".part")
+            raise ValueError("O instalador baixado não confere com o publicado. Nada foi instalado; tente de novo.")
+        os.replace(path + ".part", path)
+    finally:
+        update_state["downloading"] = False
+    return {"path": path, "version": u["version"], "build": u["build"]}
+
+
+def update_loop():
+    while True:
+        check_update()
+        time.sleep(6 * 3600)
 
 
 def rule_stats():
@@ -1077,15 +1410,33 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(raw)
 
+    def authorized(self):
+        return not TOKEN or hmac.compare_digest(self.headers.get("X-PR-Pilot-Token") or "", TOKEN)
+
     def do_GET(self):
         url = urllib.parse.urlparse(self.path)
         qs = urllib.parse.parse_qs(url.query)
         if url.path in ("/", "/index.html"):
             with open(UI_FILE, "rb") as f:
                 return self.send(200, f.read(), "text/html")
+        if not self.authorized():
+            return self.send(401, {"error": "abra pelo PR Pilot.app"})
+        if url.path == "/api/notifications":
+            after = int((qs.get("after") or ["0"])[0])
+            with lock:
+                return self.send(200, {"seq": notify_seq, "items": [n for n in notifications if n["seq"] > after]})
+        if url.path == "/api/build":
+            with lock:
+                b = next((x for x in state["builds"] if x["key"] == (qs.get("key") or [""])[0]), None)
+            if not b:
+                return self.send(404, {"error": "build não está mais na lista"})
+            try:
+                return self.send(200, ORGS[b["org"]].build_detail(b["project"], b["id"]))
+            except Exception as e:  # noqa: BLE001
+                return self.send(500, {"error": str(e)})
         if url.path == "/api/state":
             with lock:
-                payload = {k: state[k] for k in ("prs", "errors", "lastPoll", "me", "pollMs")}
+                payload = {k: state[k] for k in ("prs", "myPrs", "builds", "buildErrors", "errors", "lastPoll", "me", "pollMs")}
             payload["orgs"] = list(ORGS.keys())
             payload["pollSeconds"] = CONFIG.get("pollSeconds", 60)
             payload["rules"] = get_rules()
@@ -1114,6 +1465,8 @@ class Handler(BaseHTTPRequestHandler):
                 payload["deployErrors"] = dict(state["deployErrors"])
                 payload["lastDeployPoll"] = state["lastDeployPoll"]
             payload["configured"] = bool(ORGS)
+            payload["app"] = {"version": APP_VERSION, "build": APP_BUILD, "platform": APP_PLATFORM}
+            payload["update"] = dict(update_state)
             return self.send(200, payload)
         if url.path == "/api/config":
             return self.send(200, public_config())
@@ -1122,8 +1475,9 @@ class Handler(BaseHTTPRequestHandler):
                 prs = sum(1 for p in state["prs"] if not p.get("archived") and p["myVote"] == 0)
                 deploys = len(state["deploys"])
                 errors = bool(state["errors"] or state["deployErrors"])
+                seq = notify_seq
             return self.send(200, {"prs": prs, "deploys": deploys, "total": prs + deploys, "errors": errors,
-                                   "configured": bool(ORGS), "lastPoll": state["lastPoll"]})
+                                   "configured": bool(ORGS), "lastPoll": state["lastPoll"], "notifySeq": seq})
         if url.path == "/api/analytics":
             try:
                 days = min(max(int((qs.get("days") or ["30"])[0]), 1), 90)
@@ -1135,7 +1489,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         # Header custom força preflight CORS (que não respondemos): outro site não consegue agir por você.
-        if self.headers.get("X-PR-Pilot") != "1":
+        if self.headers.get("X-PR-Pilot") != "1" or not self.authorized():
             return self.send(403, {"error": "forbidden"})
         length = int(self.headers.get("Content-Length") or 0)
         body = json.loads(self.rfile.read(length) or b"{}")
@@ -1191,6 +1545,19 @@ class Handler(BaseHTTPRequestHandler):
                 log_deploy("manual", action, item, detail=body.get("comment") or None)
                 wake.set()
                 return self.send(200, {"ok": True})
+            if self.path == "/api/build-action":
+                with lock:
+                    b = next((x for x in state["builds"] if x["key"] == body.get("key")), None)
+                if not b:
+                    raise ValueError("Build não está mais na lista — atualize")
+                ORGS[b["org"]].build_action(b, body.get("action"))
+                log_build("manual", body.get("action"), b)
+                wake.set()
+                return self.send(200, {"ok": True})
+            if self.path == "/api/update/check":
+                return self.send(200, check_update())
+            if self.path == "/api/update/download":
+                return self.send(200, download_update())
             if self.path == "/api/config/test":
                 return self.send(200, test_org(body))
             if self.path == "/api/config":
@@ -1212,14 +1579,32 @@ def main():
     try:
         server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
     except OSError:
-        print(f"Porta {port} em uso — o PR Pilot provavelmente já está rodando (serviço do install.sh?). Abra {url}", flush=True)
-        if os.environ.get("PR_PILOT_OPEN") == "1":
-            webbrowser.open(url)
+        print(f"Porta {port} em uso — já há um PR Pilot rodando.", flush=True)
         raise SystemExit(1)
+    parent = os.environ.get("PR_PILOT_PARENT_PID")
+    if parent:
+        def parent_alive(pid):
+            if os.name != "nt":
+                return os.getppid() == pid
+            k32 = ctypes.windll.kernel32  # no Windows o getppid não muda quando o pai morre
+            h = k32.OpenProcess(0x00100000, False, pid)  # SYNCHRONIZE
+            if not h:
+                return False
+            try:
+                return k32.WaitForSingleObject(h, 0) != 0  # 0 = sinalizado = processo terminou
+            finally:
+                k32.CloseHandle(h)
+
+        def watch_parent():
+            while True:
+                time.sleep(3)
+                if not parent_alive(int(parent)):
+                    os._exit(0)  # o app fechou (ou caiu): não fica processo órfão segurando a porta
+        threading.Thread(target=watch_parent, daemon=True).start()
     threading.Thread(target=poll_loop, daemon=True).start()
-    print(f"PR Pilot em {url} — orgs: {', '.join(ORGS) or '(nenhuma — configure na tela Ambiente)'} — dados em {DATA}", flush=True)
-    if os.environ.get("PR_PILOT_OPEN") == "1":
-        webbrowser.open(url + ("" if ORGS else "/#ambiente"))
+    threading.Thread(target=update_loop, daemon=True).start()
+    print(f"PR Pilot {APP_VERSION} ({APP_BUILD}, {APP_PLATFORM}) backend em {url} — orgs: {', '.join(ORGS) or '(nenhuma)'} — dados em {DATA}"
+          f"{' — token ativo' if TOKEN else ''}", flush=True)
     server.serve_forever()
 
 

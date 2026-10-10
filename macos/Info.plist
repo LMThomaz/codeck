@@ -14,6 +14,7 @@
   <key>LSApplicationCategoryType</key><string>public.app-category.developer-tools</string>
   <key>NSHighResolutionCapable</key><true/>
   <key>NSHumanReadableCopyright</key><string>Ferramenta local — dados ficam só nesta máquina.</string>
+  <key>PRPilotUpdateURL</key><string>https://thomsoft.com.br/downloads/pr-pilot/latest.json</string>
   <key>NSAppTransportSecurity</key>
   <dict><key>NSAllowsLocalNetworking</key><true/></dict>
 </dict>

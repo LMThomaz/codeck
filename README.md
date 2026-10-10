@@ -1,97 +1,91 @@
 # PR Pilot
 
-Fila única do Azure DevOps para o dia a dia de dev: **PRs, releases e permissões de pipeline** de várias
-organizações/contas numa tela só, com regras de automação. Não precisa ficar trocando de conta no navegador.
+App de desktop (**macOS e Windows**) para o dia a dia de dev no Azure DevOps. Junta numa fila só as PRs, os builds,
+as aprovações de release e as permissões de pipeline de várias organizações e contas, com regras de automação.
+Você não precisa mais trocar de conta no navegador.
 
-Roda **só na sua máquina** (Python 3, sem dependências), atende em `127.0.0.1:47821` e guarda os dados em
-`~/Library/Application Support/PR Pilot` (fora do repositório).
+## Instalar
+
+| | |
+|---|---|
+| **Windows** | baixe `PR-Pilot-<versão>-setup.exe` em `https://thomsoft.com.br/downloads/pr-pilot/latest.json` (campo `windows.url`) e rode. Instala no seu perfil, sem administrador. |
+| **macOS** | baixe o `.dmg` (campo `macos.url` do mesmo `latest.json`) e arraste o PR Pilot para Aplicativos. |
+
+Depois de instalado, o app **se atualiza sozinho**:
+- Ele consulta o `latest.json`, mostra um aviso e o botão **Atualizar agora**.
+- Antes de instalar, confere o SHA-256 do instalador baixado.
+- Quando há uma versão obrigatória (`required`), ele bloqueia o uso até atualizar.
+
+O app não é assinado por certificado comercial (decisão da ThomSoft):
+- **Windows:** o SmartScreen pode avisar na primeira instalação. Clique em *Mais informações → Executar assim mesmo*.
+- **macOS:** na primeira abertura, use *clique direito → Abrir*. As atualizações seguintes não pedem nada.
 
 ## O que faz
 
-- **Fila**: tudo que espera você, junto.
+- **Fila**: tudo que espera você.
   - PRs aguardando o seu voto, com conflito e build em destaque.
-  - Releases aguardando aprovação (pré/pós-deploy clássico e aprovação de ambiente YAML).
+  - Releases aguardando aprovação.
   - Pipelines travados em *"needs permission to access a resource"*.
+- **Minhas PRs**: o que trava as suas PRs (conflito, build vermelho, voto contra, revisor obrigatório). Avisa quando algo acontece.
+- **Builds**: execuções recentes com filtro (rodando, falharam, branch protegida, só os meus).
+  - No build que falhou, mostra a task, o erro e as últimas linhas do log.
+  - Botões *Tentar de novo* (só o que falhou), *Rodar de novo* e *Cancelar*.
 - **Releases**: o que está parado e as releases recentes, com o status de cada estágio.
 - **Automação**: regras de prioridade.
   - PR: criador → branch → aprovar, arquivar ou notificar.
-  - Release: pipeline → estágio → branch → aprovar ou notificar, com a opção *"só se eu já aprovei a PR de origem"*.
-  - Permissão: pipeline → recurso → liberar ou notificar.
-  - Cada regra mostra uma prévia do que ela pegaria, agora e no histórico.
-- **Análise** e **Histórico** do que você e o piloto fizeram.
-- **Ambiente**: cadastro das organizações e dos PATs, com botão de teste.
+  - Release: pipeline → estágio → branch, com *"só se eu já aprovei a PR de origem"*.
+  - Permissão: pipeline → recurso.
+  - Cada regra mostra uma prévia do que ela pegaria.
+- **Análise**, **Histórico** e **Ambiente** (contas e PATs, com teste de conexão).
+- **Notificações nativas** (Central de Notificações no Mac, bandeja no Windows): clicar abre o item.
+- **Contador** de pendências no Dock e na barra de menus (Mac) ou na bandeja e na barra de tarefas (Windows).
 
-## Instalar como app (macOS)
+## Segurança
 
-```bash
-./build-app.sh
+- **O PAT nunca fica em texto.**
+  - No macOS vai para o **Keychain**. A gravação é feita pelo stdin do `security`, então ele não aparece na lista de processos.
+  - No Windows é cifrado com **DPAPI**: só a sua conta do Windows decifra.
+  - O `config.json` guarda apenas a referência, e a tela nunca recebe o PAT de volta.
+- O backend atende só em `127.0.0.1:47821` e exige uma **chave nova a cada execução**, que só o app conhece. Outros programas da máquina não leem a fila nem agem por você.
+- O backend encerra junto com o app (watchdog do processo-pai; no Windows também um Job Object).
+- Dados por usuário, fora do repositório:
+  - macOS: `~/Library/Application Support/PR Pilot`
+  - Windows: `%APPDATA%\PR Pilot`
+
+## Como é feito
+
+```
+backend/   server.py (Python, só biblioteca padrão) + index.html — a lógica e a tela, iguais nas duas plataformas
+macos/     PRPilot.swift — janela nativa (AppKit + WebKit), Dock, barra de menus, notificações, troca do .app
+windows/   PRPilot (C# .NET 8, WinForms + WebView2) — janela, bandeja, notificações, atualização pelo ThomSoft Setup
+scripts/   build-macos.sh · release-macos.sh · set-required.sh
+.github/   release-windows.yml — gera, testa e publica o instalador do Windows
+VERSION    x.y.z+N — a versão das duas plataformas
 ```
 
-Compila o **PR Pilot.app**, instala em `/Applications` e abre.
+O app nativo sobe o backend escondido e mostra a tela dele. Não é Electron: o macOS usa o WebKit do sistema e o
+Windows usa o WebView2 (Edge). O instalador do Windows leva um Python embutido (com hash fixo); no Mac o app usa o
+`python3` das Command Line Tools.
 
-- Janela própria, sem navegador nem terminal.
-- Contador de pendências no Dock e na barra de menus.
-- Fechar a janela não para o piloto: ele continua na barra de menus, aprovando e avisando.
-- Abre sozinho ao ligar o Mac. Para desligar: ícone na barra de menus → *Abrir ao iniciar o Mac*.
-- O app embute uma cópia do `server.py` e do `index.html`: depois de mudar o código, rode `./build-app.sh` de novo.
+## Desenvolver
 
-Requisitos: macOS 13+ e as Command Line Tools (`xcode-select --install`), que trazem o `swiftc` e o `python3`.
+No VS Code ou no Cursor, dê ▶ em **PR Pilot (dev, macOS)** ou **PR Pilot (dev, Windows)**.
 
-## Rodar sem o app
+- O backend sobe em depuração (porta `47822`, dados em `data-sandbox/`) e o app nativo se conecta a ele.
+- Não toca no app instalado nem nas suas contas reais.
+- **Instalar o app no meu Mac** (`scripts/build-macos.sh`) compila o app universal (Apple Silicon e Intel) e o instala em `/Applications`.
 
-**VS Code / Cursor**: abra a pasta e dê ▶ em **PR Pilot** (Run and Debug). O navegador abre sozinho; na
-primeira vez ele abre direto na tela **Ambiente** para você cadastrar suas organizações.
+Requisitos:
+- **macOS:** Command Line Tools (`xcode-select --install`).
+- **Windows:** .NET 8 SDK e Python 3.
 
-**Terminal**:
+## Publicar uma versão
 
-```bash
-PR_PILOT_OPEN=1 python3 server.py
-```
+1. Suba o `+N` do arquivo `VERSION`, faça commit e push na `main`.
+2. **Windows:** o GitHub Actions gera o instalador e testa: instala sem janela, abre o app, atualiza por cima e desinstala. Depois publica no site da ThomSoft (`downloads/pr-pilot/`) e no GitHub Releases. Ele só roda quando o `VERSION` muda, para não gastar a cota.
+3. **macOS:** no Mac, rode `scripts/release-macos.sh`. Ele gera o `.dmg` e publica no mesmo lugar.
+4. Cada plataforma atualiza só a própria parte do `latest.json`. Para obrigar quem está abaixo do build N a atualizar, rode `scripts/set-required.sh N`, só depois de N estar publicado nas duas plataformas.
 
-**Sempre ligado, sem janela (macOS)**: o comando abaixo instala um serviço do usuário que sobe no login e reinicia se
-cair. É uma alternativa ao app; o `build-app.sh` remove esse serviço para que os dois não rodem ao mesmo tempo.
-
-```bash
-./install.sh             # instala/reinicia
-./install.sh uninstall   # remove
-```
-
-> Com o app (ou o serviço) aberto, o ▶ avisa que a porta está em uso e só abre a tela. Para mexer no código ao
-> mesmo tempo, use **PR Pilot (sandbox)**: porta `47822` e dados em `data-sandbox/`, sem tocar nos seus.
-
-## Configurar contas
-
-Na aba **⚙ Ambiente**, adicione uma linha por organização:
-
-- **Nome**: aparece na tela.
-- **Organização ou URL**: `minha-org` ou `https://dev.azure.com/minha-org`.
-- **PAT**: o seu token naquela organização.
-
-Clique em **Testar** e depois em **Salvar e conectar**.
-
-Escopos do PAT (Custom defined):
-
-| Escopo | Para quê |
-|---|---|
-| Code — Read & write | ler e votar nas PRs |
-| Build — Read & execute | ver runs travados, cancelar |
-| Release — Read, write, execute & manage | aprovar/rejeitar releases |
-| escopo do recurso (ex.: Variable Groups — Read, create & manage) | liberar permissão de recurso (sua conta precisa ser admin dele) |
-
-## Variáveis de ambiente
-
-| Variável | Padrão | Uso |
-|---|---|---|
-| `PR_PILOT_PORT` | `47821` | porta local |
-| `PR_PILOT_DATA` | `~/Library/Application Support/PR Pilot` | pasta dos dados (config, regras, histórico) |
-| `PR_PILOT_OPEN` | — | `1` abre o navegador ao subir |
-
-## Dados locais (`~/Library/Application Support/PR Pilot`)
-
-| Arquivo | Conteúdo |
-|---|---|
-| `config.json` | organizações + PATs (`chmod 600`) |
-| `rules.json` | regras e ajustes |
-| `archive.json` / `notified.json` | PRs arquivadas e itens já notificados |
-| `activity.jsonl` | histórico de ações |
-| `pr-pilot.log` | log do serviço |
+As credenciais do FTP do site são as mesmas do Chefinho.
+- **Mac:** `~/.config/thomsoft/downloads.env` com a senha no Keychain (`thomsoft-downloads-ftp`).
+- **GitHub:** secrets `DOWNLOADS_FTP_SERVER`, `DOWNLOADS_FTP_USER` e `DOWNLOADS_FTP_PASSWORD`.
