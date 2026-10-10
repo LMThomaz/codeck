@@ -15,6 +15,8 @@ criação de PR. Você não precisa mais trocar de conta no navegador nem de fer
 | **Windows** | baixe `Commitdeck-<versão>-setup.exe` em `https://thomsoft.com.br/downloads/commitdeck/latest.json` (campo `windows.url`) e rode. Instala no seu perfil, sem administrador. |
 | **macOS** | baixe o `.dmg` (campo `macos.url` do mesmo `latest.json`) e arraste o Commitdeck para Aplicativos. |
 
+Os mesmos instaladores ficam em [Releases](https://github.com/LMThomaz/commitdeck/releases/latest).
+
 Depois de instalado, o app **se atualiza sozinho**:
 - Ele consulta o `latest.json`, mostra um aviso e o botão **Atualizar agora**.
 - Antes de instalar, confere o SHA-256 do instalador baixado.
@@ -64,7 +66,8 @@ O app não é assinado por certificado comercial (decisão da ThomSoft):
 
 O *Entrar com GitHub* precisa de um OAuth App com **device flow** habilitado: defina o client id em
 `backend/pilot/github.py` (`GITHUB_CLIENT_ID`), na variável `COMMITDECK_GITHUB_CLIENT_ID` ou em `githubClientId` no
-`config.json`. Sem ele, o botão fica desabilitado e as outras duas formas funcionam.
+`config.json`. O client id é público (o device flow não usa client secret), então pode ir no código.
+Sem ele, o botão fica desabilitado e as outras duas formas funcionam.
 
 O Git local usa as mesmas credenciais (por variável de ambiente, nunca na linha de comando) para clonar, buscar e
 enviar por HTTPS; remotos SSH usam as suas chaves.
