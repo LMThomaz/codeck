@@ -12,7 +12,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 
 from . import secrets
-from .core import http_code, load_json, CONFIG_FILE, now, parse_dt
+from .core import CONFIG_FILE, OfflineError, http_code, is_network_error, load_json, now, parse_dt
 
 API = "api-version=7.0"
 API_PREVIEW = "api-version=7.1-preview.1"
@@ -61,6 +61,10 @@ class Org:
         except urllib.error.HTTPError as e:
             msg = e.read().decode(errors="replace")[:300]
             raise RuntimeError(f"HTTP {e.code} em {method} {url}: {msg}") from None
+        except OSError as e:
+            if is_network_error(e):
+                raise OfflineError(e) from None
+            raise
 
     def identity(self):
         if self.me is None:

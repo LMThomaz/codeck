@@ -58,7 +58,7 @@
       store.load();
     } catch (e) { ui.error(e); }
   }
-  const syncText = $derived(store.error ? "backend fora do ar" : s?.polling ? `lendo ${s.polling}…` : store.refreshing ? "pedindo leitura…"
+  const syncText = $derived(store.error ? "backend fora do ar" : store.offline ? "sem conexão" : s?.polling ? `lendo ${s.polling}…` : store.refreshing ? "pedindo leitura…"
     : s?.lastPoll ? `lido às ${time(s.lastPoll)}` : "primeira leitura…");
   async function manualRefresh() {
     const ok = await store.refresh();
@@ -112,7 +112,7 @@
         <span class:err={sourceErrors["gh:" + a.login]} title={sourceErrors["gh:" + a.login] || `GitHub · @${a.login}`}><ProviderIcon provider="github" size={12} />{a.login}</span>
       {/each}
     </div>
-    <div class="sync" class:on={store.fetching} class:off={!!store.error}>
+    <div class="sync" class:on={store.fetching && !store.offline} class:off={!!store.error || store.offline}>
       <span class="state">
         <span class="pulse"></span>
         {#key syncText}<span class="txt">{syncText}</span>{/key}

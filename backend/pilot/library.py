@@ -13,7 +13,7 @@ import os
 import re
 
 from . import catalogs, git
-from .core import LIBRARY_FILE, ctx, load_json, now_iso, save_json
+from .core import LIBRARY_FILE, ctx, is_network_error, load_json, now_iso, save_json
 
 COLORS = ["#6F8CFF", "#3CCF91", "#F5B84F", "#FF6B7D", "#B07CFF", "#4FC3F7", "#FF8A50", "#9AA4B2", "#E879F9", "#A3E635"]
 SNAPSHOT = ("provider", "account", "owner", "name", "fullName", "cloneUrl", "sshUrl", "webUrl", "description", "private", "defaultBranch")
@@ -158,7 +158,7 @@ def search(q, force=False):
                 if not q or q in f"{r.get('fullName')} {r.get('owner')} {r.get('description') or ''}".lower():
                     found.append(r)
         except Exception as e:  # noqa: BLE001 — uma conta fora do ar não esconde as outras
-            errors[f"{s['provider']}:{s['account']}"] = str(e)[:200]
+            errors[f"{s['provider']}:{s['account']}"] = "sem conexão" if is_network_error(e) else str(e)[:200]
     favs = {r["key"] for r in _load()["repos"]}
     found.sort(key=lambda r: (not (r.get("name") or "").lower().startswith(q), (r.get("fullName") or "").lower()))
     out = []

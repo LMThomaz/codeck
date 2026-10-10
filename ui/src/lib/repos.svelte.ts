@@ -1,10 +1,12 @@
 import { get, post } from "./api";
-import type { Catalog, FavRepo, LocalRepo, RemoteRepo, Tag } from "./types";
+import type { AccountColl, Catalog, FavRepo, LocalRepo, RemoteRepo, Tag } from "./types";
 
 // Repositórios locais, catálogos e favoritos: carregados à parte do /api/state (o status de cada repo custa um `git status`).
 class Repos {
   local = $state<LocalRepo[]>([]);
   catalogs = $state<Catalog[]>([]);
+  /** contas conectadas, cada uma com todos os repositórios dela */
+  accounts = $state<AccountColl[]>([]);
   favorites = $state<FavRepo[]>([]);
   tags = $state<Tag[]>([]);
   loaded = $state(false);
@@ -15,9 +17,9 @@ class Repos {
 
   load(withStatus = true): Promise<void> {
     if (this.inflight) return this.inflight;
-    this.inflight = Promise.all([get<{ repos: LocalRepo[] }>("repos", { status: withStatus ? 1 : 0 }), get<{ catalogs: Catalog[] }>("catalogs"),
+    this.inflight = Promise.all([get<{ repos: LocalRepo[] }>("repos", { status: withStatus ? 1 : 0 }), get<{ catalogs: Catalog[]; accounts: AccountColl[] }>("catalogs"),
       get<{ repos: FavRepo[]; tags: Tag[] }>("library")])
-      .then(([r, c, l]) => { this.local = r.repos; this.catalogs = c.catalogs; this.favorites = l.repos; this.tags = l.tags; this.loaded = true; })
+      .then(([r, c, l]) => { this.local = r.repos; this.catalogs = c.catalogs; this.accounts = c.accounts; this.favorites = l.repos; this.tags = l.tags; this.loaded = true; })
       .finally(() => (this.inflight = null));
     return this.inflight;
   }

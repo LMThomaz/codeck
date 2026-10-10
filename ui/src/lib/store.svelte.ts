@@ -14,6 +14,10 @@ class Store {
   votes = $state<Record<string, { vote: number; phase: "sending" | "done" | "leaving" | "error" }>>({});
   private timer: ReturnType<typeof setTimeout> | null = null;
 
+  /** o sistema diz que não há rede (resposta imediata) — o backend confirma por `s.offline` na leitura seguinte */
+  netDown = $state(typeof navigator !== "undefined" && navigator.onLine === false);
+  get offline() { return this.netDown || !!this.s?.offline; }
+
   get ready() { return !!this.s; }
   /** o backend está lendo Azure/GitHub agora (ou o usuário acabou de pedir) */
   get fetching() { return this.refreshing || !!this.s?.polling; }
@@ -41,6 +45,9 @@ class Store {
   }
 
   start() {
+    // rede caiu/voltou: o banner reage na hora; ao voltar, lê tudo sem esperar o próximo ciclo
+    window.addEventListener("offline", () => (this.netDown = true));
+    window.addEventListener("online", () => { this.netDown = false; this.refresh(); });
     const tick = async () => {
       if (!this.hold) await this.load();
       // relê rápido até chegar o 1º dado e enquanto o backend estiver no meio de uma leitura (o indicador some na hora certa)

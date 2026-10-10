@@ -64,7 +64,7 @@ export interface AppState {
   issueErrors: Record<string, string>; lastPoll: string | null; lastDeployPoll: string | null; lastBuildPoll: string | null;
   lastIssuePoll: string | null; pollMs: number | null; me: Record<string, { id: string; name: string; email?: string; avatar?: string } | null>;
   orgs: string[]; githubAccounts: { id: string; login: string; avatar?: string }[]; sources: string[]; pollSeconds: number;
-  editor: string; theme: "system" | "dark" | "light"; polling: string | null; rules: RulesCfg; archive: Record<string, any>; activity: Activity[]; creators: string[]; repos: string[];
+  editor: string; theme: "system" | "dark" | "light"; polling: string | null; offline: string | null; rules: RulesCfg; archive: Record<string, any>; activity: Activity[]; creators: string[]; repos: string[];
   targets: string[]; ruleStats: Record<string, { count: number; last: string }>; configured: boolean;
   app: { version: string; build: number; platform: string; product: string };
   update: { available?: boolean; version?: string; build?: number; notes?: string; required?: boolean; disabled?: boolean; checkedAt?: string; error?: string };
@@ -89,9 +89,11 @@ export interface Tag { name: string; color: string; baseDir: string | null; coun
 export interface CatalogSource { provider: Provider; account: string; owner?: string | null; project?: string | null }
 export interface Catalog {
   id: string; name: string; color: string; baseDir: string | null; sources: CatalogSource[]; extra: string[]; exclude: string[];
-  description?: string; auto?: string;
+  description?: string; auto?: string; count?: number | null;
 }
-export interface CatalogView extends Catalog { repos: RemoteRepo[]; errors: Record<string, string>; counts: { total: number; cloned: number } }
+/** Conta conectada vista como coleção: todos os repositórios dela. key = "azure:<org>" | "github:<login>" */
+export interface AccountColl { key: string; provider: Provider; name: string; count: number | null }
+export interface CatalogView extends Catalog { repos: RemoteRepo[]; errors: Record<string, string>; counts: { total: number; cloned: number }; staleSince?: number | null; provider?: Provider; account?: boolean }
 
 export interface FileChange { path: string; status: string; from?: string | null; add?: number | null; del?: number | null }
 export interface RepoStatus {

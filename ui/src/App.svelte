@@ -4,6 +4,7 @@
   import DialogHost from "./components/DialogHost.svelte";
   import Sidebar from "./components/Sidebar.svelte";
   import Toaster from "./components/Toaster.svelte";
+  import OfflineBanner from "./components/OfflineBanner.svelte";
   import TopProgress from "./components/TopProgress.svelte";
   import UpdateBanner from "./components/UpdateBanner.svelte";
   import { repos } from "./lib/repos.svelte";
@@ -51,6 +52,7 @@
   <Sidebar />
   <main>
     <TopProgress />
+    <OfflineBanner />
     <UpdateBanner />
     <div class="page">
       {#key router.view}

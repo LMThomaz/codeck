@@ -17,7 +17,7 @@ import urllib.request
 import uuid
 
 from . import secrets
-from .core import CONFIG_FILE, load_json, now_iso
+from .core import CONFIG_FILE, OfflineError, is_network_error, load_json, now_iso
 
 API_URL = "https://api.github.com"
 SCOPES = "repo read:org workflow"
@@ -127,6 +127,10 @@ class GitHub:
                 return cached[1]
             msg = e.read().decode(errors="replace")[:400]
             raise RuntimeError(f"HTTP {e.code} em {method} {path}: {msg}") from None
+        except OSError as e:
+            if is_network_error(e):
+                raise OfflineError(e) from None
+            raise
 
     def _note_rate(self, h):
         if h and h.get("X-RateLimit-Remaining"):

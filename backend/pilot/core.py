@@ -19,6 +19,24 @@ BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PRODUCT = "Commitdeck"   # nome de exibição (a marca mora em ui/src/lib/brand.ts); ids internos não mudam com ela
 
 
+class OfflineError(RuntimeError):
+    """Sem rede (DNS, rota, timeout, conexão recusada). Não é erro da conta: a tela mostra "sem conexão" e mantém o que já leu."""
+
+    def __init__(self, detail=""):
+        super().__init__("Sem conexão com a internet")
+        self.detail = str(detail)[:200]
+
+
+def is_network_error(e):
+    import socket
+    import ssl
+    import urllib.error
+    if isinstance(e, urllib.error.HTTPError):
+        return False
+    return isinstance(e, (OfflineError, urllib.error.URLError, TimeoutError, ConnectionError, socket.timeout, socket.gaierror, ssl.SSLEOFError)) \
+        or (isinstance(e, OSError) and e.errno in (50, 51, 60, 61, 64, 65, 101, 110, 111, 113, 10051, 10060, 10061, 10065))
+
+
 def default_data_dir():
     # Um lugar só por usuário: app instalado, debug do editor e terminal enxergam as mesmas contas e regras.
     if sys.platform == "darwin":
@@ -73,7 +91,7 @@ wake = threading.Event()
 # Contas carregadas (trocadas inteiras pelo engine.reload_accounts): ctx.orgs = Azure, ctx.gh = GitHub.
 ctx = SimpleNamespace(orgs={}, gh={}, config={})
 state = {
-    "polling": None, "prs": [], "myPrs": [], "builds": [], "buildErrors": {}, "errors": {}, "lastPoll": None, "me": {}, "pollMs": None,
+    "polling": None, "offline": None, "prs": [], "myPrs": [], "builds": [], "buildErrors": {}, "errors": {}, "lastPoll": None, "me": {}, "pollMs": None,
     "deploys": [], "releases": [], "deployErrors": {}, "lastDeployPoll": None, "lastBuildPoll": None,
     "issues": [], "issueErrors": {}, "lastIssuePoll": None, "ghErrors": {},
 }

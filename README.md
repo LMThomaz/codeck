@@ -42,11 +42,13 @@ O app não é assinado por certificado comercial (decisão da ThomSoft):
   cada regra pegaria.
 - **Análise** (lead time, aprovações, criadores, repositórios) e **Histórico** de tudo que você e o piloto fizeram.
 
+**Sem internet**: o app continua mostrando o que já tinha lido (PRs, builds, listas de repositórios) com um alerta
+fixo, tenta reconectar a cada 10 s e atualiza tudo assim que a rede volta.
+
 **Repositórios e Git**
-- **Catálogos**: nascem sozinhos ao conectar uma conta (um por projeto do Azure; no GitHub, o pessoal e um por
-  organização) e ficam agrupados pela conta, com o logo do provedor, recolhíveis no painel e na barra lateral. Também dá
-  para criar os seus. Filtre por clonado/não clonado e clone um ou todos de uma vez; clones que já existem na pasta
-  são reconhecidos sozinhos.
+- **Contas**: cada conta conectada (organização do Azure ou conta do GitHub) lista todos os repositórios dela, com a
+  quantidade e o logo do provedor. **Catálogos** são as suas categorias manuais. Nos dois: filtre por clonado/não
+  clonado e clone um ou todos de uma vez; clones que já existem na pasta são reconhecidos sozinhos.
 - **Favoritos e tags**: favorite repositórios de qualquer conta (GitHub e Azure misturados) — pela estrela ou buscando
   em todas as contas — e organize com tags livres ("Open-Source", "Sustentação"…). Cada tag vira uma coleção; tag nova
   é criada digitando no próprio seletor.

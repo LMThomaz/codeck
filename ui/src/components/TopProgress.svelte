@@ -2,7 +2,7 @@
   // Fio de progresso no topo: acende enquanto o backend lê Azure/GitHub ou enquanto uma ação está sendo enviada.
   import { store } from "../lib/store.svelte";
   import { ui } from "../lib/ui.svelte";
-  const on = $derived(store.fetching || ui.inflight > 0);
+  const on = $derived((store.fetching && !store.offline) || ui.inflight > 0);
 </script>
 
 <div class="tp" class:on class:send={ui.inflight > 0} aria-hidden="true"><span></span></div>

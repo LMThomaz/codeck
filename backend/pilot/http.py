@@ -14,7 +14,7 @@ import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from . import accounts, analytics, azure, catalogs, engine, git, github, library, rules, update
-from .core import (APP_BUILD, APP_PLATFORM, APP_VERSION, ARCHIVE_FILE, CONFIG_FILE, DATA, DEFAULT_PORT, PRODUCT, RULES_FILE,
+from .core import (APP_BUILD, APP_PLATFORM, APP_VERSION, ARCHIVE_FILE, CONFIG_FILE, DATA, DEFAULT_PORT, PRODUCT, RULES_FILE, OfflineError,
                    STATIC_DIR, TOKEN, ctx, load_json, lock, log_activity, log_build, log_deploy, notifications, notify_seq,
                    now_iso, pr_summary, read_activity, save_json, state, wake)
 
@@ -44,7 +44,7 @@ def get_state(qs, body):
     with lock:
         payload = {k: state[k] for k in ("prs", "myPrs", "builds", "buildErrors", "errors", "lastPoll", "me", "pollMs",
                                          "deploys", "releases", "deployErrors", "lastDeployPoll", "lastBuildPoll",
-                                         "issues", "issueErrors", "lastIssuePoll", "polling")}
+                                         "issues", "issueErrors", "lastIssuePoll", "polling", "offline")}
         payload = {k: (list(v) if isinstance(v, list) else dict(v) if isinstance(v, dict) else v) for k, v in payload.items()}
     payload["orgs"] = list(ctx.orgs.keys())
     payload["githubAccounts"] = [{"id": a.id, "login": a.login, "avatar": (a.me or {}).get("avatar") or a.cfg.get("avatar")}
@@ -444,7 +444,13 @@ def post_library_clone(qs, body):
 
 @route("GET", "/api/catalogs")
 def get_catalogs(qs, body):
-    return {"catalogs": catalogs.load()}
+    return catalogs.summary()
+
+
+@route("POST", "/api/catalogs/account-dir")
+def post_catalog_account_dir(qs, body):
+    catalogs.set_account_dir(body.get("key"), body.get("baseDir"))
+    return {"ok": True}
 
 
 @route("GET", "/api/catalog")
@@ -459,7 +465,9 @@ def get_catalog_suggestions(qs, body):
 
 @route("POST", "/api/catalogs/save")
 def post_catalog_save(qs, body):
-    return catalogs.upsert(body)
+    out = catalogs.upsert(body)
+    catalogs.warm_async()   # contador do catálogo novo/editado
+    return out
 
 
 @route("POST", "/api/catalogs/delete")
@@ -523,6 +531,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.send(404, {"error": str(e).strip("'")})
         except (ValueError, git.GitError) as e:
             return self.send(400, {"error": str(e)})
+        except OfflineError:
+            return self.send(503, {"error": "Sem conexão com a internet — tente de novo quando ela voltar", "offline": True})
         except Exception as e:  # noqa: BLE001
             return self.send(500, {"error": str(e)[:600]})
 

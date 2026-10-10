@@ -1,7 +1,7 @@
 <script lang="ts">
   // Repositórios: os locais registrados, os favoritos (de qualquer conta, com tags) e os catálogos (repositórios de uma
   // org/projeto, clonados ou não — criados sozinhos ao conectar a conta).
-  import { Download, FolderPlus, FolderSearch, Link, Pencil, Plus, RefreshCw, Search } from "@lucide/svelte";
+  import { Download, FolderPlus, FolderSearch, Link, Pencil, Plus, RefreshCw, Search, WifiOff } from "@lucide/svelte";
   import { untrack } from "svelte";
   import { get, post } from "../lib/api";
   import { pickFolder } from "../lib/native";
@@ -21,7 +21,9 @@
   import Skeleton from "../components/Skeleton.svelte";
   import Toolbar from "../components/Toolbar.svelte";
 
-  const catalogId = $derived(router.parts[1] === "catalog" ? router.parts[2] : null);
+  // catálogo manual ("/repos/catalog/<id>") ou conta inteira ("/repos/account/<provider:conta>") — mesma tela
+  const catalogId = $derived(router.parts[1] === "catalog" ? router.parts[2] : router.parts[1] === "account" ? "account:" + router.param.slice(8) : null);
+  const isAccount = $derived(!!catalogId?.startsWith("account:"));
   // favoritos ("/repos/favorites") e tag ("/repos/tag/<nome>") listam a coleção pessoal
   const tagName = $derived(router.parts[1] === "tag" ? router.param.slice(4) : null);
   const favMode = $derived(router.parts[1] === "favorites" || !!tagName);
@@ -73,7 +75,12 @@
   async function loadCatalog(force = false) {
     if (!catalogId) return;
     loading = !view || view.id !== catalogId;
-    try { view = await get<CatalogView>("catalog", { id: catalogId, force: force ? 1 : 0 }); }
+    try {
+      view = await get<CatalogView>("catalog", { id: catalogId, force: force ? 1 : 0 });
+      const n = view.counts.total, a = repos.accounts.find(x => "account:" + x.key === catalogId), c = repos.catalogs.find(x => x.id === catalogId);
+      if (a) a.count = n;
+      if (c) c.count = n;
+    }
     catch (e) { ui.error(e); }
     loading = false;
   }
@@ -108,9 +115,10 @@
   }
   async function clone(key: string) {
     if (!view?.baseDir) {
-      const p = await pickFolder("Onde clonar os repositórios deste catálogo?");
+      const p = await pickFolder(isAccount ? `Onde clonar os repositórios de ${view?.name}?` : "Onde clonar os repositórios deste catálogo?");
       if (!p) return;
-      await post("catalogs/save", { ...view, baseDir: p });
+      if (isAccount) await post("catalogs/account-dir", { key: catalogId!.slice(8), baseDir: p });
+      else await post("catalogs/save", { ...view, baseDir: p });
       await loadCatalog();
     }
     try { watch(key, await post("catalogs/clone", { id: catalogId, repoKey: key })); } catch (e) { ui.error(e); }
@@ -164,7 +172,7 @@
   const counts = $derived(view ? { all: view.repos.length, cloned: view.repos.filter(r => r.cloned).length, notCloned: view.repos.filter(r => !r.cloned).length } : null);
 </script>
 
-<Page title={catalogId ? view?.name || "Catálogo" : tagName ? tagName : favMode ? "Favoritos" : "Repositórios"}
+<Page title={catalogId ? view?.name || (isAccount ? catalogId.split(":").pop() || "" : "Catálogo") : tagName ? tagName : favMode ? "Favoritos" : "Repositórios"}
   sub={catalogId ? (view ? `${view.counts.cloned} de ${view.counts.total} clonados${view.baseDir ? " · " + view.baseDir.replace(/^\/Users\/[^/]+/, "~") : ""}` : "carregando…")
     : favMode ? `${favCounts.cloned} de ${favCounts.all} clonados · GitHub e Azure DevOps juntos${tagInfo?.baseDir ? " · " + tagInfo.baseDir.replace(/^\/Users\/[^/]+/, "~") : ""}`
     : "Seus repositórios locais, favoritos e catálogos de GitHub e Azure DevOps"}>
@@ -174,7 +182,7 @@
     {:else if catalogId && view}
       <button class="btn sm ghost" onclick={() => loadCatalog(true)} title="Ler a lista de novo"><RefreshCw size={14} /></button>
       {#if counts?.notCloned}<button class="btn sm" onclick={cloneAll}><Download size={14} /> Clonar todos ({counts.notCloned})</button>{/if}
-      <button class="btn sm" onclick={() => (editing = "edit")}><Pencil size={14} /> Editar</button>
+      {#if !isAccount}<button class="btn sm" onclick={() => (editing = "edit")}><Pencil size={14} /> Editar</button>{/if}
     {:else}
       <button class="btn sm" onclick={() => (adding = true)}><FolderPlus size={14} /> Adicionar local</button>
       <button class="btn sm primary" onclick={() => (editing = "new")}><Plus size={14} /> Novo catálogo</button>
@@ -219,6 +227,7 @@
         {:else if catalogId}
           {#if loading || !view}<Skeleton rows={9} />
           {:else}
+            {#if view.staleSince}<div class="stale"><WifiOff size={14} /> Sem conexão — mostrando a lista lida às {new Date(view.staleSince * 1000).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}.</div>{/if}
             {#each Object.entries(view.errors) as [k, e] (k)}<div class="err">{k}: {e}</div>{/each}
             {#each list as r (r.key)}<RepoRow remote={r} job={jobs[r.key]} onclone={() => clone(r.key)} onchanged={() => loadCatalog()} />
             {:else}<Empty title={q ? "Nada encontrado" : filter === "not" ? "Tudo clonado" : "Catálogo vazio"} done={filter === "not" && !q} text={view.sources.length ? "" : "Edite o catálogo e escolha as origens."} />{/each}
@@ -239,7 +248,7 @@
 </Page>
 
 {#if editing}
-  <CatalogEditor catalog={editing === "edit" ? view : null} onclose={() => { editing = null; if (router.parts[1] === "new-catalog") go("/repos", "soft"); loadCatalog(); }} />
+  <CatalogEditor catalog={editing === "edit" ? view : null} onclose={() => { editing = null; if (router.parts[1] === "new-catalog") go("/repos", "soft"); loadCatalog(); setTimeout(() => repos.load(false), 2500); }} />
 {/if}
 
 {#if searching}
@@ -297,6 +306,7 @@
   .n { font-size: 11.5px; color: var(--muted); }
   .main { min-height: 0; display: flex; flex-direction: column; }
   .scroll { flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; }
+  .stale { display: flex; align-items: center; gap: 8px; margin: 10px 16px 0; padding: 8px 12px; border-radius: 9px; background: var(--warn-soft); color: var(--warn); font-size: 12.5px; }
   .err { margin: 10px 16px 0; padding: 8px 12px; border-radius: 9px; background: var(--bad-soft); color: var(--bad); font-size: 12.5px; }
   .opts { display: grid; gap: 10px; padding-top: 14px; }
   .opt { display: flex; gap: 14px; align-items: flex-start; text-align: left; padding: 14px; border-radius: 12px; border: 1px solid var(--line-2); background: var(--surface-2);

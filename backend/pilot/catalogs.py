@@ -2,8 +2,12 @@
 organização/conta do GitHub ou avulsos) e mostram, para cada um, se está clonado nesta máquina.
 
 catalogs.json: [{id, name, color, baseDir, sources: [{provider, account, owner, project}], extra: [chave], exclude: [chave]}]
-A lista remota de cada origem fica em cache por 10 minutos; o casamento com o clone local é pela URL do remoto
-normalizada (https/ssh/.git dão a mesma chave).
+Catálogos são MANUAIS (categorias do usuário). Cada CONTA conectada é, por si, a lista de todos os repositórios dela
+(account_view) — não vira catálogo.
+
+A lista remota de cada origem fica em cache (remote-cache.json, em disco): é relida após 10 minutos, mas a última
+lista boa continua valendo sem internet e alimenta os contadores do painel. O casamento com o clone local é pela URL
+do remoto normalizada (https/ssh/.git dão a mesma chave).
 """
 import os
 import re
@@ -13,9 +17,12 @@ import uuid
 from . import git
 import threading
 
-from .core import CATALOGS_FILE, DATA, ctx, load_json, save_json
+from .core import CATALOGS_FILE, DATA, ctx, is_network_error, load_json, save_json
 
-_remote_cache = {}   # (provider, account, owner, project) -> (ts, repos)
+CACHE_FILE = os.path.join(DATA, "remote-cache.json")
+ACCOUNT_DIRS_FILE = os.path.join(DATA, "account-dirs.json")   # "provider:conta" -> pasta onde clonar
+_cache_lock = threading.Lock()
+_remote_cache = None   # "provider|conta|owner|projeto" -> [ts, repos]; carregado do disco na 1ª vez
 COLORS = ["#3F8CF0", "#22C38E", "#F0A23F", "#E5577B", "#8B6CF0", "#2EC4D6", "#F06A3F", "#9AA4B2"]
 
 
@@ -48,9 +55,6 @@ def upsert(body):
         "extra": [str(x) for x in body.get("extra", [])][:500], "exclude": [str(x) for x in body.get("exclude", [])][:500],
         "description": (body.get("description") or "").strip()[:200],
     }
-    prev = next((c for c in cats if c["id"] == cid), None)
-    if prev and prev.get("auto"):   # catálogo criado pela conta continua agrupado nela depois de editado
-        entry["auto"] = prev["auto"]
     idx = next((i for i, c in enumerate(cats) if c["id"] == cid), None)
     if idx is None:
         cats.append(entry)
@@ -76,14 +80,43 @@ def _account(provider, account):
     return acc
 
 
+def _cache():
+    global _remote_cache
+    if _remote_cache is None:
+        _remote_cache = load_json(CACHE_FILE, {})
+    return _remote_cache
+
+
+def _ckey(source):
+    return "|".join(str(source.get(k) or "") for k in ("provider", "account", "owner", "project")).lower()
+
+
+def cached(source):
+    hit = _cache().get(_ckey(source))
+    return hit[1] if hit else None
+
+
+def fetch(source, force=False):
+    """(repos, desde_quando_sem_atualizar | None). Sem internet, devolve a última lista boa (marcada como antiga)."""
+    k = _ckey(source)
+    hit = _cache().get(k)
+    if not force and hit and time.time() - hit[0] < 600:
+        return hit[1], None
+    try:
+        acc = _account(source["provider"], source["account"])
+        repos = acc.list_repos(source.get("project")) if source["provider"] == "azure" else acc.list_repos(source.get("owner"))
+    except Exception as e:  # noqa: BLE001
+        if hit and is_network_error(e):
+            return hit[1], hit[0]
+        raise
+    with _cache_lock:
+        _cache()[k] = [time.time(), repos]
+        save_json(CACHE_FILE, _cache())
+    return repos, None
+
+
 def remote_repos(source, force=False):
-    k = (source["provider"], source["account"], source.get("owner"), source.get("project"))
-    if not force and k in _remote_cache and time.time() - _remote_cache[k][0] < 600:
-        return _remote_cache[k][1]
-    acc = _account(source["provider"], source["account"])
-    repos = acc.list_repos(source.get("project")) if source["provider"] == "azure" else acc.list_repos(source.get("owner"))
-    _remote_cache[k] = (time.time(), repos)
-    return repos
+    return fetch(source, force)[0]
 
 
 def local_index():
@@ -95,23 +128,23 @@ def local_index():
     return out
 
 
-def view(cid, force=False):
-    cat = next((c for c in load() if c["id"] == cid), None)
-    if not cat:
-        raise ValueError("Catálogo não encontrado")
-    repos, errors, seen = [], {}, set()
-    for s in cat["sources"]:
+def _build(meta, sources, exclude=(), base_dir=None, force=False):
+    repos, errors, seen, stale = [], {}, set(), None
+    for s in sources:
         try:
-            for r in remote_repos(s, force):
+            got, old = fetch(s, force)
+            stale = min(stale or old, old) if old else stale
+            for r in got:
                 if r["key"] not in seen:
                     seen.add(r["key"])
                     repos.append(r)
         except Exception as e:  # noqa: BLE001
-            errors[f"{s['provider']}:{s.get('owner') or s.get('project') or s['account']}"] = str(e)[:240]
-    exclude = set(cat.get("exclude") or [])
-    repos = [r for r in repos if r["key"] not in exclude]
+            label = f"{s['provider']}:{s.get('owner') or s.get('project') or s['account']}"
+            errors[label] = "sem conexão — a lista aparece quando a internet voltar" if is_network_error(e) else str(e)[:240]
+    exclude = set(exclude or [])
+    repos = [dict(r) for r in repos if r["key"] not in exclude]
     local = local_index()
-    if cat.get("baseDir") and adopt_existing(cat["baseDir"], repos, local):
+    if base_dir and adopt_existing(base_dir, repos, local):
         local = local_index()
     for r in repos:
         lk = git.normalize_remote(r.get("cloneUrl") or r.get("sshUrl") or "")
@@ -119,9 +152,83 @@ def view(cid, force=False):
         r["remoteKey"] = lk
         r["local"] = {k: loc.get(k) for k in ("id", "path", "status", "lastCommit", "exists", "pinned")} if loc else None
         r["cloned"] = bool(loc and loc.get("exists"))
-        r["clonePath"] = os.path.join(cat["baseDir"], r["name"]) if cat.get("baseDir") else None
+        r["clonePath"] = os.path.join(base_dir, r["name"]) if base_dir else None
     repos.sort(key=lambda r: (not r["cloned"], (r.get("updated") or "") == "", (r.get("name") or "").lower()))
-    return {**cat, "repos": repos, "errors": errors, "counts": {"total": len(repos), "cloned": sum(r["cloned"] for r in repos)}}
+    return {**meta, "baseDir": base_dir, "repos": repos, "errors": errors, "staleSince": stale,
+            "counts": {"total": len(repos), "cloned": sum(r["cloned"] for r in repos)}}
+
+
+def view(cid, force=False):
+    if cid and cid.startswith("account:"):
+        return account_view(cid[8:], force)
+    cat = next((c for c in load() if c["id"] == cid), None)
+    if not cat:
+        raise ValueError("Catálogo não encontrado")
+    return _build(cat, cat["sources"], cat.get("exclude"), cat.get("baseDir"), force)
+
+
+# ---------------------------------------------------------------- contas: todos os repositórios de cada uma
+def accounts():
+    return [{"key": f"{p}:{n}", "provider": p, "name": n} for p, n in _connected()]
+
+
+def _account_source(key):
+    prov, _, name = key.partition(":")
+    if (prov, name) not in _connected():
+        raise ValueError("Conta não está conectada")
+    return {"provider": prov, "account": name, "owner": None, "project": None}
+
+
+def account_view(key, force=False):
+    prov, _, name = key.partition(":")
+    meta = {"id": "account:" + key, "name": name, "provider": prov, "account": True, "sources": [_account_source(key)],
+            "color": "", "extra": [], "exclude": []}
+    return _build(meta, meta["sources"], (), load_json(ACCOUNT_DIRS_FILE, {}).get(key), force)
+
+
+def set_account_dir(key, base):
+    dirs = load_json(ACCOUNT_DIRS_FILE, {})
+    dirs[key] = os.path.expanduser((base or "").strip()) or None
+    save_json(ACCOUNT_DIRS_FILE, dirs)
+
+
+def summary():
+    """Catálogos e contas com a contagem de repositórios — do cache; None enquanto a lista ainda não foi lida."""
+    def count(sources, exclude=()):
+        keys = set()
+        for s in sources:
+            got = cached(s)
+            if got is None:
+                return None
+            keys |= {r["key"] for r in got}
+        return len(keys - set(exclude or []))
+    return {"catalogs": [{**c, "count": count(c["sources"], c.get("exclude"))} for c in load()],
+            "accounts": [{**a, "count": count([_account_source(a["key"])])} for a in accounts()]}
+
+
+def warm():
+    """Lê (se o cache estiver velho) a lista de cada conta e de cada catálogo — os contadores do painel saem daqui."""
+    srcs = [_account_source(a["key"]) for a in accounts()] + [s for c in load() for s in c["sources"]]
+    for s in srcs:
+        try:
+            fetch(s)
+        except Exception:  # noqa: BLE001 — sem rede ou sem permissão: o contador só fica vazio
+            continue
+
+
+def warm_async():
+    threading.Thread(target=warm, daemon=True).start()
+
+
+def cleanup_auto():
+    """A 2.0.0+10 criava um catálogo por projeto/org ao conectar a conta; agora a conta lista tudo e os catálogos são
+    só os do usuário. Remove os automáticos (marcados com "auto") e o registro deles."""
+    cats = load()
+    keep = [c for c in cats if not c.get("auto")]
+    if len(keep) != len(cats):
+        save(keep)
+    if os.path.exists(os.path.join(DATA, "catalogs-auto.json")):
+        os.remove(os.path.join(DATA, "catalogs-auto.json"))
 
 
 def adopt_existing(base, repos, local):
@@ -181,7 +288,7 @@ def suggestions():
 
 
 def clone(cid, repo_key, dest=None):
-    cat = view(cid)
+    cat = view(cid)   # "account:<provider:conta>" também vale
     r = next((x for x in cat["repos"] if x["key"] == repo_key), None)
     if not r:
         raise ValueError("Repositório não está no catálogo")
@@ -195,49 +302,3 @@ def clone(cid, repo_key, dest=None):
         url = re.sub(r"^https://[^@/]+@", "https://", url)   # o Azure põe o usuário na URL; a credencial vai pelo header
     info = git.parse_remote(url)
     return git.clone(url, dest, auth=git._auth_lookup["fn"](info.get("provider"), info.get("owner")) if git._auth_lookup["fn"] else None)
-
-
-# ---------------------------------------------------------------- catálogos automáticos por conta
-# Conta conectada pela 1ª vez → os catálogos dela nascem sozinhos (marcados com auto = "provider:conta", que agrupa
-# no painel). AUTO_FILE lembra as contas já processadas: catálogo apagado à mão não volta. Conta removida leva junto
-# os catálogos automáticos dela.
-AUTO_FILE = os.path.join(DATA, "catalogs-auto.json")
-_auto_lock = threading.Lock()
-
-
-def auto_sync():
-    with _auto_lock:
-        seen = set(load_json(AUTO_FILE, []))
-        live = {f"{p}:{n}" for p, n in _connected()}
-        cats = load()
-        changed = False
-        gone = [c for c in cats if c.get("auto") and c["auto"] not in live]
-        if gone:
-            cats = [c for c in cats if c not in gone]
-            changed = True
-        seen &= live
-        for prov, name in _connected():
-            tag = f"{prov}:{name}"
-            if tag in seen:
-                continue
-            try:
-                sugg = _account_suggestions(prov, name)
-            except Exception:  # noqa: BLE001 — sem rede/permissão agora: tenta de novo na próxima vez
-                continue
-            have = {(s["provider"], s["account"].lower(), (s.get("owner") or "").lower(), (s.get("project") or "").lower())
-                    for c in cats for s in c.get("sources", [])}
-            for sg in sugg:
-                s = sg["sources"][0]
-                if (s["provider"], s["account"].lower(), (s.get("owner") or "").lower(), (s.get("project") or "").lower()) in have:
-                    continue
-                cats.append({"id": uuid.uuid4().hex[:10], "name": sg["name"][:60], "color": COLORS[len(cats) % len(COLORS)],
-                             "baseDir": None, "sources": sg["sources"], "extra": [], "exclude": [], "description": "", "auto": tag})
-                changed = True
-            seen.add(tag)
-        if changed:
-            save(cats)
-        save_json(AUTO_FILE, sorted(seen))
-
-
-def auto_sync_async():
-    threading.Thread(target=auto_sync, daemon=True).start()

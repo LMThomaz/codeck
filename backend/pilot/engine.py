@@ -12,7 +12,7 @@ from datetime import timedelta
 from . import azure, catalogs, git, github, secrets
 from .analytics import analytics_cache
 from .core import (ARCHIVE_FILE, CONFIG_FILE, NOTIFIED_FILE, ctx, load_json, lock, log_activity, log_deploy, notify,
-                   now, now_iso, parse_dt, pr_summary, save_json, state, wake)
+                   is_network_error, now, now_iso, parse_dt, pr_summary, save_json, state, wake)
 from .rules import get_rules, matching_deploy_rule, matching_rule, protected_set, rule_label
 
 deploy_failures = {}  # key -> ts da última falha automática (não insiste a cada ciclo)
@@ -63,7 +63,7 @@ def reload_accounts():
         state["errors"], state["deployErrors"], state["buildErrors"], state["ghErrors"] = {}, {}, {}, {}
     analytics_cache.clear()
     wake.set()
-    catalogs.auto_sync_async()   # conta nova já ganha os catálogos dela
+    catalogs.warm_async()   # conta nova: a lista de repositórios dela já vem para o cache (contadores do painel)
 
 
 def gh_by_login(login):
@@ -125,6 +125,17 @@ def _sources():
     return [(name, org) for name, org in list(ctx.orgs.items())] + [(f"gh:{a.login}", a) for a in list(ctx.gh.values())]
 
 
+# rede: uma fonte que falha por falta de conexão não vira erro da conta; se TODAS falham assim, o app está offline
+_net = {"down": False, "ok": False}
+
+
+def _fail(errors, key, e, text=None):
+    if is_network_error(e):
+        _net["down"] = True
+    else:
+        errors[key] = text if text is not None else str(e)
+
+
 def poll_prs():
     started = time.monotonic()
     rules_cfg = get_rules()
@@ -138,8 +149,9 @@ def poll_prs():
         try:
             prs, mine = acc.fetch_prs(watch) if isinstance(acc, github.GitHub) else acc.fetch_prs()
             me[src_name] = acc.me
+            _net["ok"] = True
         except Exception as e:  # noqa: BLE001 — uma conta fora não derruba as outras
-            errors[src_name] = github.github_message(e) if isinstance(acc, github.GitHub) else str(e)
+            _fail(errors, src_name, e, github.github_message(e) if isinstance(acc, github.GitHub) else str(e))
             failed.add(src_name)
             with lock:
                 prov = "github" if isinstance(acc, github.GitHub) else "azure"
@@ -232,8 +244,10 @@ def poll_prs():
     save_json(NOTIFIED_FILE, sorted(notified))
     all_prs.sort(key=lambda p: p["created"] or "", reverse=True)
     with lock:
+        offline_now = bool(failed) and len(failed) == len(list(_sources())) and _net["down"]
         state.update(prs=all_prs, myPrs=sorted(all_mine, key=lambda p: p["created"] or "", reverse=True), errors=errors,
-                     lastPoll=now_iso(), me=me, pollMs=int((time.monotonic() - started) * 1000))
+                     lastPoll=state["lastPoll"] if offline_now else now_iso(), me=me or state["me"],
+                     pollMs=int((time.monotonic() - started) * 1000))
 
 
 def vote_pr(acc, pr, vote, comment=""):
@@ -258,8 +272,9 @@ def poll_deploys():
                 items, rels = acc.fetch_pending_deploys([b for b in gh_runs if b.get("account") == acc.login]), []
             else:
                 items, rels = acc.fetch_deploys()
+            _net["ok"] = True
         except Exception as e:  # noqa: BLE001
-            errors[src_name] = str(e)
+            _fail(errors, src_name, e)
             failed.add(src_name)
             with lock:
                 prov = "github" if isinstance(acc, github.GitHub) else "azure"
@@ -344,8 +359,9 @@ def poll_builds():
                     errors[f"{src_name} · {repo}"] = msg
             else:
                 builds = acc.fetch_builds()
+            _net["ok"] = True
         except Exception as e:  # noqa: BLE001
-            errors[src_name] = str(e)
+            _fail(errors, src_name, e)
             failed.add(src_name)
             with lock:
                 prov = "github" if isinstance(acc, github.GitHub) else "azure"
@@ -386,8 +402,9 @@ def poll_issues():
     for src_name, acc in _sources():
         try:
             out.extend(acc.fetch_issues() if isinstance(acc, github.GitHub) else acc.fetch_work_items())
+            _net["ok"] = True
         except Exception as e:  # noqa: BLE001 — sem o escopo de work items/issues, só não aparece
-            errors[src_name] = str(e)[:240]
+            _fail(errors, src_name, e, str(e)[:240])
             with lock:
                 out.extend(i for i in state["issues"] if (i["org"] == src_name) or (src_name.startswith("gh:") and i.get("provider") == "github"))
     out.sort(key=lambda i: i.get("updated") or "", reverse=True)
@@ -400,6 +417,7 @@ POLL_STEP = {"poll_prs": "pull requests", "poll_builds": "builds", "poll_deploys
 
 def poll_loop():
     while True:
+        _net.update(down=False, ok=False)
         for fn in (poll_prs, poll_builds, poll_deploys) + ((poll_issues,) if _cycle["n"] % 3 == 0 else ()):
             with lock:
                 state["polling"] = POLL_STEP[fn.__name__]  # a tela mostra "lendo <etapa>…" enquanto isto não volta a None
@@ -408,17 +426,22 @@ def poll_loop():
             except Exception as e:  # noqa: BLE001
                 with lock:
                     state["errors"]["_geral"] = f"{fn.__name__}: {e}"
+        offline = _net["down"] and not _net["ok"]
         with lock:
             state["polling"] = None
+            # "offline" guarda DESDE QUANDO está sem rede; volta a None na 1ª leitura que funcionar
+            state["offline"] = (state.get("offline") or now_iso()) if offline else None
         _cycle["n"] += 1
-        wake.wait(max(15, int(ctx.config.get("pollSeconds", 60))))
+        # sem rede: tenta de novo a cada 10 s para reconectar logo; com rede, no intervalo escolhido
+        wake.wait(10 if offline else max(15, int(ctx.config.get("pollSeconds", 60))))
         wake.clear()
 
 
 def start():
     orgs, gh, cfg = load_accounts()
     ctx.orgs, ctx.gh, ctx.config = orgs, gh, cfg
-    catalogs.auto_sync_async()
+    catalogs.cleanup_auto()
+    catalogs.warm_async()
     if os.environ.get("COMMITDECK_NO_POLL") != "1":
         import threading
         threading.Thread(target=poll_loop, daemon=True).start()

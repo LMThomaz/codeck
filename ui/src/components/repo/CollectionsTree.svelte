@@ -1,13 +1,14 @@
 <script lang="ts">
-  // Coleções de repositórios: favoritos, tags e catálogos agrupados pela conta de origem (com o logo do provedor).
-  // Cada grupo de conta recolhe/expande; o estado fica guardado por tela (painel de Repositórios × barra lateral).
-  import { ChevronRight, Palette, Pencil, Plus, Star, Tags, Trash2, FolderOpen } from "@lucide/svelte";
+  // Coleções de repositórios, cada seção recolhível (estado guardado por tela: painel de Repositórios × barra lateral):
+  //   Contas    — cada conta conectada lista TODOS os repositórios dela (logo do provedor + quantidade)
+  //   Favoritos — de qualquer conta;  Tags — coleções pelas tags dos favoritos;  Catálogos — categorias manuais
+  // Os contadores vêm do cache do backend; "…" enquanto a lista da conta/catálogo ainda não foi lida.
+  import { ChevronRight, FolderKanban, FolderOpen, Palette, Pencil, Plus, Star, Tags, Trash2, Users } from "@lucide/svelte";
   import { post } from "../../lib/api";
   import { pickFolder } from "../../lib/native";
   import { repos } from "../../lib/repos.svelte";
   import { go, router } from "../../lib/router.svelte";
-  import type { Catalog, Provider } from "../../lib/types";
-  import { ui } from "../../lib/ui.svelte";
+    import { ui } from "../../lib/ui.svelte";
   import Menu from "../Menu.svelte";
   import ProviderIcon from "../ProviderIcon.svelte";
 
@@ -23,22 +24,9 @@
     closed = { ...closed, [k]: !isClosed(k) };
     try { const all = JSON.parse(localStorage.getItem(STORE) || "{}"); all[scope()] = closed; localStorage.setItem(STORE, JSON.stringify(all)); } catch { /* sem armazenamento */ }
   }
-  // na barra lateral os grupos começam recolhidos; no painel, abertos
-  const isClosed = (k: string) => closed[k] ?? compact;
-
-  type Group = { key: string; provider: Provider | null; label: string; items: Catalog[] };
-  const groups = $derived.by(() => {
-    const map = new Map<string, Group>();
-    for (const c of repos.catalogs) {
-      const s = c.sources[0];
-      const sameAccount = s && c.sources.every(x => x.provider === s.provider && x.account === s.account);
-      const key = c.auto || (sameAccount ? `${s.provider}:${s.account}` : "outros");
-      if (!map.has(key)) map.set(key, { key, provider: key === "outros" ? null : (key.split(":")[0] as Provider), label: key === "outros" ? "Outros" : key.slice(key.indexOf(":") + 1), items: [] });
-      map.get(key)!.items.push(c);
-    }
-    const rank = (g: Group) => (g.provider === "azure" ? 0 : g.provider === "github" ? 1 : 2);
-    return [...map.values()].sort((a, b) => rank(a) - rank(b) || a.label.localeCompare(b.label));
-  });
+  // na barra lateral as seções começam recolhidas (menos Contas); no painel, abertas
+  const isClosed = (k: string) => closed[k] ?? (compact && k !== "accounts");
+  const num = (n: number | null | undefined) => (n === null || n === undefined ? "…" : n);
 
   const at = (path: string) => router.view === "repos" && router.param === path;
   const enc = encodeURIComponent;
@@ -65,14 +53,30 @@
 </script>
 
 <div class="tree" class:compact>
-  <button class="it" class:on={at("favorites")} onclick={() => go("/repos/favorites", "soft")}>
-    <Star size={compact ? 12 : 14} class="star" /><span class="grow ell">Favoritos</span><span class="n">{repos.favorites.length || ""}</span>
+  {#snippet head(key: string, label: string, Icon: any, count: number | string)}
+    <button class="gh" onclick={() => toggle(key)} aria-expanded={!isClosed(key)}>
+      <ChevronRight size={12} class="chev {isClosed(key) ? '' : 'open'}" /><Icon size={12} /><span class="grow ell">{label}</span><span class="n">{count}</span>
+    </button>
+  {/snippet}
+
+  {#if repos.accounts.length}
+    {@render head("accounts", "Contas", Users, repos.accounts.length)}
+    <div class="kids" class:closed={isClosed("accounts")}><div>
+      {#each repos.accounts as a (a.key)}
+        <button class="it sub" class:on={at("account/" + a.key)} onclick={() => go("/repos/account/" + enc(a.key), "soft")}
+          title={`${a.provider === "azure" ? "Azure DevOps" : "GitHub"} · todos os repositórios de ${a.name}`}>
+          <ProviderIcon provider={a.provider} size={13} /><span class="grow ell">{a.name}</span><span class="n">{num(a.count)}</span>
+        </button>
+      {/each}
+    </div></div>
+  {/if}
+
+  <button class="it top" class:on={at("favorites")} onclick={() => go("/repos/favorites", "soft")}>
+    <Star size={compact ? 12 : 14} class="star" /><span class="grow ell">Favoritos</span><span class="n">{repos.favorites.length}</span>
   </button>
 
   {#if repos.tags.length}
-    <button class="gh" onclick={() => toggle("tags")} aria-expanded={!isClosed("tags")}>
-      <ChevronRight size={12} class="chev {isClosed('tags') ? '' : 'open'}" /><Tags size={12} /><span class="grow ell">Tags</span><span class="n">{repos.tags.length}</span>
-    </button>
+    {@render head("tags", "Tags", Tags, repos.tags.length)}
     <div class="kids" class:closed={isClosed("tags")}><div>
       {#each repos.tags as t (t.name)}
         <div class="row">
@@ -85,22 +89,17 @@
     </div></div>
   {/if}
 
-  {#each groups as g (g.key)}
-    <button class="gh" onclick={() => toggle(g.key)} aria-expanded={!isClosed(g.key)} title={g.provider ? `${g.provider === "azure" ? "Azure DevOps" : "GitHub"} · ${g.label}` : "Catálogos com várias origens"}>
-      <ChevronRight size={12} class="chev {isClosed(g.key) ? '' : 'open'}" />
-      {#if g.provider}<ProviderIcon provider={g.provider} size={13} />{/if}
-      <span class="grow ell">{g.label}</span><span class="n">{g.items.length}</span>
-    </button>
-    <div class="kids" class:closed={isClosed(g.key)}><div>
-      {#each g.items as c (c.id)}
+  {#if repos.catalogs.length || onnew}
+    {@render head("catalogs", "Catálogos", FolderKanban, repos.catalogs.length)}
+    <div class="kids" class:closed={isClosed("catalogs")}><div>
+      {#each repos.catalogs as c (c.id)}
         <button class="it sub" class:on={at("catalog/" + c.id)} onclick={() => go("/repos/catalog/" + c.id, "soft")}>
-          <span class="dot sq" style="background:{c.color}"></span><span class="grow ell">{c.name}</span>
+          <span class="dot sq" style="background:{c.color}"></span><span class="grow ell">{c.name}</span><span class="n">{num(c.count)}</span>
         </button>
       {/each}
+      {#if onnew}<button class="it sub add" onclick={onnew}><Plus size={13} /> Novo catálogo</button>{/if}
     </div></div>
-  {/each}
-
-  {#if onnew}<button class="it add" onclick={onnew}><Plus size={13} /> Novo catálogo</button>{/if}
+  {/if}
 </div>
 
 <style>
@@ -121,7 +120,8 @@
   .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
   .dot.sq { border-radius: 3px; }
   .n { font-size: 11px; color: var(--faint); font-variant-numeric: tabular-nums; transition: opacity var(--t-fast); }
-  .add { color: var(--accent); margin-top: 6px; }
+  .add { color: var(--accent); }
+  .top { margin-top: 6px; }
   /* recolher com grid-rows 1fr→0fr: anima a altura real sem medir nada */
   .kids { display: grid; grid-template-rows: 1fr; transition: grid-template-rows 0.3s var(--ease-out), opacity 0.25s var(--ease); }
   .kids > div { overflow: hidden; min-height: 0; display: flex; flex-direction: column; gap: 1px; }
