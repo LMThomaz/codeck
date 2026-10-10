@@ -1,10 +1,10 @@
-// Cliente da API local. A chave da execução vem do app nativo (window.PR_PILOT_TOKEN); sem ela o backend recusa.
+// Cliente da API local. A chave da execução vem do app nativo (window.COMMITDECK_TOKEN); sem ela o backend recusa.
 declare global {
-  interface Window { PR_PILOT_TOKEN?: string; PR_PILOT_PLATFORM?: string; openTarget?: (t: string) => void; checkUpdate?: (m?: boolean) => void;
+  interface Window { COMMITDECK_TOKEN?: string; COMMITDECK_PLATFORM?: string; openTarget?: (t: string) => void; checkUpdate?: (m?: boolean) => void;
     __nativeResolve?: (id: string, value: string | null) => void; webkit?: any; chrome?: any }
 }
 
-const headers = () => ({ "X-PR-Pilot-Token": window.PR_PILOT_TOKEN || "" });
+const headers = () => ({ "X-Commitdeck-Token": window.COMMITDECK_TOKEN || "" });
 
 export class ApiError extends Error {
   constructor(message: string, public status: number) { super(message); }
@@ -26,6 +26,6 @@ export function get<T = any>(path: string, params?: Record<string, string | numb
 
 export function post<T = any>(path: string, body: unknown = {}): Promise<T> {
   return fetch(`/api/${path}`, {
-    method: "POST", headers: { ...headers(), "Content-Type": "application/json", "X-PR-Pilot": "1" }, body: JSON.stringify(body),
+    method: "POST", headers: { ...headers(), "Content-Type": "application/json", "X-Commitdeck": "1" }, body: JSON.stringify(body),
   }).then(r => handle<T>(r));
 }

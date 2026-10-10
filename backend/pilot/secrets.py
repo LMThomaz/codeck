@@ -10,6 +10,8 @@ import re
 import subprocess
 import sys
 
+# IDs herdados do nome antigo (PR Pilot): o serviço do Keychain e a entropia do DPAPI fazem parte da credencial
+# já gravada — trocar aqui deixaria de ler os PATs e tokens de quem atualizou. São internos; o usuário não os vê.
 AZURE = "dev.prpilot.pat"
 GITHUB = "dev.prpilot.github"
 _DPAPI_ENTROPY = {AZURE: b"PR Pilot / Azure DevOps PAT", GITHUB: b"PR Pilot / GitHub token"}
@@ -27,7 +29,7 @@ def _dpapi(data, protect, entropy):
     blob_ent = _Blob(len(entropy), ctypes.cast(ent, ctypes.POINTER(ctypes.c_char)))
     blob_out = _Blob()
     fn = crypt32.CryptProtectData if protect else crypt32.CryptUnprotectData
-    args = (ctypes.byref(blob_in), "PR Pilot" if protect else None, ctypes.byref(blob_ent), None, None, 0x1, ctypes.byref(blob_out))
+    args = (ctypes.byref(blob_in), "Commitdeck" if protect else None, ctypes.byref(blob_ent), None, None, 0x1, ctypes.byref(blob_out))
     if not fn(*args):  # 0x1 = CRYPTPROTECT_UI_FORBIDDEN
         raise RuntimeError("DPAPI recusou a operação")
     try:
@@ -41,7 +43,7 @@ def put(account, value, service=AZURE):
     if not re.fullmatch(r"[\w\-]{1,64}", account) or not re.fullmatch(r"[\w\-.]{8,400}", value):
         raise ValueError("Credencial com formato inesperado")
     if sys.platform == "darwin":
-        cmd = f'add-generic-password -U -s {service} -a {account} -l "PR Pilot — credencial" -w "{value}"\n'
+        cmd = f'add-generic-password -U -s {service} -a {account} -l "Commitdeck — credencial" -w "{value}"\n'
         r = subprocess.run(["/usr/bin/security", "-i"], input=cmd, text=True, capture_output=True, timeout=20)
         if r.returncode != 0 or "error" in (r.stderr or "").lower():
             raise RuntimeError("Não consegui gravar no Keychain")

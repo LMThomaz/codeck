@@ -1,24 +1,24 @@
-// PR Pilot para macOS: janela nativa (WebKit) para a tela do backend em Python, com contador no Dock e na
+// Commitdeck para macOS: janela nativa (WebKit) para a tela do backend em Python, com contador no Dock e na
 // barra de menus, notificações clicáveis e atualização automática (latest.json no site da ThomSoft).
 //
 // O app sobe o backend embutido (Resources/backend/server.py) e passa uma chave nova a cada execução: sem ela o
 // backend não responde, então nenhum outro programa da máquina consegue ler a fila ou agir por você.
-// Desenvolvimento: PR_PILOT_ATTACH=1 + PR_PILOT_PORT=<porta> conecta num backend já rodando (debug no VS Code).
+// Desenvolvimento: COMMITDECK_ATTACH=1 + COMMITDECK_PORT=<porta> conecta num backend já rodando (debug no VS Code).
 import Cocoa
 import ServiceManagement
 import UserNotifications
 import WebKit
 
 let env = ProcessInfo.processInfo.environment
-let attachMode = env["PR_PILOT_ATTACH"] == "1"
-let port = Int(env["PR_PILOT_PORT"] ?? "") ?? 47821
+let attachMode = env["COMMITDECK_ATTACH"] == "1"
+let port = Int(env["COMMITDECK_PORT"] ?? "") ?? 47821
 let baseURL = URL(string: "http://127.0.0.1:\(port)/")!
-let token = attachMode ? (env["PR_PILOT_TOKEN"] ?? "") : UUID().uuidString + UUID().uuidString
+let token = attachMode ? (env["COMMITDECK_TOKEN"] ?? "") : UUID().uuidString + UUID().uuidString
 let appVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev"
 let appBuild = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "0"
-let updateURL = Bundle.main.object(forInfoDictionaryKey: "PRPilotUpdateURL") as? String ?? ""
+let updateURL = Bundle.main.object(forInfoDictionaryKey: "CommitdeckUpdateURL") as? String ?? ""
 let supportDir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-    .appendingPathComponent("PR Pilot", isDirectory: true)
+    .appendingPathComponent("Commitdeck", isDirectory: true)
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKUIDelegate, WKNavigationDelegate,
     WKScriptMessageHandler, UNUserNotificationCenterDelegate, NSMenuDelegate {
@@ -33,6 +33,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKUI
     var nativeNotifications = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        if !attachMode && adoptLegacyInstall() { return }
         buildMainMenu()
         buildWindow()
         buildStatusItem()
@@ -42,14 +43,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKUI
         if !attachMode { enableLoginItemOnFirstRun() }
     }
 
+    // MARK: nome antigo (PR Pilot)
+
+    /// O app se chamava PR Pilot. A pasta de dados antiga vira a nova (contas, regras, histórico) e, se a atualização
+    /// automática deixou este app em "PR Pilot.app", ele se renomeia para "Commitdeck.app" e reabre — devolve true
+    /// quando vai reabrir.
+    func adoptLegacyInstall() -> Bool {
+        let fm = FileManager.default
+        let legacyData = supportDir.deletingLastPathComponent().appendingPathComponent("PR Pilot", isDirectory: true)
+        if !fm.fileExists(atPath: supportDir.path) && fm.fileExists(atPath: legacyData.path) {
+            try? fm.moveItem(at: legacyData, to: supportDir)
+        }
+        let bundle = URL(fileURLWithPath: Bundle.main.bundlePath)
+        guard bundle.lastPathComponent == "PR Pilot.app" else { return false }
+        let target = bundle.deletingLastPathComponent().appendingPathComponent("Commitdeck.app")
+        guard !fm.fileExists(atPath: target.path), (try? fm.moveItem(at: bundle, to: target)) != nil else { return false }
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+        p.arguments = ["-n", target.path]
+        try? p.run()
+        NSApp.terminate(nil)
+        return true
+    }
+
     // MARK: backend
 
     func request(_ path: String, method: String = "GET") -> URLRequest {
         var req = URLRequest(url: URL(string: path, relativeTo: baseURL)!)
         req.httpMethod = method
         req.timeoutInterval = 3
-        req.setValue(token, forHTTPHeaderField: "X-PR-Pilot-Token")
-        if method == "POST" { req.setValue("1", forHTTPHeaderField: "X-PR-Pilot") }
+        req.setValue(token, forHTTPHeaderField: "X-Commitdeck-Token")
+        if method == "POST" { req.setValue("1", forHTTPHeaderField: "X-Commitdeck") }
         return req
     }
 
@@ -70,7 +94,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKUI
             guard let self else { return }
             if code == 200 { return ready() }
             if code == 401 || code == 403 {
-                return self.showFatal("Outro PR Pilot já está usando a porta \(port). Feche-o (ou o ▶ do editor) e abra de novo.")
+                return self.showFatal("Outro Commitdeck já está usando a porta \(port). Feche-o (ou o ▶ do editor) e abra de novo.")
             }
             if attachMode { return self.waitForServer(attempts: 240, ready) } // espera o backend do debug subir
             self.startServer()
@@ -82,7 +106,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKUI
         getJSON("api/summary") { [weak self] _, code in
             if code == 200 { return ready() }
             guard attempts > 0 else {
-                self?.showFatal("O backend do PR Pilot não respondeu. Log: ~/Library/Application Support/PR Pilot/pr-pilot.log")
+                self?.showFatal("O backend do Commitdeck não respondeu. Log: ~/Library/Application Support/Commitdeck/commitdeck.log")
                 return
             }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { self?.waitForServer(attempts: attempts - 1, ready) }
@@ -97,7 +121,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKUI
             return showFatal("Python 3 não encontrado. Instale as ferramentas da Apple com: xcode-select --install")
         }
         try? FileManager.default.createDirectory(at: supportDir, withIntermediateDirectories: true)
-        let logURL = supportDir.appendingPathComponent("pr-pilot.log")
+        let logURL = supportDir.appendingPathComponent("commitdeck.log")
         if !FileManager.default.fileExists(atPath: logURL.path) { FileManager.default.createFile(atPath: logURL.path, contents: nil) }
         let log = try? FileHandle(forWritingTo: logURL)
         log?.seekToEndOfFile()
@@ -106,14 +130,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKUI
         p.executableURL = URL(fileURLWithPath: python)
         p.arguments = [script]
         var e = env
-        e["PR_PILOT_PORT"] = String(port)
-        e["PR_PILOT_TOKEN"] = token
-        e["PR_PILOT_PARENT_PID"] = String(ProcessInfo.processInfo.processIdentifier)
-        e["PR_PILOT_NATIVE_NOTIFY"] = "1"
-        e["PR_PILOT_VERSION"] = appVersion
-        e["PR_PILOT_BUILD"] = appBuild
-        e["PR_PILOT_PLATFORM"] = "macos"
-        e["PR_PILOT_UPDATE_URL"] = updateURL
+        e["COMMITDECK_PORT"] = String(port)
+        e["COMMITDECK_TOKEN"] = token
+        e["COMMITDECK_PARENT_PID"] = String(ProcessInfo.processInfo.processIdentifier)
+        e["COMMITDECK_NATIVE_NOTIFY"] = "1"
+        e["COMMITDECK_VERSION"] = appVersion
+        e["COMMITDECK_BUILD"] = appBuild
+        e["COMMITDECK_PLATFORM"] = "macos"
+        e["COMMITDECK_UPDATE_URL"] = updateURL
         e["PYTHONDONTWRITEBYTECODE"] = "1"
         e["PYTHONUNBUFFERED"] = "1"
         p.environment = e
@@ -140,9 +164,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKUI
     func buildWindow() {
         let config = WKWebViewConfiguration()
         config.websiteDataStore = .default()
-        let js = "window.PR_PILOT_TOKEN = \(jsString(token)); window.PR_PILOT_PLATFORM = 'macos';"
+        let js = "window.COMMITDECK_TOKEN = \(jsString(token)); window.COMMITDECK_PLATFORM = 'macos';"
         config.userContentController.addUserScript(WKUserScript(source: js, injectionTime: .atDocumentStart, forMainFrameOnly: true))
-        config.userContentController.add(self, name: "prpilot")
+        config.userContentController.add(self, name: "commitdeck")
         web = WKWebView(frame: .zero, configuration: config)
         web.uiDelegate = self
         web.navigationDelegate = self
@@ -151,14 +175,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKUI
 
         window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1440, height: 900),
                           styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
-        window.title = "PR Pilot"
+        window.title = "Commitdeck"
         window.minSize = NSSize(width: 760, height: 520)
         window.contentView = web
         window.isReleasedWhenClosed = false
         window.delegate = self
         window.tabbingMode = .disallowed
         window.center()
-        window.setFrameAutosaveName("PRPilotMain")
+        window.setFrameAutosaveName("CommitdeckMain")
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
     }
@@ -200,17 +224,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKUI
     func buildStatusItem() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let button = statusItem.button {
-            button.image = NSImage(systemSymbolName: "arrow.triangle.pull", accessibilityDescription: "PR Pilot")
+            button.image = NSImage(systemSymbolName: "arrow.triangle.pull", accessibilityDescription: "Commitdeck")
             button.imagePosition = .imageLeading
         }
         let menu = NSMenu()
-        menu.addItem(withTitle: "Abrir PR Pilot", action: #selector(showWindow), keyEquivalent: "")
+        menu.addItem(withTitle: "Abrir Commitdeck", action: #selector(showWindow), keyEquivalent: "")
         menu.addItem(withTitle: "Ler o Azure agora", action: #selector(refreshNow), keyEquivalent: "")
         menu.addItem(withTitle: "Procurar atualização", action: #selector(checkUpdate), keyEquivalent: "")
         menu.addItem(.separator())
         loginMenuItem = menu.addItem(withTitle: "Abrir ao iniciar o Mac", action: #selector(toggleLoginItem), keyEquivalent: "")
         menu.addItem(.separator())
-        menu.addItem(withTitle: "Sair do PR Pilot", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        menu.addItem(withTitle: "Sair do Commitdeck", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         menu.delegate = self
         statusItem.menu = menu
     }
@@ -225,7 +249,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKUI
             let total = json?["total"] as? Int ?? 0
             NSApp.dockTile.badgeLabel = total > 0 ? String(total) : nil
             self.statusItem.button?.title = total > 0 ? " \(total)" : ""
-            self.statusItem.button?.toolTip = json == nil ? "PR Pilot — backend fora do ar" : "PR Pilot — \(total) pendente(s)"
+            self.statusItem.button?.toolTip = json == nil ? "Commitdeck — backend fora do ar" : "Commitdeck — \(total) pendente(s)"
             guard let seq = json?["notifySeq"] as? Int else { return }
             if self.lastSeq < 0 { self.lastSeq = seq; return } // ao abrir, não repete o que já passou
             if seq > self.lastSeq { self.fetchNotifications() }
@@ -249,7 +273,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKUI
     }
 
     func deliver(_ n: [String: Any]) {
-        let title = n["title"] as? String ?? "PR Pilot", subtitle = n["subtitle"] as? String ?? "", body = n["message"] as? String ?? ""
+        let title = n["title"] as? String ?? "Commitdeck", subtitle = n["subtitle"] as? String ?? "", body = n["message"] as? String ?? ""
         let target = n["target"] as? String ?? ""
         if nativeNotifications {
             let content = UNMutableNotificationContent()
@@ -319,16 +343,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKUI
     func installUpdate(dmg: String) throws {
         let updates = supportDir.appendingPathComponent("updates").path
         guard dmg.hasPrefix(updates + "/"), dmg.hasSuffix(".dmg"), FileManager.default.fileExists(atPath: dmg) else {
-            throw NSError(domain: "PRPilot", code: 1, userInfo: [NSLocalizedDescriptionKey: "Instalador fora da pasta de atualizações."])
+            throw NSError(domain: "Commitdeck", code: 1, userInfo: [NSLocalizedDescriptionKey: "Instalador fora da pasta de atualizações."])
         }
         let bundle = Bundle.main.bundlePath
         let parent = (bundle as NSString).deletingLastPathComponent
-        let staged = "\(parent)/.pr-pilot-update.app"
-        let mount = NSTemporaryDirectory() + "prpilot-mnt-\(UUID().uuidString)"
+        let staged = "\(parent)/.commitdeck-update.app"
+        let mount = NSTemporaryDirectory() + "commitdeck-mnt-\(UUID().uuidString)"
         try run("/usr/bin/hdiutil", ["attach", "-nobrowse", "-readonly", "-noautoopen", "-mountpoint", mount, dmg], "Não consegui abrir o .dmg baixado.")
         defer { _ = try? run("/usr/bin/hdiutil", ["detach", "-quiet", "-force", mount], "") }
         guard let app = try FileManager.default.contentsOfDirectory(atPath: mount).first(where: { $0.hasSuffix(".app") }) else {
-            throw NSError(domain: "PRPilot", code: 2, userInfo: [NSLocalizedDescriptionKey: "O .dmg não tem o aplicativo."])
+            throw NSError(domain: "Commitdeck", code: 2, userInfo: [NSLocalizedDescriptionKey: "O .dmg não tem o aplicativo."])
         }
         _ = try? run("/bin/rm", ["-rf", staged], "")
         try run("/usr/bin/ditto", ["\(mount)/\(app)", staged], "Sem permissão para gravar em \(parent). Instale o .dmg à mão desta vez.")
@@ -349,7 +373,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKUI
         open \(q(bundle))
         rm -f "$0"
         """
-        let path = NSTemporaryDirectory() + "prpilot-swap-\(pid).sh"
+        let path = NSTemporaryDirectory() + "commitdeck-swap-\(pid).sh"
         try script.write(toFile: path, atomically: true, encoding: .utf8)
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/bin/sh")
@@ -368,7 +392,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKUI
         try p.run()
         p.waitUntilExit()
         if p.terminationStatus != 0 && !message.isEmpty {
-            throw NSError(domain: "PRPilot", code: Int(p.terminationStatus), userInfo: [NSLocalizedDescriptionKey: message])
+            throw NSError(domain: "Commitdeck", code: Int(p.terminationStatus), userInfo: [NSLocalizedDescriptionKey: message])
         }
         return p.terminationStatus
     }
@@ -447,12 +471,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKUI
         let main = NSMenu()
         let appItem = NSMenuItem()
         let appMenu = NSMenu()
-        appMenu.addItem(withTitle: "Sobre o PR Pilot", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
+        appMenu.addItem(withTitle: "Sobre o Commitdeck", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
         appMenu.addItem(withTitle: "Procurar atualização…", action: #selector(checkUpdate), keyEquivalent: "")
         appMenu.addItem(.separator())
-        appMenu.addItem(withTitle: "Ocultar PR Pilot", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
+        appMenu.addItem(withTitle: "Ocultar Commitdeck", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
         appMenu.addItem(.separator())
-        appMenu.addItem(withTitle: "Sair do PR Pilot", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        appMenu.addItem(withTitle: "Sair do Commitdeck", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         appItem.submenu = appMenu
         main.addItem(appItem)
 
@@ -479,7 +503,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKUI
         let win = NSMenu(title: "Janela")
         win.addItem(withTitle: "Minimizar", action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m")
         win.addItem(withTitle: "Fechar", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
-        win.addItem(withTitle: "Mostrar PR Pilot", action: #selector(showWindow), keyEquivalent: "0")
+        win.addItem(withTitle: "Mostrar Commitdeck", action: #selector(showWindow), keyEquivalent: "0")
         winItem.submenu = win
         main.addItem(winItem)
         NSApp.windowsMenu = win

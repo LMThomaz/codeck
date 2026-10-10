@@ -1,5 +1,5 @@
 {
-  // ▶ "PR Pilot (dev)": sobe o backend em depuração (porta 47822, dados em data-sandbox/) e abre o app nativo
+  // ▶ "Commitdeck (dev)": sobe o backend em depuração (porta 47822, dados em data-sandbox/) e abre o app nativo
   // conectado nele — sem tocar no app instalado nem nas suas contas reais. "interface no navegador" sobe o Vite
   // (porta 47823, hot reload) apontando para esse backend: o jeito mais rápido de mexer na tela.
   "version": "0.2.0",
@@ -13,9 +13,9 @@
       "console": "integratedTerminal",
       "justMyCode": true,
       "env": {
-        "PR_PILOT_PORT": "47822",
-        "PR_PILOT_DATA": "${workspaceFolder}/data-sandbox",
-        "PR_PILOT_NATIVE_NOTIFY": "1"
+        "COMMITDECK_PORT": "47822",
+        "COMMITDECK_DATA": "${workspaceFolder}/data-sandbox",
+        "COMMITDECK_NATIVE_NOTIFY": "1"
       }
     },
     {
@@ -23,16 +23,16 @@
       "type": "node-terminal",
       "request": "launch",
       "preLaunchTask": "Compilar app macOS",
-      "command": "PR_PILOT_ATTACH=1 PR_PILOT_PORT=47822 \"${workspaceFolder}/dist/PR Pilot.app/Contents/MacOS/PR Pilot\""
+      "command": "COMMITDECK_ATTACH=1 COMMITDECK_PORT=47822 \"${workspaceFolder}/dist/Commitdeck.app/Contents/MacOS/Commitdeck\""
     },
     {
       "name": "App Windows (conecta no backend em depuração)",
       "type": "coreclr",
       "request": "launch",
       "preLaunchTask": "Compilar app Windows",
-      "program": "${workspaceFolder}/windows/PRPilot/bin/Debug/net8.0-windows/win-x64/PRPilot.exe",
+      "program": "${workspaceFolder}/windows/Commitdeck/bin/Debug/net8.0-windows/win-x64/Commitdeck.exe",
       "cwd": "${workspaceFolder}",
-      "env": { "PR_PILOT_ATTACH": "1", "PR_PILOT_PORT": "47822" }
+      "env": { "COMMITDECK_ATTACH": "1", "COMMITDECK_PORT": "47822" }
     },
     {
       "name": "Interface (Vite, recarrega ao salvar)",
@@ -49,8 +49,8 @@
     }
   ],
   "compounds": [
-    { "name": "PR Pilot (dev, macOS)", "configurations": ["Backend (depurar)", "App macOS (conecta no backend em depuração)"], "stopAll": true },
-    { "name": "PR Pilot (dev, interface no navegador)", "configurations": ["Backend (depurar)", "Interface (Vite, recarrega ao salvar)"], "stopAll": true },
-    { "name": "PR Pilot (dev, Windows)", "configurations": ["Backend (depurar)", "App Windows (conecta no backend em depuração)"], "stopAll": true }
+    { "name": "Commitdeck (dev, macOS)", "configurations": ["Backend (depurar)", "App macOS (conecta no backend em depuração)"], "stopAll": true },
+    { "name": "Commitdeck (dev, interface no navegador)", "configurations": ["Backend (depurar)", "Interface (Vite, recarrega ao salvar)"], "stopAll": true },
+    { "name": "Commitdeck (dev, Windows)", "configurations": ["Backend (depurar)", "App Windows (conecta no backend em depuração)"], "stopAll": true }
   ]
 }

@@ -289,7 +289,7 @@ def poll_deploys():
                             it["waiting"] = f"sua aprovação na PR #{it['prNumber']}"
                 if not it["waiting"] and time.time() - deploy_failures.get(it["key"], 0) > 600:
                     try:
-                        acc.decide_deploy(it, True, "Aprovado pelo PR Pilot")
+                        acc.decide_deploy(it, True, "Aprovado pelo Commitdeck")
                         log_deploy("auto", "permit" if it["kind"] == "permission" else "deploy-approve", it,
                                    detail=it["ruleName"], rule_id=rule["id"])
                         if settings["notifyAuto"]:
@@ -410,6 +410,6 @@ def poll_loop():
 def start():
     orgs, gh, cfg = load_accounts()
     ctx.orgs, ctx.gh, ctx.config = orgs, gh, cfg
-    if os.environ.get("PR_PILOT_NO_POLL") != "1":
+    if os.environ.get("COMMITDECK_NO_POLL") != "1":
         import threading
         threading.Thread(target=poll_loop, daemon=True).start()

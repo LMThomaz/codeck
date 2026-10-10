@@ -196,7 +196,7 @@
         </div>
 
       {:else}
-        <div class="head"><div><h2>{store.s?.app.product || "PR Pilot"}</h2><p class="muted small">Versão {store.s?.app.version} · build {store.s?.app.build} · {store.s?.app.platform}</p></div></div>
+        <div class="head"><div><h2>{store.s?.app.product || "Commitdeck"}</h2><p class="muted small">Versão {store.s?.app.version} · build {store.s?.app.build} · {store.s?.app.platform}</p></div></div>
         <div class="card org">
           <div class="pref"><div><b>Atualizações</b><div class="small muted">
             {#if store.s?.update.available}Versão {store.s.update.version} disponível{:else if store.s?.update.checkedAt}Em dia — verificado {dateTime(store.s.update.checkedAt)}{:else}Ainda não verificado{/if}</div></div>

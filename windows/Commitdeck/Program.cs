@@ -1,10 +1,10 @@
-// PR Pilot para Windows: janela (WebView2) para a tela do backend em Python, ícone na bandeja com o contador,
+// Commitdeck para Windows: janela (WebView2) para a tela do backend em Python, ícone na bandeja com o contador,
 // notificações que abrem o item e atualização pelo ThomSoft Setup (`--update --wait-pid`).
 //
-// O mesmo contrato do app do macOS (macos/PRPilot.swift): sobe backend\server.py com o Python embutido e uma
+// O mesmo contrato do app do macOS (macos/Commitdeck.swift): sobe backend\server.py com o Python embutido e uma
 // chave nova por execução — sem ela o backend não responde, então nenhum outro programa da máquina age por você.
-// Desenvolvimento: PR_PILOT_ATTACH=1 + PR_PILOT_PORT conecta num backend já rodando; PR_PILOT_BACKEND_DIR e
-// PR_PILOT_PYTHON apontam para o código do repositório e para o python do PATH.
+// Desenvolvimento: COMMITDECK_ATTACH=1 + COMMITDECK_PORT conecta num backend já rodando; COMMITDECK_BACKEND_DIR e
+// COMMITDECK_PYTHON apontam para o código do repositório e para o python do PATH.
 using System.Diagnostics;
 using System.Drawing.Drawing2D;
 using System.Net.Http;
@@ -14,15 +14,15 @@ using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
 using Microsoft.Win32;
 
-namespace PRPilot;
+namespace Commitdeck;
 
 static class Program
 {
     [STAThread]
     static void Main()
     {
-        using var single = new Mutex(true, @"Local\PRPilot.Single", out var first);
-        using var showSignal = new EventWaitHandle(false, EventResetMode.AutoReset, @"Local\PRPilot.Show");
+        using var single = new Mutex(true, @"Local\Commitdeck.Single", out var first);
+        using var showSignal = new EventWaitHandle(false, EventResetMode.AutoReset, @"Local\Commitdeck.Show");
         if (!first)
         {
             showSignal.Set(); // já está aberto: só traz a janela para a frente
@@ -35,17 +35,17 @@ static class Program
 
 sealed class MainForm : Form
 {
-    const string ProductId = "pr-pilot";
+    const string ProductId = "commitdeck";
     const string RunKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
 
     static readonly Dictionary<string, string?> Env = Environment.GetEnvironmentVariables()
         .Cast<System.Collections.DictionaryEntry>().ToDictionary(e => (string)e.Key, e => (string?)e.Value, StringComparer.OrdinalIgnoreCase);
 
-    readonly bool attach = Env.GetValueOrDefault("PR_PILOT_ATTACH") == "1";
-    readonly int port = int.TryParse(Env.GetValueOrDefault("PR_PILOT_PORT"), out var p) ? p : 47821;
+    readonly bool attach = Env.GetValueOrDefault("COMMITDECK_ATTACH") == "1";
+    readonly int port = int.TryParse(Env.GetValueOrDefault("COMMITDECK_PORT"), out var p) ? p : 47821;
     readonly string token;
     readonly string baseUrl;
-    readonly string dataDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "PR Pilot");
+    readonly string dataDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Commitdeck");
     readonly HttpClient http = new() { Timeout = TimeSpan.FromSeconds(4) };
     readonly WebView2 web = new() { Dock = DockStyle.Fill };
     readonly NotifyIcon tray = new();
@@ -61,14 +61,15 @@ sealed class MainForm : Form
 
     public MainForm(EventWaitHandle showSignal)
     {
-        token = attach ? Env.GetValueOrDefault("PR_PILOT_TOKEN") ?? "" : Guid.NewGuid().ToString("N") + Guid.NewGuid().ToString("N");
+        AdoptLegacyData();
+        token = attach ? Env.GetValueOrDefault("COMMITDECK_TOKEN") ?? "" : Guid.NewGuid().ToString("N") + Guid.NewGuid().ToString("N");
         baseUrl = $"http://127.0.0.1:{port}/";
-        http.DefaultRequestHeaders.Add("X-PR-Pilot-Token", token);
+        http.DefaultRequestHeaders.Add("X-Commitdeck-Token", token);
         baseIcon = LoadIcon(SystemInformation.SmallIconSize);   // bandeja
         windowIcon = LoadIcon(SystemInformation.IconSize);      // barra de tarefas / Alt+Tab
         RefreshShellIconsOnUpgrade();
 
-        Text = "PR Pilot";
+        Text = "Commitdeck";
         Icon = windowIcon;
         MinimumSize = new Size(760, 520);
         StartPosition = FormStartPosition.CenterScreen;
@@ -76,17 +77,17 @@ sealed class MainForm : Form
         Controls.Add(web);
 
         var menu = new ContextMenuStrip();
-        menu.Items.Add("Abrir PR Pilot", null, (_, _) => ShowMain());
+        menu.Items.Add("Abrir Commitdeck", null, (_, _) => ShowMain());
         menu.Items.Add("Ler o Azure agora", null, async (_, _) => await RefreshNow());
         menu.Items.Add("Procurar atualização", null, async (_, _) => { ShowMain(); await Js("window.checkUpdate && window.checkUpdate(true)"); });
         menu.Items.Add(new ToolStripSeparator());
         autostartItem.Click += (_, _) => ToggleAutostart();
         menu.Items.Add(autostartItem);
         menu.Items.Add(new ToolStripSeparator());
-        menu.Items.Add("Sair do PR Pilot", null, (_, _) => Quit());
+        menu.Items.Add("Sair do Commitdeck", null, (_, _) => Quit());
         menu.Opening += (_, _) => autostartItem.Checked = AutostartEnabled();
         tray.Icon = baseIcon;
-        tray.Text = "PR Pilot";
+        tray.Text = "Commitdeck";
         tray.ContextMenuStrip = menu;
         tray.Visible = true;
         tray.DoubleClick += (_, _) => ShowMain();
@@ -126,7 +127,7 @@ sealed class MainForm : Form
     {
         await InitWebView();
         var (code, _) = await Get("api/summary");
-        if (code is 401 or 403) { Fatal($"Outro PR Pilot já está usando a porta {port}. Feche-o e abra de novo."); return; }
+        if (code is 401 or 403) { Fatal($"Outro Commitdeck já está usando a porta {port}. Feche-o e abra de novo."); return; }
         if (code != 200 && !attach) StartBackend();
         for (var i = 0; i < (attach ? 240 : 80); i++)
         {
@@ -140,18 +141,18 @@ sealed class MainForm : Form
             }
             await Task.Delay(500);
         }
-        Fatal($"O backend do PR Pilot não respondeu. Log: {Path.Combine(dataDir, "pr-pilot.log")}");
+        Fatal($"O backend do Commitdeck não respondeu. Log: {Path.Combine(dataDir, "commitdeck.log")}");
     }
 
     void StartBackend()
     {
         var dir = AppContext.BaseDirectory;
-        var backendDir = Env.GetValueOrDefault("PR_PILOT_BACKEND_DIR") ?? Path.Combine(dir, "backend");
-        var python = Env.GetValueOrDefault("PR_PILOT_PYTHON") ?? Path.Combine(dir, "python", "pythonw.exe");
+        var backendDir = Env.GetValueOrDefault("COMMITDECK_BACKEND_DIR") ?? Path.Combine(dir, "backend");
+        var python = Env.GetValueOrDefault("COMMITDECK_PYTHON") ?? Path.Combine(dir, "python", "pythonw.exe");
         var script = Path.Combine(backendDir, "server.py");
-        if (!File.Exists(script) || (!File.Exists(python) && Env.GetValueOrDefault("PR_PILOT_PYTHON") == null))
+        if (!File.Exists(script) || (!File.Exists(python) && Env.GetValueOrDefault("COMMITDECK_PYTHON") == null))
         {
-            Fatal("Instalação incompleta: falta o backend ou o Python embutido. Reinstale o PR Pilot.");
+            Fatal("Instalação incompleta: falta o backend ou o Python embutido. Reinstale o Commitdeck.");
             return;
         }
         Directory.CreateDirectory(dataDir);
@@ -160,18 +161,18 @@ sealed class MainForm : Form
             UseShellExecute = false, CreateNoWindow = true, WorkingDirectory = dataDir,
             RedirectStandardOutput = true, RedirectStandardError = true,
         };
-        psi.Environment["PR_PILOT_PORT"] = port.ToString();
-        psi.Environment["PR_PILOT_TOKEN"] = token;
-        psi.Environment["PR_PILOT_PARENT_PID"] = Environment.ProcessId.ToString();
-        psi.Environment["PR_PILOT_NATIVE_NOTIFY"] = "1";
-        psi.Environment["PR_PILOT_VERSION"] = office.Version;
-        psi.Environment["PR_PILOT_BUILD"] = office.Build.ToString();
-        psi.Environment["PR_PILOT_PLATFORM"] = "windows";
-        psi.Environment["PR_PILOT_UPDATE_URL"] = office.UpdateUrl;
+        psi.Environment["COMMITDECK_PORT"] = port.ToString();
+        psi.Environment["COMMITDECK_TOKEN"] = token;
+        psi.Environment["COMMITDECK_PARENT_PID"] = Environment.ProcessId.ToString();
+        psi.Environment["COMMITDECK_NATIVE_NOTIFY"] = "1";
+        psi.Environment["COMMITDECK_VERSION"] = office.Version;
+        psi.Environment["COMMITDECK_BUILD"] = office.Build.ToString();
+        psi.Environment["COMMITDECK_PLATFORM"] = "windows";
+        psi.Environment["COMMITDECK_UPDATE_URL"] = office.UpdateUrl;
         psi.Environment["PYTHONDONTWRITEBYTECODE"] = "1";
         psi.Environment["PYTHONUNBUFFERED"] = "1";
         psi.Environment["PYTHONIOENCODING"] = "utf-8";
-        var log = new StreamWriter(Path.Combine(dataDir, "pr-pilot.log"), append: true) { AutoFlush = true };
+        var log = new StreamWriter(Path.Combine(dataDir, "commitdeck.log"), append: true) { AutoFlush = true };
         var proc = new Process { StartInfo = psi, EnableRaisingEvents = true };
         proc.OutputDataReceived += (_, e) => { if (e.Data != null) lock (log) log.WriteLine(e.Data); };
         proc.ErrorDataReceived += (_, e) => { if (e.Data != null) lock (log) log.WriteLine(e.Data); };
@@ -195,12 +196,12 @@ sealed class MainForm : Form
         try
         {
             var envWv = await CoreWebView2Environment.CreateAsync(null, Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "PR Pilot", "WebView2"));
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Commitdeck", "WebView2"));
             await web.EnsureCoreWebView2Async(envWv);
         }
         catch (WebView2RuntimeNotFoundException)
         {
-            MessageBox.Show("O PR Pilot precisa do Microsoft Edge WebView2 Runtime. A página de download vai abrir.", "PR Pilot");
+            MessageBox.Show("O Commitdeck precisa do Microsoft Edge WebView2 Runtime. A página de download vai abrir.", "Commitdeck");
             Process.Start(new ProcessStartInfo("https://go.microsoft.com/fwlink/p/?LinkId=2124703") { UseShellExecute = true });
             Quit();
             return;
@@ -210,7 +211,7 @@ sealed class MainForm : Form
         core.Settings.IsStatusBarEnabled = false;
         core.Settings.AreDefaultContextMenusEnabled = attach;
         await core.AddScriptToExecuteOnDocumentCreatedAsync(
-            $"window.PR_PILOT_TOKEN = {JsonSerializer.Serialize(token)}; window.PR_PILOT_PLATFORM = 'windows';");
+            $"window.COMMITDECK_TOKEN = {JsonSerializer.Serialize(token)}; window.COMMITDECK_PLATFORM = 'windows';");
         core.NewWindowRequested += (_, e) => { e.Handled = true; OpenExternal(e.Uri); }; // target=_blank → navegador
         core.NavigationStarting += (_, e) =>
         {
@@ -229,7 +230,7 @@ sealed class MainForm : Form
     void Fatal(string text)
     {
         if (web.CoreWebView2 != null) web.CoreWebView2.NavigateToString(Splash(System.Net.WebUtility.HtmlEncode(text)));
-        else MessageBox.Show(text, "PR Pilot");
+        else MessageBox.Show(text, "Commitdeck");
     }
 
     void ShowMain()
@@ -248,7 +249,7 @@ sealed class MainForm : Form
             if (!hintShown)
             {
                 hintShown = true;
-                tray.ShowBalloonTip(4000, "PR Pilot continua rodando", "Ele segue aprovando e avisando aqui na bandeja. Para fechar de vez: botão direito → Sair.", ToolTipIcon.Info);
+                tray.ShowBalloonTip(4000, "Commitdeck continua rodando", "Ele segue aprovando e avisando aqui na bandeja. Para fechar de vez: botão direito → Sair.", ToolTipIcon.Info);
             }
             return;
         }
@@ -276,7 +277,7 @@ sealed class MainForm : Form
         try
         {
             using var req = new HttpRequestMessage(HttpMethod.Post, baseUrl + "api/refresh") { Content = new StringContent("{}") };
-            req.Headers.Add("X-PR-Pilot", "1");
+            req.Headers.Add("X-Commitdeck", "1");
             await http.SendAsync(req);
         }
         catch { }
@@ -291,8 +292,8 @@ sealed class MainForm : Form
     {
         var (code, json) = await Get("api/summary");
         var total = code == 200 && json?.TryGetProperty("total", out var t) == true ? t.GetInt32() : 0;
-        Text = total > 0 ? $"({total}) PR Pilot" : "PR Pilot";
-        tray.Text = code != 200 ? "PR Pilot — backend fora do ar" : total > 0 ? $"PR Pilot — {total} pendente(s)" : "PR Pilot — nada pendente";
+        Text = total > 0 ? $"({total}) Commitdeck" : "Commitdeck";
+        tray.Text = code != 200 ? "Commitdeck — backend fora do ar" : total > 0 ? $"Commitdeck — {total} pendente(s)" : "Commitdeck — nada pendente";
         SetBadge(total);
         if (code != 200 || json?.TryGetProperty("notifySeq", out var s) != true) return;
         var seq = s.GetInt32();
@@ -303,7 +304,7 @@ sealed class MainForm : Form
             foreach (var n in items.EnumerateArray())
             {
                 lastTarget = n.TryGetProperty("target", out var tg) ? tg.GetString() : null;
-                var title = n.GetProperty("title").GetString() ?? "PR Pilot";
+                var title = n.GetProperty("title").GetString() ?? "Commitdeck";
                 var body = $"{n.GetProperty("subtitle").GetString()}\n{n.GetProperty("message").GetString()}".Trim();
                 tray.ShowBalloonTip(8000, title, body.Length > 250 ? body[..250] : body, ToolTipIcon.Info);
             }
@@ -340,7 +341,7 @@ sealed class MainForm : Form
 
     static Icon LoadIcon(Size size)
     {
-        using var s = typeof(MainForm).Assembly.GetManifestResourceStream("PRPilot.app.ico");
+        using var s = typeof(MainForm).Assembly.GetManifestResourceStream("Commitdeck.app.ico");
         return s != null ? new Icon(s, size) : SystemIcons.Application;
     }
 
@@ -350,7 +351,7 @@ sealed class MainForm : Form
     {
         try
         {
-            using var k = Registry.CurrentUser.CreateSubKey(@"Software\ThomSoft\PR Pilot");
+            using var k = Registry.CurrentUser.CreateSubKey(@"Software\ThomSoft\Commitdeck");
             var current = $"{office.Version}+{office.Build}";
             if ((k.GetValue("IconVersion") as string) == current) return;
             Native.SHChangeNotify(0x08000000, 0x1000, IntPtr.Zero, IntPtr.Zero); // SHCNE_ASSOCCHANGED, SHCNF_FLUSH
@@ -394,8 +395,18 @@ sealed class MainForm : Form
         }
         catch (Exception ex)
         {
-            MessageBox.Show($"Não consegui atualizar: {ex.Message}", "PR Pilot");
+            MessageBox.Show($"Não consegui atualizar: {ex.Message}", "Commitdeck");
         }
+    }
+
+    // O app se chamava PR Pilot: a pasta de dados antiga vira a nova (contas, regras, histórico). O instalador do
+    // Commitdeck já desinstalou o PR Pilot (replaces), mas os dados do usuário ficam em %APPDATA%.
+    void AdoptLegacyData()
+    {
+        var legacy = Path.Combine(Path.GetDirectoryName(dataDir)!, "PR Pilot");
+        try { if (!Directory.Exists(dataDir) && Directory.Exists(legacy)) Directory.Move(legacy, dataDir); }
+        catch (IOException) { }
+        catch (UnauthorizedAccessException) { }
     }
 
     // Seletor de pasta: devolve o caminho para a tela por window.__nativeResolve(id, path|null)
@@ -411,7 +422,7 @@ sealed class MainForm : Form
 
     static string Splash(string text) => $$"""
         <html><body style="margin:0;height:100vh;display:grid;place-items:center;font:15px 'Segoe UI',sans-serif;background:#0f1115;color:#b4bac6">
-        <div style="text-align:center;max-width:520px;padding:0 24px"><div style="margin:0 auto 14px;width:56px"><svg width="56" height="56" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M184.0 439.2 L184.0 78.3 L122.1 78.3 L122.1 439.2 Z" fill="url(#g)"/><path d="M153.2 324.3 L158.6 324.3 L164.2 324.2 L170.0 324.1 L175.8 323.8 L181.7 323.5 L187.7 323.2 L193.8 322.7 L200.0 322.2 L206.2 321.6 L212.4 320.9 L218.7 320.1 L225.1 319.3 L231.4 318.3 L237.8 317.3 L244.1 316.1 L250.5 314.9 L256.9 313.5 L263.2 312.0 L269.5 310.5 L275.8 308.8 L282.1 306.9 L288.3 305.0 L294.4 302.9 L300.5 300.7 L306.5 298.3 L312.4 295.8 L318.3 293.1 L324.0 290.2 L329.7 287.2 L335.2 284.0 L340.6 280.6 L345.9 277.0 L351.0 273.1 L356.0 269.0 L360.8 264.7 L365.4 260.1 L369.7 255.3 L373.9 250.2 L377.7 244.8 L381.2 239.1 L384.4 233.2 L387.3 227.0 L389.7 220.6 L391.8 214.0 L393.3 207.2 L394.5 200.2 L395.2 193.1 L395.4 186.8 L333.5 184.9 L333.3 189.1 L333.0 192.2 L332.6 195.1 L331.9 197.9 L331.1 200.5 L330.1 203.1 L329.0 205.5 L327.7 207.9 L326.2 210.3 L324.5 212.7 L322.6 215.1 L320.5 217.4 L318.1 219.8 L315.6 222.1 L312.8 224.4 L309.8 226.6 L306.6 228.8 L303.1 231.0 L299.5 233.1 L295.6 235.2 L291.6 237.2 L287.4 239.1 L283.0 241.0 L278.5 242.8 L273.8 244.5 L269.0 246.1 L264.1 247.6 L259.1 249.1 L253.9 250.5 L248.7 251.8 L243.4 253.0 L238.1 254.2 L232.7 255.2 L227.2 256.2 L221.8 257.1 L216.3 257.9 L210.8 258.7 L205.3 259.4 L199.8 260.0 L194.4 260.5 L188.9 260.9 L183.6 261.3 L178.3 261.7 L173.0 261.9 L167.9 262.1 L162.8 262.3 L157.9 262.4 L152.9 262.4 Z" fill="url(#g)"/><path d="M395.4 184.8 L395.2 178.7 L394.5 171.6 L393.3 164.7 L391.7 157.9 L389.7 151.4 L387.2 145.0 L384.4 138.9 L381.2 133.0 L377.6 127.4 L373.8 122.1 L369.7 117.1 L365.3 112.3 L360.7 107.7 L356.0 103.4 L351.0 99.4 L345.9 95.5 L340.7 91.9 L335.3 88.5 L329.7 85.3 L324.1 82.2 L318.4 79.4 L312.5 76.7 L306.6 74.1 L300.6 71.7 L294.6 69.5 L288.4 67.4 L282.2 65.4 L276.0 63.5 L269.7 61.8 L263.4 60.2 L257.1 58.7 L250.7 57.3 L244.3 56.0 L238.0 54.8 L231.6 53.7 L225.2 52.7 L218.9 51.8 L212.6 51.0 L206.3 50.3 L200.1 49.6 L194.0 49.1 L187.9 48.6 L181.8 48.2 L175.9 47.9 L170.0 47.6 L164.3 47.5 L158.6 47.4 L153.2 47.3 L152.8 109.3 L157.8 109.3 L162.8 109.4 L167.8 109.6 L173.0 109.8 L178.2 110.1 L183.5 110.4 L188.8 110.8 L194.2 111.3 L199.6 111.9 L205.1 112.5 L210.6 113.2 L216.1 114.0 L221.6 114.8 L227.0 115.8 L232.5 116.8 L237.9 117.9 L243.2 119.1 L248.5 120.3 L253.7 121.6 L258.9 123.1 L263.9 124.6 L268.9 126.2 L273.7 127.8 L278.4 129.6 L282.9 131.4 L287.3 133.3 L291.5 135.2 L295.6 137.2 L299.4 139.3 L303.1 141.5 L306.5 143.6 L309.8 145.9 L312.8 148.1 L315.6 150.4 L318.2 152.8 L320.5 155.1 L322.7 157.4 L324.6 159.8 L326.3 162.1 L327.8 164.5 L329.1 166.9 L330.2 169.3 L331.2 171.8 L332.0 174.3 L332.6 177.0 L333.1 179.7 L333.4 182.7 L333.5 186.8 Z" fill="url(#g)"/><path d="M205.9 439.2 L205.7 443.8 L205.1 448.3 L204.1 452.8 L202.7 457.2 L200.9 461.5 L198.8 465.6 L196.3 469.5 L193.5 473.1 L190.4 476.5 L187.0 479.6 L183.3 482.4 L179.5 484.9 L175.4 487.0 L171.1 488.8 L166.7 490.2 L162.2 491.2 L157.6 491.8 L153.0 492.0 L148.4 491.8 L143.9 491.2 L139.4 490.2 L135.0 488.8 L130.7 487.0 L126.6 484.9 L122.7 482.4 L119.1 479.6 L115.7 476.5 L112.5 473.1 L109.7 469.5 L107.3 465.6 L105.1 461.5 L103.4 457.2 L102.0 452.8 L101.0 448.3 L100.4 443.8 L100.2 439.2 L100.4 434.5 L101.0 430.0 L102.0 425.5 L103.4 421.1 L105.1 416.8 L107.3 412.7 L109.7 408.8 L112.5 405.2 L115.7 401.8 L119.1 398.7 L122.7 395.9 L126.6 393.4 L130.7 391.3 L135.0 389.5 L139.4 388.1 L143.9 387.1 L148.4 386.5 L153.0 386.3 L157.6 386.5 L162.2 387.1 L166.7 388.1 L171.1 389.5 L175.4 391.3 L179.5 393.4 L183.3 395.9 L187.0 398.7 L190.4 401.8 L193.5 405.2 L196.3 408.8 L198.8 412.7 L200.9 416.8 L202.7 421.1 L204.1 425.5 L205.1 430.0 L205.7 434.5 Z" fill="url(#g)"/><path d="M417.3 185.8 L417.1 190.4 L416.5 195.0 L415.5 199.5 L414.1 203.9 L412.3 208.2 L410.2 212.3 L407.7 216.2 L404.9 219.8 L401.8 223.2 L398.4 226.3 L394.7 229.1 L390.9 231.6 L386.8 233.7 L382.5 235.5 L378.1 236.9 L373.6 237.9 L369.0 238.5 L364.4 238.7 L359.8 238.5 L355.3 237.9 L350.8 236.9 L346.4 235.5 L342.1 233.7 L338.0 231.6 L334.1 229.1 L330.5 226.3 L327.1 223.2 L323.9 219.8 L321.1 216.2 L318.7 212.3 L316.5 208.2 L314.8 203.9 L313.4 199.5 L312.4 195.0 L311.8 190.4 L311.6 185.8 L311.8 181.2 L312.4 176.7 L313.4 172.2 L314.8 167.8 L316.5 163.5 L318.7 159.4 L321.1 155.5 L323.9 151.9 L327.1 148.5 L330.5 145.4 L334.1 142.5 L338.0 140.1 L342.1 137.9 L346.4 136.2 L350.8 134.8 L355.3 133.8 L359.8 133.2 L364.4 133.0 L369.0 133.2 L373.6 133.8 L378.1 134.8 L382.5 136.2 L386.8 137.9 L390.9 140.1 L394.7 142.5 L398.4 145.4 L401.8 148.5 L404.9 151.9 L407.7 155.5 L410.2 159.4 L412.3 163.5 L414.1 167.8 L415.5 172.2 L416.5 176.7 L417.1 181.2 Z" fill="url(#g)"/><path d="M211.4 78.3 L211.1 83.4 L210.5 88.4 L209.4 93.4 L207.8 98.3 L205.9 103.0 L203.5 107.5 L200.8 111.8 L197.7 115.8 L194.3 119.6 L190.5 123.0 L186.5 126.1 L182.2 128.8 L177.7 131.2 L173.0 133.1 L168.1 134.6 L163.2 135.7 L158.1 136.4 L153.0 136.6 L148.0 136.4 L142.9 135.7 L137.9 134.6 L133.1 133.1 L128.4 131.2 L123.9 128.8 L119.6 126.1 L115.5 123.0 L111.8 119.6 L108.4 115.8 L105.3 111.8 L102.5 107.5 L100.2 103.0 L98.2 98.3 L96.7 93.4 L95.6 88.4 L94.9 83.4 L94.7 78.3 L94.9 73.2 L95.6 68.2 L96.7 63.2 L98.2 58.4 L100.2 53.7 L102.5 49.2 L105.3 44.9 L108.4 40.8 L111.8 37.1 L115.5 33.6 L119.6 30.5 L123.9 27.8 L128.4 25.5 L133.1 23.5 L137.9 22.0 L142.9 20.9 L148.0 20.2 L153.0 20.0 L158.1 20.2 L163.2 20.9 L168.1 22.0 L173.0 23.5 L177.7 25.5 L182.2 27.8 L186.5 30.5 L190.5 33.6 L194.3 37.1 L197.7 40.8 L200.8 44.9 L203.5 49.2 L205.9 53.7 L207.8 58.4 L209.4 63.2 L210.5 68.2 L211.1 73.2 Z" fill="#22C38E"/><path d="M175.8 78.3 L175.7 80.3 L175.5 82.3 L175.0 84.2 L174.4 86.1 L173.7 87.9 L172.8 89.7 L171.7 91.4 L170.5 93.0 L169.1 94.4 L167.7 95.8 L166.1 97.0 L164.4 98.0 L162.7 99.0 L160.8 99.7 L158.9 100.3 L157.0 100.8 L155.0 101.0 L153.0 101.1 L151.0 101.0 L149.1 100.8 L147.1 100.3 L145.2 99.7 L143.4 99.0 L141.6 98.0 L140.0 97.0 L138.4 95.8 L136.9 94.4 L135.6 93.0 L134.4 91.4 L133.3 89.7 L132.4 87.9 L131.6 86.1 L131.0 84.2 L130.6 82.3 L130.3 80.3 L130.3 78.3 L130.3 76.3 L130.6 74.4 L131.0 72.4 L131.6 70.5 L132.4 68.7 L133.3 66.9 L134.4 65.3 L135.6 63.7 L136.9 62.2 L138.4 60.9 L140.0 59.7 L141.6 58.6 L143.4 57.7 L145.2 56.9 L147.1 56.3 L149.1 55.9 L151.0 55.6 L153.0 55.5 L155.0 55.6 L157.0 55.9 L158.9 56.3 L160.8 56.9 L162.7 57.7 L164.4 58.6 L166.1 59.7 L167.7 60.9 L169.1 62.2 L170.5 63.7 L171.7 65.3 L172.8 66.9 L173.7 68.7 L174.4 70.5 L175.0 72.4 L175.5 74.4 L175.7 76.3 Z" fill="#FFFFFF"/><defs><linearGradient id="g" x1="0" y1="512" x2="512" y2="0" gradientUnits="userSpaceOnUse"><stop stop-color="#6D4AF0"/><stop offset="1" stop-color="#2F8CF0"/></linearGradient><linearGradient id="bg" x1="100" y1="924" x2="924" y2="100" gradientUnits="userSpaceOnUse"><stop stop-color="#4B2FC9"/><stop offset="1" stop-color="#2F86EE"/></linearGradient></defs></svg></div>{{text}}</div></body></html>
+        <div style="text-align:center;max-width:520px;padding:0 24px"><div style="margin:0 auto 14px;width:56px"><svg width="56" height="56" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M435.7 78.5 L444.4 81.6 L452.6 85.8 L460.2 91.1 L467.1 97.3 L473.0 104.4 L478.0 112.2 L482.0 120.5 L484.8 129.3 L486.4 138.4 L486.9 147.6 L486.1 156.8 L484.1 165.9 L403.6 446.8 L400.4 455.5 L396.2 463.8 L391.0 471.3 L384.7 478.2 L377.7 484.2 L369.9 489.2 L361.6 493.1 L352.8 495.9 L343.7 497.6 L334.4 498.0 L325.2 497.2 L316.2 495.3 L100.8 433.5 L92.1 430.4 L83.9 426.2 L76.3 420.9 L69.4 414.7 L63.5 407.6 L58.5 399.8 L54.5 391.5 L51.7 382.7 L50.1 373.6 L49.6 364.4 L50.4 355.2 L52.4 346.1 L132.9 65.2 L136.0 56.5 L140.3 48.2 L145.5 40.7 L151.8 33.8 L158.8 27.8 L166.6 22.8 L174.9 18.9 L183.7 16.1 L192.8 14.4 L202.1 14.0 L211.3 14.8 L220.3 16.7 Z" fill="#B9C6FB"/><path d="M379.5 50.6 L388.5 52.4 L397.2 55.5 L405.5 59.6 L413.1 64.8 L420.0 71.0 L426.0 78.0 L431.1 85.7 L435.1 94.0 L438.0 102.8 L439.7 111.9 L440.3 121.1 L439.6 130.3 L398.9 419.8 L397.0 428.8 L394.0 437.6 L389.8 445.8 L384.6 453.5 L378.5 460.3 L371.5 466.4 L363.7 471.4 L355.4 475.5 L346.6 478.4 L337.6 480.1 L328.3 480.6 L319.1 479.9 L97.2 448.7 L88.2 446.8 L79.4 443.8 L71.2 439.6 L63.5 434.4 L56.7 428.3 L50.6 421.3 L45.6 413.6 L41.5 405.2 L38.6 396.5 L36.9 387.4 L36.4 378.2 L37.1 368.9 L77.8 79.5 L79.6 70.4 L82.7 61.7 L86.8 53.5 L92.0 45.8 L98.2 38.9 L105.2 32.9 L112.9 27.8 L121.3 23.8 L130.0 20.9 L139.1 19.2 L148.3 18.7 L157.5 19.4 Z" fill="#7F95F6"/><path d="M319.9 30.7 L329.1 31.3 L338.2 33.1 L346.9 36.1 L355.2 40.2 L362.9 45.3 L369.8 51.4 L375.9 58.4 L381.0 66.0 L385.1 74.3 L388.1 83.1 L389.9 92.1 L390.5 101.4 L390.5 393.7 L389.9 402.9 L388.1 411.9 L385.1 420.7 L381.0 429.0 L375.9 436.7 L369.8 443.6 L362.9 449.7 L355.2 454.8 L346.9 458.9 L338.2 461.9 L329.1 463.7 L319.9 464.3 L95.8 464.3 L86.6 463.7 L77.5 461.9 L68.7 458.9 L60.5 454.8 L52.8 449.7 L45.8 443.6 L39.7 436.7 L34.6 429.0 L30.5 420.7 L27.5 411.9 L25.7 402.9 L25.1 393.7 L25.1 101.4 L25.7 92.1 L27.5 83.1 L30.5 74.3 L34.6 66.0 L39.7 58.4 L45.8 51.4 L52.8 45.3 L60.5 40.2 L68.7 36.1 L77.5 33.1 L86.6 31.3 L95.8 30.7 Z" fill="url(#g)"/><path d="M299.3 341.4 L294.5 345.9 L289.6 350.1 L284.5 354.1 L279.1 357.9 L273.6 361.4 L268.0 364.6 L262.1 367.5 L256.2 370.2 L250.1 372.5 L243.9 374.5 L237.6 376.3 L231.3 377.7 L224.9 378.8 L218.4 379.6 L211.9 380.1 L205.4 380.3 L198.9 380.1 L192.4 379.6 L185.9 378.8 L179.5 377.7 L173.1 376.3 L166.8 374.5 L160.7 372.5 L154.6 370.2 L148.6 367.5 L142.8 364.6 L137.1 361.4 L131.6 357.9 L126.3 354.1 L121.2 350.1 L116.2 345.9 L111.5 341.4 L107.0 336.7 L102.8 331.7 L98.8 326.6 L95.0 321.3 L91.5 315.8 L88.3 310.1 L85.4 304.3 L82.7 298.3 L80.4 292.2 L78.3 286.0 L76.6 279.8 L75.2 273.4 L74.1 267.0 L73.3 260.5 L72.8 254.0 L72.6 247.5 L72.8 241.0 L73.3 234.5 L74.1 228.0 L75.2 221.6 L76.6 215.3 L78.3 209.0 L80.4 202.8 L82.7 196.7 L85.4 190.7 L88.3 184.9 L91.5 179.3 L95.0 173.8 L98.8 168.4 L102.8 163.3 L107.0 158.4 L111.5 153.6 L116.2 149.1 L121.2 144.9 L126.3 140.9 L131.6 137.1 L137.1 133.6 L142.8 130.4 L148.6 127.5 L154.6 124.9 L160.7 122.5 L166.8 120.5 L173.1 118.7 L179.5 117.3 L185.9 116.2 L192.4 115.4 L198.9 114.9 L205.4 114.8 L211.9 114.9 L218.4 115.4 L224.9 116.2 L231.3 117.3 L237.6 118.7 L243.9 120.5 L250.1 122.5 L256.2 124.9 L262.1 127.5 L268.0 130.4 L273.6 133.6 L279.1 137.1 L284.5 140.9 L289.6 144.9 L294.5 149.1 L299.3 153.6 L270.0 182.9 L266.7 179.8 L263.3 176.9 L259.8 174.1 L256.1 171.6 L252.3 169.2 L248.4 167.0 L244.4 164.9 L240.3 163.1 L236.2 161.5 L231.9 160.1 L227.6 158.9 L223.2 157.9 L218.8 157.2 L214.3 156.6 L209.9 156.3 L205.4 156.2 L200.9 156.3 L196.4 156.6 L192.0 157.2 L187.6 157.9 L183.2 158.9 L178.9 160.1 L174.6 161.5 L170.4 163.1 L166.3 164.9 L162.3 167.0 L158.4 169.2 L154.6 171.6 L151.0 174.1 L147.4 176.9 L144.0 179.8 L140.8 182.9 L137.7 186.2 L134.8 189.6 L132.0 193.1 L129.4 196.8 L127.0 200.5 L124.8 204.4 L122.8 208.5 L121.0 212.6 L119.4 216.7 L118.0 221.0 L116.8 225.3 L115.8 229.7 L115.0 234.1 L114.5 238.6 L114.2 243.0 L114.0 247.5 L114.2 252.0 L114.5 256.5 L115.0 260.9 L115.8 265.3 L116.8 269.7 L118.0 274.0 L119.4 278.3 L121.0 282.5 L122.8 286.6 L124.8 290.6 L127.0 294.5 L129.4 298.3 L132.0 301.9 L134.8 305.5 L137.7 308.8 L140.8 312.1 L144.0 315.2 L147.4 318.1 L151.0 320.9 L154.6 323.5 L158.4 325.9 L162.3 328.1 L166.3 330.1 L170.4 331.9 L174.6 333.5 L178.9 334.9 L183.2 336.1 L187.6 337.1 L192.0 337.9 L196.4 338.4 L200.9 338.7 L205.4 338.9 L209.9 338.7 L214.3 338.4 L218.8 337.9 L223.2 337.1 L227.6 336.1 L231.9 334.9 L236.2 333.5 L240.3 331.9 L244.4 330.1 L248.4 328.1 L252.3 325.9 L256.1 323.5 L259.8 320.9 L263.3 318.1 L266.7 315.2 L270.0 312.1 Z" fill="#FFFFFF"/><path d="M321.2 326.7 L321.0 329.9 L320.6 333.1 L319.9 336.2 L318.9 339.2 L317.7 342.2 L316.3 345.0 L314.5 347.7 L312.6 350.2 L310.5 352.6 L308.1 354.7 L305.6 356.7 L302.9 358.4 L300.1 359.9 L297.1 361.1 L294.1 362.0 L291.0 362.7 L287.8 363.1 L284.6 363.3 L281.4 363.1 L278.3 362.7 L275.2 362.0 L272.1 361.1 L269.2 359.9 L266.3 358.4 L263.7 356.7 L261.1 354.7 L258.8 352.6 L256.6 350.2 L254.7 347.7 L253.0 345.0 L251.5 342.2 L250.3 339.2 L249.3 336.2 L248.6 333.1 L248.2 329.9 L248.1 326.7 L248.2 323.6 L248.6 320.4 L249.3 317.3 L250.3 314.2 L251.5 311.3 L253.0 308.5 L254.7 305.8 L256.6 303.3 L258.8 300.9 L261.1 298.7 L263.7 296.8 L266.3 295.1 L269.2 293.6 L272.1 292.4 L275.2 291.4 L278.3 290.8 L281.4 290.3 L284.6 290.2 L287.8 290.3 L291.0 290.8 L294.1 291.4 L297.1 292.4 L300.1 293.6 L302.9 295.1 L305.6 296.8 L308.1 298.7 L310.5 300.9 L312.6 303.3 L314.5 305.8 L316.3 308.5 L317.7 311.3 L318.9 314.2 L319.9 317.3 L320.6 320.4 L321.0 323.6 Z" fill="#FFFFFF"/><path d="M125.0 247.5 L124.9 250.3 L124.5 253.0 L123.9 255.7 L123.1 258.3 L122.0 260.9 L120.8 263.3 L119.3 265.7 L117.6 267.9 L115.7 269.9 L113.7 271.8 L111.5 273.4 L109.2 274.9 L106.7 276.2 L104.2 277.3 L101.5 278.1 L98.8 278.7 L96.1 279.1 L93.3 279.2 L90.6 279.1 L87.8 278.7 L85.1 278.1 L82.5 277.3 L80.0 276.2 L77.5 274.9 L75.2 273.4 L73.0 271.8 L70.9 269.9 L69.1 267.9 L67.4 265.7 L65.9 263.3 L64.6 260.9 L63.6 258.3 L62.8 255.7 L62.2 253.0 L61.8 250.3 L61.7 247.5 L61.8 244.7 L62.2 242.0 L62.8 239.3 L63.6 236.7 L64.6 234.1 L65.9 231.7 L67.4 229.3 L69.1 227.2 L70.9 225.1 L73.0 223.3 L75.2 221.6 L77.5 220.1 L80.0 218.8 L82.5 217.8 L85.1 216.9 L87.8 216.3 L90.6 216.0 L93.3 215.8 L96.1 216.0 L98.8 216.3 L101.5 216.9 L104.2 217.8 L106.7 218.8 L109.2 220.1 L111.5 221.6 L113.7 223.3 L115.7 225.1 L117.6 227.2 L119.3 229.3 L120.8 231.7 L122.0 234.1 L123.1 236.7 L123.9 239.3 L124.5 242.0 L124.9 244.7 Z" fill="#FFFFFF"/><path d="M326.0 168.3 L325.9 171.9 L325.4 175.5 L324.6 179.0 L323.5 182.4 L322.1 185.8 L320.5 189.0 L318.5 192.0 L316.3 194.9 L313.9 197.6 L311.2 200.0 L308.4 202.2 L305.3 204.1 L302.1 205.8 L298.8 207.2 L295.3 208.3 L291.8 209.1 L288.2 209.5 L284.6 209.7 L281.0 209.5 L277.4 209.1 L273.9 208.3 L270.5 207.2 L267.1 205.8 L263.9 204.1 L260.9 202.2 L258.0 200.0 L255.3 197.6 L252.9 194.9 L250.7 192.0 L248.8 189.0 L247.1 185.8 L245.7 182.4 L244.6 179.0 L243.8 175.5 L243.4 171.9 L243.2 168.3 L243.4 164.7 L243.8 161.1 L244.6 157.6 L245.7 154.1 L247.1 150.8 L248.8 147.6 L250.7 144.5 L252.9 141.7 L255.3 139.0 L258.0 136.6 L260.9 134.4 L263.9 132.4 L267.1 130.7 L270.5 129.4 L273.9 128.3 L277.4 127.5 L281.0 127.0 L284.6 126.9 L288.2 127.0 L291.8 127.5 L295.3 128.3 L298.8 129.4 L302.1 130.7 L305.3 132.4 L308.4 134.4 L311.2 136.6 L313.9 139.0 L316.3 141.7 L318.5 144.5 L320.5 147.6 L322.1 150.8 L323.5 154.1 L324.6 157.6 L325.4 161.1 L325.9 164.7 Z" fill="#22C38E"/><path d="M300.4 168.3 L300.4 169.7 L300.2 171.0 L299.9 172.4 L299.5 173.7 L299.0 175.0 L298.3 176.2 L297.6 177.4 L296.7 178.5 L295.8 179.5 L294.8 180.4 L293.7 181.2 L292.5 182.0 L291.3 182.6 L290.0 183.2 L288.7 183.6 L287.4 183.9 L286.0 184.1 L284.6 184.1 L283.2 184.1 L281.9 183.9 L280.5 183.6 L279.2 183.2 L277.9 182.6 L276.7 182.0 L275.5 181.2 L274.4 180.4 L273.4 179.5 L272.5 178.5 L271.6 177.4 L270.9 176.2 L270.3 175.0 L269.7 173.7 L269.3 172.4 L269.0 171.0 L268.8 169.7 L268.8 168.3 L268.8 166.9 L269.0 165.5 L269.3 164.2 L269.7 162.9 L270.3 161.6 L270.9 160.4 L271.6 159.2 L272.5 158.1 L273.4 157.1 L274.4 156.1 L275.5 155.3 L276.7 154.6 L277.9 153.9 L279.2 153.4 L280.5 153.0 L281.9 152.7 L283.2 152.5 L284.6 152.4 L286.0 152.5 L287.4 152.7 L288.7 153.0 L290.0 153.4 L291.3 153.9 L292.5 154.6 L293.7 155.3 L294.8 156.1 L295.8 157.1 L296.7 158.1 L297.6 159.2 L298.3 160.4 L299.0 161.6 L299.5 162.9 L299.9 164.2 L300.2 165.5 L300.4 166.9 Z" fill="#FFFFFF"/><defs><linearGradient id="g" x1="0" y1="512" x2="512" y2="0" gradientUnits="userSpaceOnUse"><stop stop-color="#6D4AF0"/><stop offset="1" stop-color="#2F8CF0"/></linearGradient><linearGradient id="ink" x1="0" y1="512" x2="512" y2="0" gradientUnits="userSpaceOnUse"><stop stop-color="#5A36E6"/><stop offset="1" stop-color="#2F7FE8"/></linearGradient><linearGradient id="bg" x1="51" y1="461" x2="461" y2="51" gradientUnits="userSpaceOnUse"><stop stop-color="#4B2FC9"/><stop offset="1" stop-color="#2F86EE"/></linearGradient></defs></svg></div>{{text}}</div></body></html>
         """;
 }
 

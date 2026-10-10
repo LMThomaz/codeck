@@ -5,11 +5,11 @@
     <UseWindowsForms>true</UseWindowsForms>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <AssemblyName>PRPilot</AssemblyName>
-    <RootNamespace>PRPilot</RootNamespace>
+    <AssemblyName>Commitdeck</AssemblyName>
+    <RootNamespace>Commitdeck</RootNamespace>
     <ApplicationIcon>app.ico</ApplicationIcon>
     <ApplicationManifest>app.manifest</ApplicationManifest>
-    <Product>PR Pilot</Product>
+    <Product>Commitdeck</Product>
     <Company>ThomSoft</Company>
     <Version>1.0.0</Version>
     <!-- compila também no Mac/Linux (só roda no Windows) -->

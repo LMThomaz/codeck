@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# O .dmg do PR Pilot para macOS, feito no Mac e publicado — o runner de macOS do GitHub conta dez vezes na cota
+# O .dmg do Commitdeck para macOS, feito no Mac e publicado — o runner de macOS do GitHub conta dez vezes na cota
 # gratuita, então o Mac sai daqui e só o Windows sai do Actions (.github/workflows/release-windows.yml).
 #
 #   scripts/release-macos.sh            gera e publica
@@ -7,7 +7,7 @@
 #
 # Publica o que está na main (árvore limpa, commit já no origin/main), na versão do arquivo VERSION (x.y.z+N),
 # a mesma do Windows. Destinos:
-#   · site da ThomSoft: downloads/pr-pilot/<dmg> + latest.json (o canal público que o app consulta)
+#   · site da ThomSoft: downloads/commitdeck/<dmg> + latest.json (o canal público que o app consulta)
 #   · GitHub Releases (privado): tag v<x.y.z>-<N>, como histórico
 # Credenciais do FTP do site — as mesmas do Chefinho/LuriSystem:
 #   · servidor e usuário em ~/.config/thomsoft/downloads.env (DOWNLOADS_FTP_SERVER, DOWNLOADS_FTP_USER)
@@ -24,7 +24,7 @@ done
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 BASE_URL="${DOWNLOADS_BASE_URL:-https://thomsoft.com.br/downloads}"
-CHANNEL=pr-pilot
+CHANNEL=commitdeck
 KEYCHAIN_SERVICE=thomsoft-downloads-ftp
 CONFIG="$HOME/.config/thomsoft/downloads.env"
 
@@ -44,7 +44,7 @@ if [ "$DRY_RUN" = false ]; then
   git fetch -q origin main
   git merge-base --is-ancestor HEAD origin/main || fail "O commit atual não está no origin/main. Faça o push antes."
 fi
-say "PR Pilot $VERSION (build $BUILD) — $(git rev-parse --short HEAD)"
+say "Commitdeck $VERSION (build $BUILD) — $(git rev-parse --short HEAD)"
 
 if [ "$DRY_RUN" = false ]; then
   [ -f "$CONFIG" ] || fail "Crie $CONFIG com DOWNLOADS_FTP_SERVER e DOWNLOADS_FTP_USER (ver o topo deste script)."
@@ -84,12 +84,12 @@ say "Build"
 bash scripts/build-macos.sh --no-install
 out="$ROOT/dist/release-macos"
 rm -rf "$out"; mkdir -p "$out/stage"
-cp -R "$ROOT/dist/PR Pilot.app" "$out/stage/"
+cp -R "$ROOT/dist/Commitdeck.app" "$out/stage/"
 ln -s /Applications "$out/stage/Aplicativos"
-dmg="$out/PR-Pilot-$VERSION-$BUILD.dmg"
-create-dmg --volname "PR Pilot" --volicon macos/AppIcon.icns \
+dmg="$out/Commitdeck-$VERSION-$BUILD.dmg"
+create-dmg --volname "Commitdeck" --volicon macos/AppIcon.icns \
   --window-pos 200 120 --window-size 600 380 --icon-size 104 --text-size 13 \
-  --icon "PR Pilot.app" 160 180 --hide-extension "PR Pilot.app" --icon "Aplicativos" 440 180 \
+  --icon "Commitdeck.app" 160 180 --hide-extension "Commitdeck.app" --icon "Aplicativos" 440 180 \
   --no-internet-enable "$dmg" "$out/stage/" >/dev/null
 echo "✓ $dmg ($(du -h "$dmg" | cut -f1))"
 
@@ -111,21 +111,51 @@ jq --arg url "$BASE_URL/$CHANNEL/$name" \
    --arg version "$VERSION" --argjson build "$BUILD" \
    --arg notes "$(git log -1 --format=%s)" \
    --arg date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-   '.productId = "pr-pilot"
+   '.productId = "commitdeck"
     | .macos = {url: $url, sha256: $sha, size: $size, version: $version, build: $build}
     | .notes = $notes | .publishedAt = $date
     | ([.windows, .macos] | map(select(. != null)) | max_by(.build)) as $n
     | .version = $n.version | .build = $n.build' \
    "$out/current.json" > "$out/latest.json"
 lftp_run "mkdir -p -f /$CHANNEL; cd /$CHANNEL; put $dmg; put $out/latest.json;"
-old="$(lftp_run "cd /$CHANNEL; cls -1" | sed -nE 's/^PR-Pilot-[0-9.]+-([0-9]+)\.dmg$/\1/p' | sort -un | awk '{a[NR]=$0} END {for (i = 1; i <= NR - 2; i++) print a[i]}')"
-for b in $old; do lftp_run "cd /$CHANNEL; glob -a rm -f PR-Pilot-*-$b.dmg;" || true; done
+old="$(lftp_run "cd /$CHANNEL; cls -1" | sed -nE 's/^Commitdeck-[0-9.]+-([0-9]+)\.dmg$/\1/p' | sort -un | awk '{a[NR]=$0} END {for (i = 1; i <= NR - 2; i++) print a[i]}')"
+for b in $old; do lftp_run "cd /$CHANNEL; glob -a rm -f Commitdeck-*-$b.dmg;" || true; done
 got="$(curl -fsS "$BASE_URL/$CHANNEL/latest.json?t=$(date +%s)" | jq -r .macos.build)"
 [ "$got" = "$BUILD" ] || fail "O site ainda serve o build $got."
 curl -fsSI "$BASE_URL/$CHANNEL/$name" >/dev/null || fail "O .dmg não responde no site."
 
+# Ponte para quem ainda tem o PR Pilot (nome antigo): esse app lê downloads/pr-pilot/latest.json e só aceita
+# instalador chamado PR-Pilot-*. O mesmo .dmg vai para lá com esse nome; instalado, o app se renomeia para
+# Commitdeck.app e adota a pasta de dados antiga. Pode sair quando ninguém mais estiver no PR Pilot.
+LEGACY=pr-pilot
+legacy="$out/PR-Pilot-$VERSION-$BUILD.dmg"
+cp "$dmg" "$legacy"
+say "Ponte no canal antigo ($LEGACY)"
+rm -f "$out/legacy-current.json"
+if lftp_run "cd /$LEGACY; cls -1" 2>/dev/null | grep -qx 'latest.json'; then
+  lftp_run "cd /$LEGACY; lcd $out; get latest.json -o legacy-current.json" || fail "Não li o latest.json do canal antigo."
+  jq -e 'type == "object"' "$out/legacy-current.json" >/dev/null || fail "O latest.json do canal antigo não é JSON."
+else
+  echo '{}' > "$out/legacy-current.json"
+fi
+jq --arg url "$BASE_URL/$LEGACY/$(basename "$legacy")" \
+   --arg sha "$(shasum -a 256 "$legacy" | cut -d' ' -f1)" \
+   --argjson size "$(stat -f %z "$legacy")" \
+   --arg version "$VERSION" --argjson build "$BUILD" \
+   --arg notes "Agora se chama Commitdeck. $(git log -1 --format=%s)" \
+   --arg date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+   '.productId = "pr-pilot"
+    | .macos = {url: $url, sha256: $sha, size: $size, version: $version, build: $build}
+    | .notes = $notes | .publishedAt = $date
+    | ([.windows, .macos] | map(select(. != null)) | max_by(.build)) as $n
+    | .version = $n.version | .build = $n.build' \
+   "$out/legacy-current.json" > "$out/legacy-latest.json"
+lftp_run "mkdir -p -f /$LEGACY; cd /$LEGACY; put $legacy; put $out/legacy-latest.json -o latest.json;"
+old="$(lftp_run "cd /$LEGACY; cls -1" | sed -nE 's/^PR-Pilot-[0-9.]+-([0-9]+)\.dmg$/\1/p' | sort -un | awk '{a[NR]=$0} END {for (i = 1; i <= NR - 2; i++) print a[i]}')"
+for b in $old; do lftp_run "cd /$LEGACY; glob -a rm -f PR-Pilot-*-$b.dmg;" || true; done
+
 say "GitHub Releases ($TAG)"
-gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --title "PR Pilot $VERSION (build $BUILD)" \
+gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --title "Commitdeck $VERSION (build $BUILD)" \
   --notes "$(git log -1 --format=%B)" --target "$(git rev-parse HEAD)"
 gh release upload "$TAG" "$dmg" "$out/latest.json" --clobber
 say "Publicado: $BASE_URL/$CHANNEL/latest.json"

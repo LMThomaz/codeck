@@ -19,7 +19,7 @@ def check_update():
         update_state.update(available=False, checkedAt=now_iso(), error=None, disabled=True)
         return update_state
     try:
-        r = urllib.request.Request(f"{UPDATE_URL}?t={int(time.time())}", headers={"Cache-Control": "no-cache", "User-Agent": "PR-Pilot"})
+        r = urllib.request.Request(f"{UPDATE_URL}?t={int(time.time())}", headers={"Cache-Control": "no-cache", "User-Agent": "Commitdeck"})
         with urllib.request.urlopen(r, timeout=15) as resp:
             info = json.loads(resp.read(200_000))
         asset = info.get(APP_PLATFORM) or {}
@@ -43,13 +43,13 @@ def download_update():
         raise ValueError("A versão publicada não traz a assinatura do instalador — nada foi baixado")
     os.makedirs(UPDATES_DIR, exist_ok=True)
     name = os.path.basename(urllib.parse.urlparse(u["url"]).path)
-    if not re.fullmatch(r"PR-Pilot-[\w.\-]+\.(dmg|exe)", name):
+    if not re.fullmatch(r"Commitdeck-[\w.\-]+\.(dmg|exe)", name):
         raise ValueError("Nome de instalador inesperado no latest.json")
     path = os.path.join(UPDATES_DIR, name)
     update_state["downloading"] = True
     try:
         digest = hashlib.sha256()
-        req = urllib.request.Request(u["url"], headers={"User-Agent": "PR-Pilot"})
+        req = urllib.request.Request(u["url"], headers={"User-Agent": "Commitdeck"})
         with urllib.request.urlopen(req, timeout=60) as resp, open(path + ".part", "wb") as f:
             while chunk := resp.read(1 << 16):
                 digest.update(chunk)

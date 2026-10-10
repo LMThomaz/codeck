@@ -1,10 +1,10 @@
 """Núcleo: pastas e arquivos de dados, estado compartilhado, utilidades de tempo/JSON, histórico e notificações.
 
-Quem sobe o backend é o app nativo — macos/PRPilot.swift ou windows/PRPilot (C#). Ele passa:
-  PR_PILOT_TOKEN            chave por execução — sem ela nenhuma rota /api responde
-  PR_PILOT_PARENT_PID       o processo encerra junto com o app
-  PR_PILOT_NATIVE_NOTIFY=1  notificações saem pelo app (clicáveis)
-  PR_PILOT_VERSION / _BUILD / _PLATFORM / _UPDATE_URL  versão instalada e canal de atualização
+Quem sobe o backend é o app nativo — macos/Commitdeck.swift ou windows/Commitdeck (C#). Ele passa:
+  COMMITDECK_TOKEN            chave por execução — sem ela nenhuma rota /api responde
+  COMMITDECK_PARENT_PID       o processo encerra junto com o app
+  COMMITDECK_NATIVE_NOTIFY=1  notificações saem pelo app (clicáveis)
+  COMMITDECK_VERSION / _BUILD / _PLATFORM / _UPDATE_URL  versão instalada e canal de atualização
 """
 import json
 import os
@@ -16,19 +16,32 @@ from datetime import datetime, timezone
 from types import SimpleNamespace
 
 BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-PRODUCT = "PR Pilot"   # nome de exibição (a marca mora em ui/src/lib/brand.ts); ids internos não mudam com ela
+PRODUCT = "Commitdeck"   # nome de exibição (a marca mora em ui/src/lib/brand.ts); ids internos não mudam com ela
 
 
 def default_data_dir():
     # Um lugar só por usuário: app instalado, debug do editor e terminal enxergam as mesmas contas e regras.
     if sys.platform == "darwin":
-        return os.path.expanduser("~/Library/Application Support/PR Pilot")
+        return os.path.expanduser("~/Library/Application Support/Commitdeck")
     if os.name == "nt":
-        return os.path.join(os.environ.get("APPDATA") or os.path.expanduser("~"), "PR Pilot")
-    return os.path.join(os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config"), "pr-pilot")
+        return os.path.join(os.environ.get("APPDATA") or os.path.expanduser("~"), "Commitdeck")
+    return os.path.join(os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config"), "commitdeck")
 
 
-DATA = os.path.abspath(os.environ.get("PR_PILOT_DATA") or default_data_dir())
+def _adopt_legacy_dir(new):
+    """O app se chamava PR Pilot: na primeira execução como Commitdeck, a pasta de dados antiga vira a nova
+    (contas, regras, histórico). Os apps nativos já fazem isso antes de subir o backend; aqui cobre o dev."""
+    old = os.path.join(os.path.dirname(new), "pr-pilot" if os.path.basename(new) == "commitdeck" else "PR Pilot")
+    if not os.path.exists(new) and os.path.isdir(old):
+        try:
+            os.rename(old, new)
+        except OSError:
+            pass
+
+
+if not os.environ.get("COMMITDECK_DATA"):
+    _adopt_legacy_dir(default_data_dir())
+DATA = os.path.abspath(os.environ.get("COMMITDECK_DATA") or default_data_dir())
 os.makedirs(DATA, exist_ok=True)
 for _old in (BACKEND_DIR, os.path.join(BACKEND_DIR, "data")):
     # versões antigas guardavam os dados ao lado do código
@@ -47,12 +60,12 @@ UPDATES_DIR = os.path.join(DATA, "updates")
 STATIC_DIR = os.path.join(BACKEND_DIR, "static")
 
 DEFAULT_PORT = 47821  # porta incomum de propósito: não briga com APIs/fronts locais
-APP_VERSION = os.environ.get("PR_PILOT_VERSION") or "dev"
-APP_BUILD = int(os.environ.get("PR_PILOT_BUILD") or 0)
-APP_PLATFORM = os.environ.get("PR_PILOT_PLATFORM") or ("macos" if sys.platform == "darwin" else "windows" if os.name == "nt" else "linux")
-UPDATE_URL = os.environ.get("PR_PILOT_UPDATE_URL") or ""
-TOKEN = os.environ.get("PR_PILOT_TOKEN") or ""
-NATIVE_NOTIFY = os.environ.get("PR_PILOT_NATIVE_NOTIFY") == "1"
+APP_VERSION = os.environ.get("COMMITDECK_VERSION") or "dev"
+APP_BUILD = int(os.environ.get("COMMITDECK_BUILD") or 0)
+APP_PLATFORM = os.environ.get("COMMITDECK_PLATFORM") or ("macos" if sys.platform == "darwin" else "windows" if os.name == "nt" else "linux")
+UPDATE_URL = os.environ.get("COMMITDECK_UPDATE_URL") or ""
+TOKEN = os.environ.get("COMMITDECK_TOKEN") or ""
+NATIVE_NOTIFY = os.environ.get("COMMITDECK_NATIVE_NOTIFY") == "1"
 
 lock = threading.RLock()
 wake = threading.Event()

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Gera os ícones das duas plataformas a partir de brand/icon.svg (precisa do Google Chrome só para rasterizar):
-#   macos/AppIcon.icns · windows/PRPilot/app.ico · brand/icon.png
+#   macos/AppIcon.icns · windows/Commitdeck/app.ico · brand/icon.png
 # brand/logo.svg (só a marca, sem fundo) vai direto para o instalador do Windows: só <path> + gradiente, sem
 # filtros — o ThomSoft Setup cai no logo de demonstração quando não consegue desenhar o SVG.
 set -euo pipefail
@@ -19,7 +19,7 @@ done
 iconutil -c icns "$TMP/AppIcon.iconset" -o "$ROOT/macos/AppIcon.icns"
 # .ico no formato clássico: BMP 32 bits (com alfa) até 128 px e PNG só no de 256 — é o que o Explorer, a barra de
 # tarefas e o System.Drawing.Icon leem sem surpresa (PNG em tamanho pequeno às vezes sai em branco ou é ignorado).
-python3 - "$TMP/icon.png" "$ROOT/windows/PRPilot/app.ico" <<'PY'
+python3 - "$TMP/icon.png" "$ROOT/windows/Commitdeck/app.ico" <<'PY'
 import os, struct, subprocess, sys, tempfile, zlib
 src, dst = sys.argv[1], sys.argv[2]
 
@@ -71,4 +71,4 @@ for s, data in zip(sizes, entries):
 open(dst, "wb").write(struct.pack("<HHH", 0, 1, len(sizes)) + dirs + b"".join(entries))
 PY
 rm -rf "$TMP"
-echo "✓ macos/AppIcon.icns, windows/PRPilot/app.ico, brand/icon.png"
+echo "✓ macos/AppIcon.icns, windows/Commitdeck/app.ico, brand/icon.png"

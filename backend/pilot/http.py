@@ -1,6 +1,6 @@
 """HTTP local (127.0.0.1): a tela (ui/ compilada em static/) e a API que ela usa.
 
-Toda rota /api exige a chave da execução (X-PR-Pilot-Token) e os POSTs exigem também o header X-PR-Pilot: 1 —
+Toda rota /api exige a chave da execução (X-Commitdeck-Token) e os POSTs exigem também o header X-Commitdeck: 1 —
 header custom força preflight de CORS, que não respondemos, então nenhum site consegue agir por você.
 """
 import ctypes
@@ -459,7 +459,7 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(raw)
 
     def authorized(self):
-        return not TOKEN or hmac.compare_digest(self.headers.get("X-PR-Pilot-Token") or "", TOKEN)
+        return not TOKEN or hmac.compare_digest(self.headers.get("X-Commitdeck-Token") or "", TOKEN)
 
     def static(self, path):
         rel = urllib.parse.unquote(path).lstrip("/") or "index.html"
@@ -497,7 +497,7 @@ class Handler(BaseHTTPRequestHandler):
         return self.dispatch(GET, None)
 
     def do_POST(self):
-        if self.headers.get("X-PR-Pilot") != "1" or not self.authorized():
+        if self.headers.get("X-Commitdeck") != "1" or not self.authorized():
             return self.send(403, {"error": "forbidden"})
         length = int(self.headers.get("Content-Length") or 0)
         try:
@@ -528,15 +528,15 @@ def _watch_parent(parent):
 def main():
     if not os.path.exists(RULES_FILE):
         save_json(RULES_FILE, rules.DEFAULT_RULES)
-    port = int(os.environ.get("PR_PILOT_PORT") or load_json(CONFIG_FILE, {}).get("port") or DEFAULT_PORT)
+    port = int(os.environ.get("COMMITDECK_PORT") or load_json(CONFIG_FILE, {}).get("port") or DEFAULT_PORT)
     try:
         server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
     except OSError:
         print(f"Porta {port} em uso — já há um {PRODUCT} rodando.", flush=True)
         raise SystemExit(1)
     server.daemon_threads = True
-    if os.environ.get("PR_PILOT_PARENT_PID"):
-        threading.Thread(target=_watch_parent, args=(os.environ["PR_PILOT_PARENT_PID"],), daemon=True).start()
+    if os.environ.get("COMMITDECK_PARENT_PID"):
+        threading.Thread(target=_watch_parent, args=(os.environ["COMMITDECK_PARENT_PID"],), daemon=True).start()
     engine.start()
     threading.Thread(target=update.update_loop, daemon=True).start()
     print(f"{PRODUCT} {APP_VERSION} ({APP_BUILD}, {APP_PLATFORM}) em http://127.0.0.1:{port} — Azure: {', '.join(ctx.orgs) or '-'}"

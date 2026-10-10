@@ -8,6 +8,6 @@ export default defineConfig({
   build: { outDir: "../backend/static", emptyOutDir: true, target: "safari16", chunkSizeWarningLimit: 900 },
   server: {
     port: 47823,
-    proxy: { "/api": { target: `http://127.0.0.1:${process.env.PR_PILOT_PORT || 47822}`, changeOrigin: false } },
+    proxy: { "/api": { target: `http://127.0.0.1:${process.env.COMMITDECK_PORT || 47822}`, changeOrigin: false } },
   },
 });

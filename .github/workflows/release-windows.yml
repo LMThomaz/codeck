@@ -1,4 +1,4 @@
-# Release do PR Pilot para Windows (o Mac sai do Mac: scripts/release-macos.sh).
+# Release do Commitdeck para Windows (o Mac sai do Mac: scripts/release-macos.sh).
 #
 # CUSTO ZERO: a cota gratuita do Actions conta o Windows em dobro e o macOS dez vezes. Por isso este workflow só
 # roda quando a VERSÃO muda (arquivo VERSION, `x.y.z+N`). Versão nova = subir o `+N`.
@@ -8,7 +8,7 @@
 #      ThomSoft Setup — o mesmo instalador do Chefinho: instala no perfil do usuário (sem administrador),
 #      atualiza por cima com o app aberto (`--update --wait-pid`) e desinstala limpo. Antes de sair, o instalador
 #      é EXECUTADO no runner: instala sem janela, abre o app, atualiza por cima e desinstala.
-#   2. Publica no site da ThomSoft (downloads/pr-pilot/) e atualiza a parte do Windows no latest.json que o app
+#   2. Publica no site da ThomSoft (downloads/commitdeck/) e atualiza a parte do Windows no latest.json que o app
 #      instalado consulta. A parte do Mac fica como o script local a deixou. Uma cópia vai para o GitHub Releases.
 #
 # Nenhum segredo vai para o instalador: o PAT de cada dev é cadastrado no app e fica cifrado (DPAPI) na máquina
@@ -36,7 +36,7 @@ concurrency:
 
 env:
   DOWNLOADS_BASE_URL: https://thomsoft.com.br/downloads
-  CHANNEL: pr-pilot
+  CHANNEL: commitdeck
   # Python embutido, por hash fixo: o .exe que o dev roda não pode levar um binário que mudou sem ninguém ver.
   PYTHON_EMBED_URL: https://www.python.org/ftp/python/3.12.10/python-3.12.10-embed-amd64.zip
   PYTHON_EMBED_SHA256: 4acbed6dd1c744b0376e3b1cf57ce906f9dc9e95e68824584c8099a63025a3c3
@@ -59,7 +59,7 @@ jobs:
           read -r BUILD_NAME BUILD_NUMBER <<< "$line"
           echo "build_name=$BUILD_NAME" >> "$GITHUB_OUTPUT"
           echo "build_number=$BUILD_NUMBER" >> "$GITHUB_OUTPUT"
-          echo "### PR Pilot $BUILD_NAME (build $BUILD_NUMBER)" >> "$GITHUB_STEP_SUMMARY"
+          echo "### Commitdeck $BUILD_NAME (build $BUILD_NUMBER)" >> "$GITHUB_STEP_SUMMARY"
           # Push que mexeu no VERSION sem subir o build não gasta cota.
           got="$(curl -fsS "$DOWNLOADS_BASE_URL/$CHANNEL/latest.json?t=$(date +%s)" 2>/dev/null | jq -r '.windows.build // 0' 2>/dev/null || true)"
           if [ "$GITHUB_EVENT_NAME" = push ] && [ "${got:-0}" -ge "$BUILD_NUMBER" ]; then
@@ -175,7 +175,7 @@ jobs:
 
       - name: App (C# + WebView2)
         run: |
-          dotnet publish windows/PRPilot/PRPilot.csproj -c Release -o build/app `
+          dotnet publish windows/Commitdeck/Commitdeck.csproj -c Release -o build/app `
             -p:Version=$env:BUILD_NAME -p:FileVersion="$env:BUILD_NAME.$env:BUILD_NUMBER" `
             --source https://api.nuget.org/v3/index.json
           if ($LASTEXITCODE -ne 0) { throw 'dotnet publish falhou' }
@@ -194,7 +194,7 @@ jobs:
           if (-not (Test-Path build/app/backend/static/index.html)) { throw 'interface não compilada' }
           # o backend sobe e responde com o Python embutido (sem token: só nesta conferência)
           $p = Start-Process build/app/python/python.exe -ArgumentList 'build/app/backend/server.py' -PassThru -NoNewWindow `
-            -Environment @{ PR_PILOT_PORT = '47899'; PR_PILOT_DATA = "$env:RUNNER_TEMP\prpilot-data" }
+            -Environment @{ COMMITDECK_PORT = '47899'; COMMITDECK_DATA = "$env:RUNNER_TEMP\commitdeck-data" }
           $ok = $false
           for ($i = 0; $i -lt 30 -and -not $ok; $i++) {
             Start-Sleep -Seconds 1
@@ -209,35 +209,35 @@ jobs:
 
       # O ThomSoft Setup é um .exe genérico com o ícone do LuriSystem gravado: sem trocar, a janela e a barra de
       # tarefas do instalador (e o desinstalador) mostram a marca errada. O kit só troca o ícone do .exe de fora.
-      - name: Ícone do PR Pilot no ThomSoft Setup
+      - name: Ícone do Commitdeck no ThomSoft Setup
         run: |
           $rc = Join-Path $env:RUNNER_TEMP 'rcedit-x64.exe'
           Invoke-WebRequest -Uri 'https://github.com/electron/rcedit/releases/download/v2.0.0/rcedit-x64.exe' -OutFile $rc
           $got = (Get-FileHash -Algorithm SHA256 $rc).Hash.ToLower()
           if ($got -ne '3e7801db1a5edbec91b49a24a094aad776cb4515488ea5a4ca2289c400eade2a') { throw "rcedit com hash inesperado ($got)" }
-          & $rc kit/setup/setup.exe --set-icon windows/PRPilot/app.ico --set-version-string FileDescription 'Instalador do PR Pilot' `
-            --set-version-string ProductName 'PR Pilot'
+          & $rc kit/setup/setup.exe --set-icon windows/Commitdeck/app.ico --set-version-string FileDescription 'Instalador do Commitdeck' `
+            --set-version-string ProductName 'Commitdeck'
           if ($LASTEXITCODE -ne 0) { throw 'rcedit falhou' }
 
       - name: Instalador (montar e executar)
         run: |
           New-Item -ItemType Directory -Force dist | Out-Null
           $manifest = [ordered]@{
-            productId = 'pr-pilot'
-            productName = 'PR Pilot'
+            productId = 'commitdeck'
+            productName = 'Commitdeck'
             publisher = 'ThomSoft'
             version = $env:BUILD_NAME
             build = [int]$env:BUILD_NUMBER
-            exeName = 'PRPilot.exe'
+            exeName = 'Commitdeck.exe'
             brand = @{ primaryDark = '#3f95f2'; primaryLight = '#1d5fc2' }
             updateUrl = "$env:DOWNLOADS_BASE_URL/$env:CHANNEL/latest.json"
-            replaces = @()
+            replaces = @('pr-pilot')   # o nome antigo: o instalador desinstala o PR Pilot antes
           }
           $manifest | ConvertTo-Json -Depth 4 | Out-File -Encoding utf8 build/setup.json
-          $out = "dist/PR-Pilot-$env:BUILD_NAME-$env:BUILD_NUMBER-setup.exe"
+          $out = "dist/Commitdeck-$env:BUILD_NAME-$env:BUILD_NUMBER-setup.exe"
           pwsh kit/tools/package-installer.ps1 `
             -Setup kit/setup -App build/app -Redist build/redist -Manifest build/setup.json -Ops kit/ops/setup-ops.ps1 `
-            -Logo brand/logo.svg -Icon windows/PRPilot/app.ico -Out $out
+            -Logo brand/logo.svg -Icon windows/Commitdeck/app.ico -Out $out
           if ($LASTEXITCODE -ne 0) { throw 'pacote' }
           pwsh kit/tools/smoke-installer.ps1 -Installer $out -Manifest build/setup.json
           if ($LASTEXITCODE -ne 0) { throw 'o instalador não passou no teste' }
@@ -246,12 +246,12 @@ jobs:
         if: failure()
         run: |
           Get-ChildItem $env:TEMP -Filter '*-setup.log' | ForEach-Object { "== $($_.Name)"; Get-Content $_.FullName -Tail 80 }
-          $log = Join-Path $env:APPDATA 'PR Pilot\pr-pilot.log'
-          if (Test-Path $log) { "== pr-pilot.log"; Get-Content $log -Tail 80 }
+          $log = Join-Path $env:APPDATA 'Commitdeck\commitdeck.log'
+          if (Test-Path $log) { "== commitdeck.log"; Get-Content $log -Tail 80 }
 
       - uses: actions/upload-artifact@v4
         with:
-          name: pr-pilot-windows
+          name: commitdeck-windows
           path: dist/*
           if-no-files-found: error
           retention-days: 30
@@ -271,7 +271,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
-          name: pr-pilot-windows
+          name: commitdeck-windows
           path: dist
 
       - name: Credenciais do site configuradas?
@@ -310,7 +310,7 @@ jobs:
           LFTP_PASSWORD: ${{ secrets.DOWNLOADS_FTP_PASSWORD }}
           FTP_SERVER: ${{ secrets.DOWNLOADS_FTP_SERVER }}
           FTP_ROOT: ${{ vars.DOWNLOADS_FTP_ROOT || '/' }}
-          COMMIT_MSG: ${{ github.event.head_commit.message || 'Nova versão do PR Pilot.' }}
+          COMMIT_MSG: ${{ github.event.head_commit.message || 'Nova versão do Commitdeck.' }}
         run: |
           set -euo pipefail
           sudo apt-get install -y lftp >/dev/null
@@ -329,7 +329,7 @@ jobs:
               $1
               bye"
           }
-          exe="PR-Pilot-$BUILD_NAME-$BUILD_NUMBER-setup.exe"
+          exe="Commitdeck-$BUILD_NAME-$BUILD_NUMBER-setup.exe"
           remote="${FTP_ROOT%/}/$CHANNEL"
           lftp_run "mkdir -p -f $remote"
           tmp="$(mktemp -d)"
@@ -347,15 +347,15 @@ jobs:
              --arg version "$BUILD_NAME" --argjson build "$BUILD_NUMBER" \
              --arg notes "$(printf '%s' "$COMMIT_MSG" | head -n 1)" \
              --arg date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-             '.productId = "pr-pilot"
+             '.productId = "commitdeck"
               | .windows = {url: $url, sha256: $sha, size: $size, version: $version, build: $build}
               | .notes = $notes | .publishedAt = $date
               | ([.windows, .macos] | map(select(. != null)) | max_by(.build)) as $n
               | .version = $n.version | .build = $n.build' "$tmp/current.json" > dist/latest.json
           cat dist/latest.json
           lftp_run "cd $remote; put dist/$exe; put dist/latest.json;"
-          old="$(lftp_run "cd $remote; cls -1" | sed -nE 's/^PR-Pilot-[0-9.]+-([0-9]+)-setup\.exe$/\1/p' | sort -un | head -n -2)"
-          for b in $old; do lftp_run "cd $remote; glob -a rm -f PR-Pilot-*-$b-setup.exe;" || true; done
+          old="$(lftp_run "cd $remote; cls -1" | sed -nE 's/^Commitdeck-[0-9.]+-([0-9]+)-setup\.exe$/\1/p' | sort -un | head -n -2)"
+          for b in $old; do lftp_run "cd $remote; glob -a rm -f Commitdeck-*-$b-setup.exe;" || true; done
           code="$(curl -sS -o "$tmp/served.json" -w '%{http_code}' "$DOWNLOADS_BASE_URL/$CHANNEL/latest.json?t=$(date +%s)" || true)"
           if [ "$code" = 403 ]; then
             echo "::warning::o site respondeu 403 ao runner — confira $DOWNLOADS_BASE_URL/$CHANNEL/latest.json de fora"
@@ -364,6 +364,32 @@ jobs:
             [ "$got" = "$BUILD_NUMBER" ] || { echo "::error::o site ainda serve o build $got"; exit 1; }
           fi
           echo "- [latest.json]($DOWNLOADS_BASE_URL/$CHANNEL/latest.json): build $BUILD_NUMBER no ar" >> "$GITHUB_STEP_SUMMARY"
+          # Ponte para quem ainda tem o PR Pilot (nome antigo): esse app lê downloads/pr-pilot/latest.json e só aceita
+          # instalador chamado PR-Pilot-*. O mesmo .exe vai para lá com esse nome; ele instala o Commitdeck,
+          # desinstala o PR Pilot (replaces) e o app adota a pasta de dados antiga.
+          legacy="${FTP_ROOT%/}/pr-pilot"
+          lexe="PR-Pilot-$BUILD_NAME-$BUILD_NUMBER-setup.exe"
+          cp "dist/$exe" "$tmp/$lexe"
+          if lftp_run "cd $legacy; cls -1" | grep -qx 'latest.json'; then
+            lftp_run "cd $legacy; lcd $tmp; get latest.json -o legacy-current.json" || { echo "::error::não li o latest.json do canal antigo"; exit 1; }
+          else
+            echo '{}' > "$tmp/legacy-current.json"
+          fi
+          jq --arg url "$DOWNLOADS_BASE_URL/pr-pilot/$lexe" \
+             --arg sha "$(sha256sum "$tmp/$lexe" | cut -d' ' -f1)" \
+             --argjson size "$(stat -c %s "$tmp/$lexe")" \
+             --arg version "$BUILD_NAME" --argjson build "$BUILD_NUMBER" \
+             --arg notes "Agora se chama Commitdeck. $(printf '%s' "$COMMIT_MSG" | head -n 1)" \
+             --arg date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+             '.productId = "pr-pilot"
+              | .windows = {url: $url, sha256: $sha, size: $size, version: $version, build: $build}
+              | .notes = $notes | .publishedAt = $date
+              | ([.windows, .macos] | map(select(. != null)) | max_by(.build)) as $n
+              | .version = $n.version | .build = $n.build' "$tmp/legacy-current.json" > "$tmp/legacy-latest.json"
+          lftp_run "mkdir -p -f $legacy; cd $legacy; lcd $tmp; put $lexe; put legacy-latest.json -o latest.json;"
+          old="$(lftp_run "cd $legacy; cls -1" | sed -nE 's/^PR-Pilot-[0-9.]+-([0-9]+)-setup\.exe$/\1/p' | sort -un | head -n -2)"
+          for b in $old; do lftp_run "cd $legacy; glob -a rm -f PR-Pilot-*-$b-setup.exe;" || true; done
+          echo "- ponte no canal antigo: $DOWNLOADS_BASE_URL/pr-pilot/latest.json" >> "$GITHUB_STEP_SUMMARY"
 
       - name: GitHub Releases
         env:
@@ -371,8 +397,8 @@ jobs:
         run: |
           set -euo pipefail
           tag="v$BUILD_NAME-$BUILD_NUMBER"
-          gh release view "$tag" >/dev/null 2>&1 || gh release create "$tag" --title "PR Pilot $BUILD_NAME (build $BUILD_NUMBER)" \
+          gh release view "$tag" >/dev/null 2>&1 || gh release create "$tag" --title "Commitdeck $BUILD_NAME (build $BUILD_NUMBER)" \
             --notes "$(git log -1 --format=%B)" --target "$GITHUB_SHA"
-          files=(dist/PR-Pilot-*-setup.exe)
+          files=(dist/Commitdeck-*-setup.exe)
           [ -f dist/latest.json ] && files+=(dist/latest.json)
           gh release upload "$tag" "${files[@]}" --clobber

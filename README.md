@@ -1,4 +1,7 @@
-# PR Pilot
+# Commitdeck
+
+> Antes se chamava **PR Pilot**. Quem tem o PR Pilot instalado recebe o Commitdeck pela atualização automática:
+> contas, regras e histórico vêm junto, e os PATs e tokens continuam no mesmo cofre.
 
 Central de versionamento de desktop (**macOS e Windows**) para **GitHub e Azure DevOps**. Junta numa fila só as
 PRs, builds/Actions, deploys, issues e work items de várias contas e organizações, com regras de automação, e traz
@@ -9,8 +12,8 @@ criação de PR. Você não precisa mais trocar de conta no navegador nem de fer
 
 | | |
 |---|---|
-| **Windows** | baixe `PR-Pilot-<versão>-setup.exe` em `https://thomsoft.com.br/downloads/pr-pilot/latest.json` (campo `windows.url`) e rode. Instala no seu perfil, sem administrador. |
-| **macOS** | baixe o `.dmg` (campo `macos.url` do mesmo `latest.json`) e arraste o PR Pilot para Aplicativos. |
+| **Windows** | baixe `Commitdeck-<versão>-setup.exe` em `https://thomsoft.com.br/downloads/commitdeck/latest.json` (campo `windows.url`) e rode. Instala no seu perfil, sem administrador. |
+| **macOS** | baixe o `.dmg` (campo `macos.url` do mesmo `latest.json`) e arraste o Commitdeck para Aplicativos. |
 
 Depois de instalado, o app **se atualiza sozinho**:
 - Ele consulta o `latest.json`, mostra um aviso e o botão **Atualizar agora**.
@@ -60,7 +63,7 @@ O app não é assinado por certificado comercial (decisão da ThomSoft):
 | **GitHub** | *Entrar com GitHub* (device flow), o login do `gh` CLI ou um token | contas pessoais, organizações e repositórios de terceiros a que o perfil tem acesso |
 
 O *Entrar com GitHub* precisa de um OAuth App com **device flow** habilitado: defina o client id em
-`backend/pilot/github.py` (`GITHUB_CLIENT_ID`), na variável `PR_PILOT_GITHUB_CLIENT_ID` ou em `githubClientId` no
+`backend/pilot/github.py` (`GITHUB_CLIENT_ID`), na variável `COMMITDECK_GITHUB_CLIENT_ID` ou em `githubClientId` no
 `config.json`. Sem ele, o botão fica desabilitado e as outras duas formas funcionam.
 
 O Git local usa as mesmas credenciais (por variável de ambiente, nunca na linha de comando) para clonar, buscar e
@@ -75,8 +78,8 @@ enviar por HTTPS; remotos SSH usam as suas chaves.
 - O backend atende só em `127.0.0.1:47821` e exige uma **chave nova a cada execução**, que só o app conhece. Outros programas da máquina não leem a fila nem agem por você.
 - O backend encerra junto com o app (watchdog do processo-pai; no Windows também um Job Object).
 - Dados por usuário, fora do repositório:
-  - macOS: `~/Library/Application Support/PR Pilot`
-  - Windows: `%APPDATA%\PR Pilot`
+  - macOS: `~/Library/Application Support/Commitdeck`
+  - Windows: `%APPDATA%\Commitdeck`
 
 ## Como é feito
 
@@ -86,8 +89,8 @@ backend/        server.py + pacote pilot/ (Python, só biblioteca padrão) — i
   static/       a interface compilada (gerada, não versionada)
 ui/             interface em Svelte 5 + Vite + TypeScript (npm run build → backend/static)
 brand/          make-logo.py gera logo.svg e icon.svg; make-icons.sh gera .icns e .ico
-macos/          PRPilot.swift — janela nativa (AppKit + WebKit), Dock, barra de menus, notificações, troca do .app
-windows/        PRPilot (C# .NET 8, WinForms + WebView2) — janela, bandeja, notificações, atualização pelo ThomSoft Setup
+macos/          Commitdeck.swift — janela nativa (AppKit + WebKit), Dock, barra de menus, notificações, troca do .app
+windows/        Commitdeck (C# .NET 8, WinForms + WebView2) — janela, bandeja, notificações, atualização pelo ThomSoft Setup
 scripts/        build-macos.sh · release-macos.sh · set-required.sh
 .github/        release-windows.yml — gera, testa e publica o instalador do Windows
 VERSION         x.y.z+N — a versão das duas plataformas
@@ -103,8 +106,8 @@ reconhecimento do remoto em `git.parse_remote`. A interface já trata os itens p
 
 ## Desenvolver
 
-No VS Code ou no Cursor, dê ▶ em **PR Pilot (dev, macOS)**, **PR Pilot (dev, Windows)** ou
-**PR Pilot (dev, interface no navegador)** — esta última sobe o Vite (porta `47823`, recarrega ao salvar).
+No VS Code ou no Cursor, dê ▶ em **Commitdeck (dev, macOS)**, **Commitdeck (dev, Windows)** ou
+**Commitdeck (dev, interface no navegador)** — esta última sobe o Vite (porta `47823`, recarrega ao salvar).
 
 - O backend sobe em depuração (porta `47822`, dados em `data-sandbox/`) e o app nativo se conecta a ele.
 - `cd ui && npm run check` confere os tipos; `npm run build` gera `backend/static/`.
@@ -118,7 +121,7 @@ Requisitos:
 ## Publicar uma versão
 
 1. Suba o `+N` do arquivo `VERSION`, faça commit e push na `main`.
-2. **Windows:** o GitHub Actions gera o instalador e testa: instala sem janela, abre o app, atualiza por cima e desinstala. Depois publica no site da ThomSoft (`downloads/pr-pilot/`) e no GitHub Releases. Ele só roda quando o `VERSION` muda, para não gastar a cota.
+2. **Windows:** o GitHub Actions gera o instalador e testa: instala sem janela, abre o app, atualiza por cima e desinstala. Depois publica no site da ThomSoft (`downloads/commitdeck/`) e no GitHub Releases. Ele só roda quando o `VERSION` muda, para não gastar a cota.
 3. **macOS:** no Mac, rode `scripts/release-macos.sh`. Ele gera o `.dmg` e publica no mesmo lugar.
 4. Cada plataforma atualiza só a própria parte do `latest.json`. Para obrigar quem está abaixo do build N a atualizar, rode `scripts/set-required.sh N`, só depois de N estar publicado nas duas plataformas.
 
