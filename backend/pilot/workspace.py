@@ -251,6 +251,34 @@ def _make_worktree(repo, settings, slug, branch, base):
     return path, copied, git.add_repo(path)
 
 
+def _close_terms_and_wait(task_id, timeout=6):
+    """Encerra os terminais/agentes da tarefa e ESPERA os processos saírem: no Windows, um processo que ainda tem a
+    pasta como diretório atual trava a remoção do worktree (medido no autoteste do desktop no GitHub Actions)."""
+    import time
+    terms = [terminals.get(x["id"]) for x in terminals.list_all(task=task_id)]
+    for t in terms:
+        terminals.close(t.id)
+    end = time.time() + timeout
+    while time.time() < end and any(t.pty.alive() for t in terms):
+        time.sleep(0.2)
+
+
+def _remove_worktree(main_path, wt_path, force):
+    """`git worktree remove`, tentando de novo por alguns segundos se a pasta ainda estiver presa (Windows)."""
+    import time
+    last = None
+    for attempt in range(8):
+        try:
+            git.run(main_path, "worktree", "remove", *(["--force"] if force else []), wt_path, timeout=120)
+            return
+        except git.GitError as e:
+            last = e
+            if not os.path.isdir(wt_path):
+                return
+            time.sleep(0.5 + attempt * 0.5)
+    raise last
+
+
 def _task(d, repo_id, task_id):
     t = next((x for x in _proj(d, repo_id)["tasks"] if x["id"] == task_id), None)
     if not t:
@@ -272,14 +300,13 @@ def remove_task(repo_id, task_id, force=False, delete_branch=False):
     d = _load()
     t = _task(d, repo_id, task_id)
     repo = git.get_repo(repo_id)
-    for term in terminals.list_all(task=task_id):
-        terminals.close(term["id"])
+    if os.path.isdir(t["path"]) and not force:
+        st = git.status(path=t["path"])
+        if st["staged"] or st["unstaged"] or st["untracked"] or st["conflicts"]:
+            raise ValueError("O worktree tem alterações não commitadas — commite, descarte ou force a remoção")
+    _close_terms_and_wait(task_id)
     if os.path.isdir(t["path"]):
-        if not force:
-            st = git.status(path=t["path"])
-            if st["staged"] or st["unstaged"] or st["untracked"] or st["conflicts"]:
-                raise ValueError("O worktree tem alterações não commitadas — commite, descarte ou force a remoção")
-        git.run(repo["path"], "worktree", "remove", *(["--force"] if force else []), t["path"], timeout=120)
+        _remove_worktree(repo["path"], t["path"], force)
     git.run(repo["path"], "worktree", "prune")
     try:
         git.remove_repo(t["repoId"])
@@ -289,7 +316,7 @@ def remove_task(repo_id, task_id, force=False, delete_branch=False):
         try:
             lr = git.get_repo(x["repoId"])
             if os.path.isdir(x["path"]):
-                git.run(lr["path"], "worktree", "remove", *(["--force"] if force else []), x["path"], timeout=120)
+                _remove_worktree(lr["path"], x["path"], force)
             git.run(lr["path"], "worktree", "prune")
             git.remove_repo(x["wtRepoId"])
             if delete_branch:
