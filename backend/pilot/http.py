@@ -44,7 +44,7 @@ def get_state(qs, body):
     with lock:
         payload = {k: state[k] for k in ("prs", "myPrs", "builds", "buildErrors", "errors", "lastPoll", "me", "pollMs",
                                          "deploys", "releases", "deployErrors", "lastDeployPoll", "lastBuildPoll",
-                                         "issues", "issueErrors", "lastIssuePoll")}
+                                         "issues", "issueErrors", "lastIssuePoll", "polling")}
         payload = {k: (list(v) if isinstance(v, list) else dict(v) if isinstance(v, dict) else v) for k, v in payload.items()}
     payload["orgs"] = list(ctx.orgs.keys())
     payload["githubAccounts"] = [{"id": a.id, "login": a.login, "avatar": (a.me or {}).get("avatar") or a.cfg.get("avatar")}
@@ -52,6 +52,7 @@ def get_state(qs, body):
     payload["sources"] = sorted({p["org"] for p in payload["prs"] + payload["myPrs"] + payload["builds"]} | set(ctx.orgs), key=str.lower)
     payload["pollSeconds"] = ctx.config.get("pollSeconds", 60)
     payload["editor"] = ctx.config.get("editor") or "vscode"
+    payload["theme"] = ctx.config.get("theme") or "system"
     payload["rules"] = rules.get_rules()
     payload["archive"] = load_json(ARCHIVE_FILE, {})
     payload["activity"] = read_activity(300)

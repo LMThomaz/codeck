@@ -1,5 +1,5 @@
 """Contas e preferências: organizações do Azure DevOps, contas do GitHub (token, gh CLI ou login pelo navegador),
-intervalo de leitura e editor preferido. Credenciais vão para o cofre (secrets.py); a tela nunca as recebe de volta."""
+intervalo de leitura, editor preferido e tema. Credenciais vão para o cofre (secrets.py); a tela nunca as recebe de volta."""
 import re
 import uuid
 
@@ -7,6 +7,7 @@ from . import engine, git, github, secrets
 from .azure import normalize_org_url
 from .core import CONFIG_FILE, DATA, DEFAULT_PORT, ctx, load_json, save_json
 
+THEMES = ("system", "dark", "light")
 STORE_LABEL = {"keychain": "Keychain do macOS", "dpapi": "cofre do Windows (DPAPI)"}
 
 
@@ -15,6 +16,7 @@ def public_config():
     return {
         "pollSeconds": cfg.get("pollSeconds", 60),
         "editor": cfg.get("editor") or "vscode",
+        "theme": cfg.get("theme") or "system",
         "editors": git.available_editors(),
         "port": cfg.get("port", DEFAULT_PORT),
         "dataDir": DATA,
@@ -111,5 +113,7 @@ def save_prefs(body):
         cfg["pollSeconds"] = min(max(int(body.get("pollSeconds") or 60), 15), 3600)
     if body.get("editor") in git.EDITORS:
         cfg["editor"] = body["editor"]
+    if body.get("theme") in THEMES:
+        cfg["theme"] = body["theme"]
     save_json(CONFIG_FILE, cfg, private=True)
     ctx.config = cfg

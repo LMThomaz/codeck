@@ -1,6 +1,6 @@
 <script lang="ts">
   import { ArchiveRestore } from "@lucide/svelte";
-  import { archive, vote } from "../lib/actions";
+  import { archive } from "../lib/actions";
   import { go, router, soft } from "../lib/router.svelte";
   import { store } from "../lib/store.svelte";
   import type { PR } from "../lib/types";
@@ -9,6 +9,7 @@
   import Page from "../components/Page.svelte";
   import PrPane from "../components/pr/PrPane.svelte";
   import PrRow from "../components/pr/PrRow.svelte";
+  import VoteButton from "../components/pr/VoteButton.svelte";
   import Segmented from "../components/Segmented.svelte";
   import Skeleton from "../components/Skeleton.svelte";
   import SourceFilter from "../components/SourceFilter.svelte";
@@ -57,7 +58,7 @@
           <PrRow pr={p} selected={p.key === selKey} onselect={() => select(p.key)} showVote={tab !== "mine"}>
             {#snippet actions()}
               {#if tab === "archived"}<button class="btn sm" onclick={() => archive([p.key], false)}><ArchiveRestore size={13} /> Restaurar</button>
-              {:else if tab !== "mine" && p.myVote !== 10}<button class="btn sm good" onclick={() => vote(p, 10)}>Aprovar</button>{/if}
+              {:else if tab !== "mine" && p.myVote !== 10}<VoteButton pr={p} v={10} cls="good" leaves={tab === "review"}>Aprovar</VoteButton>{/if}
             {/snippet}
           </PrRow>
         {:else}
@@ -65,7 +66,7 @@
             text={q || org ? "Nada bate com os filtros." : tab === "mine" ? "Quando abrir uma, ela aparece aqui com o que estiver travando." : ""} />
         {/each}
       {/snippet}
-      {#snippet pane()}{#if sel}<PrPane pr={sel} mine={tab === "mine"} />{/if}{/snippet}
+      {#snippet pane()}{#if sel}<PrPane pr={sel} mine={tab === "mine"} leaves={tab === "review"} />{/if}{/snippet}
     </Split>
   {/if}
 </Page>

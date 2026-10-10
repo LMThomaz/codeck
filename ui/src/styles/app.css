@@ -1,4 +1,5 @@
-/* Design system — tokens, base e componentes visuais compartilhados. Tema escuro é o principal; o claro segue o sistema. */
+/* Design system — tokens, base e componentes visuais compartilhados. O escuro é o tema principal (e o padrão antes do JS);
+   o claro entra por :root[data-theme="light"]. */
 @import "@fontsource-variable/inter";
 @import "@fontsource-variable/jetbrains-mono";
 
@@ -17,9 +18,9 @@
   --line-2: rgba(255, 255, 255, 0.11);
   --line-3: rgba(255, 255, 255, 0.18);
   --text: #e9ebf1;
-  --text-2: #a7aec0;
-  --muted: #6e778c;
-  --faint: #4a5163;
+  --text-2: #adb4c6;
+  --muted: #7d869b;
+  --faint: #5a6276;
 
   --accent: #6f8cff;
   --accent-2: #8b6cf0;
@@ -59,38 +60,37 @@
   --sidebar-w: 240px;
 }
 
-@media (prefers-color-scheme: light) {
-  :root:not([data-theme="dark"]) {
-    color-scheme: light;
-    --bg: #f5f6fa;
-    --bg-2: #eef0f5;
-    --surface: #ffffff;
-    --surface-2: #f6f7fb;
-    --surface-3: #eef0f6;
-    --elevated: #ffffff;
-    --line: rgba(15, 23, 42, 0.07);
-    --line-2: rgba(15, 23, 42, 0.12);
-    --line-3: rgba(15, 23, 42, 0.2);
-    --text: #141824;
-    --text-2: #4b5468;
-    --muted: #7a8398;
-    --faint: #a9b0c0;
-    --accent: #4f6ef7;
-    --accent-soft: rgba(79, 110, 247, 0.1);
-    --accent-line: rgba(79, 110, 247, 0.35);
-    --good: #0f9f66;
-    --good-soft: rgba(15, 159, 102, 0.1);
-    --bad: #e0384f;
-    --bad-soft: rgba(224, 56, 79, 0.09);
-    --warn: #b7791f;
-    --warn-soft: rgba(183, 121, 31, 0.11);
-    --info: #0288d1;
-    --info-soft: rgba(2, 136, 209, 0.09);
-    --github: #24292f;
-    --shadow-1: 0 1px 2px rgba(16, 24, 40, 0.06);
-    --shadow-2: 0 10px 30px rgba(16, 24, 40, 0.12), 0 2px 8px rgba(16, 24, 40, 0.06);
-    --shadow-3: 0 24px 64px rgba(16, 24, 40, 0.18), 0 4px 16px rgba(16, 24, 40, 0.08);
-  }
+/* Claro: aplicado quando o tema resolvido é "light" (escolha do usuário ou "Sistema" com o SO no claro — ver lib/theme.ts). */
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg: #f5f6fa;
+  --bg-2: #eef0f5;
+  --surface: #ffffff;
+  --surface-2: #f6f7fb;
+  --surface-3: #eef0f6;
+  --elevated: #ffffff;
+  --line: rgba(15, 23, 42, 0.07);
+  --line-2: rgba(15, 23, 42, 0.12);
+  --line-3: rgba(15, 23, 42, 0.2);
+  --text: #141824;
+  --text-2: #4b5468;
+  --muted: #7a8398;
+  --faint: #a9b0c0;
+  --accent: #4f6ef7;
+  --accent-soft: rgba(79, 110, 247, 0.1);
+  --accent-line: rgba(79, 110, 247, 0.35);
+  --good: #0f9f66;
+  --good-soft: rgba(15, 159, 102, 0.1);
+  --bad: #e0384f;
+  --bad-soft: rgba(224, 56, 79, 0.09);
+  --warn: #b7791f;
+  --warn-soft: rgba(183, 121, 31, 0.11);
+  --info: #0288d1;
+  --info-soft: rgba(2, 136, 209, 0.09);
+  --github: #24292f;
+  --shadow-1: 0 1px 2px rgba(16, 24, 40, 0.06);
+  --shadow-2: 0 10px 30px rgba(16, 24, 40, 0.12), 0 2px 8px rgba(16, 24, 40, 0.06);
+  --shadow-3: 0 24px 64px rgba(16, 24, 40, 0.18), 0 4px 16px rgba(16, 24, 40, 0.08);
 }
 
 * { box-sizing: border-box; }
@@ -250,3 +250,8 @@ html[data-vt="soft"]::view-transition-new(page) { animation: fade 0.24s var(--ea
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
 }
+
+/* troca de tema: crossfade do documento inteiro (lib/theme.ts marca data-vt="theme" durante a transição) */
+html[data-vt="theme"] .page { view-transition-name: none; }
+html[data-vt="theme"]::view-transition-old(root) { animation: fade-out 0.34s var(--ease) both; }
+html[data-vt="theme"]::view-transition-new(root) { animation: fade 0.34s var(--ease) both; }

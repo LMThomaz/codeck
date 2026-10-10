@@ -1,7 +1,7 @@
 <script lang="ts">
   // Configurações: organizações do Azure DevOps, contas do GitHub, preferências e sobre/atualização.
   // Segredos (PAT/token) só vão para o servidor local, que os guarda no cofre do sistema — nunca voltam para a tela.
-  import { Check, ExternalLink, KeyRound, LogIn, Plus, RefreshCw, Shield, SlidersHorizontal, Terminal, Trash2, Info } from "@lucide/svelte";
+  import { Check, ExternalLink, KeyRound, LogIn, Monitor, Moon, Plus, RefreshCw, Shield, SlidersHorizontal, Sun, Terminal, Trash2, Info } from "@lucide/svelte";
   import { untrack } from "svelte";
   import { get, post } from "../lib/api";
   import { dateTime } from "../lib/format";
@@ -13,7 +13,9 @@
   import ProviderIcon from "../components/ProviderIcon.svelte";
   import Skeleton from "../components/Skeleton.svelte";
   import Switch from "../components/Switch.svelte";
+  import Segmented from "../components/Segmented.svelte";
   import TestResult from "../components/TestResult.svelte";
+  import { chooseTheme, type ThemePref } from "../lib/theme";
 
   type OrgForm = { name: string; url: string; pat: string; enabled: boolean; originalName?: string; hasPat?: boolean; patStore?: string; me?: any; test?: any };
   const TABS = [
@@ -184,6 +186,9 @@
       {:else if tab === "prefs"}
         <div class="head"><div><h2>Preferências</h2></div></div>
         <div class="card org">
+          <div class="pref"><div><b>Tema</b><div class="small muted">“Sistema” acompanha o claro/escuro do {navigator.platform.includes("Mac") ? "macOS" : "Windows"} e troca sozinho.</div></div>
+            <Segmented size="sm" value={cfg.theme || "system"} onchange={(v) => { chooseTheme(v as ThemePref); savePrefs({ theme: v }); }}
+              options={[{ value: "system", label: "Sistema", icon: Monitor }, { value: "dark", label: "Escuro", icon: Moon }, { value: "light", label: "Claro", icon: Sun }]} /></div>
           <div class="pref"><div><b>Editor</b><div class="small muted">Usado em “Abrir no editor” nos repositórios.</div></div>
             <select class="input" value={cfg.editor} onchange={(e) => savePrefs({ editor: (e.target as HTMLSelectElement).value })}>
               {#each cfg.editors as ed (ed.id)}<option value={ed.id}>{ed.name}</option>{:else}<option value="">nenhum editor encontrado</option>{/each}

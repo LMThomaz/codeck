@@ -384,6 +384,7 @@ sealed class MainForm : Form
             var msg = JsonDocument.Parse(json).RootElement;
             var type = msg.GetProperty("type").GetString();
             if (type == "pickFolder") { PickFolder(msg.GetProperty("id").GetString() ?? "", msg.TryGetProperty("title", out var t) ? t.GetString() : null); return; }
+            if (type == "theme") { ApplyTheme(msg.TryGetProperty("mode", out var m) && m.GetString() == "light"); return; }
             if (type != "install") return;
             var path = Path.GetFullPath(msg.GetProperty("path").GetString() ?? "");
             var updates = Path.GetFullPath(Path.Combine(dataDir, "updates")) + Path.DirectorySeparatorChar;
@@ -398,6 +399,17 @@ sealed class MainForm : Form
             MessageBox.Show($"Não consegui atualizar: {ex.Message}", "Commitdeck");
         }
     }
+
+    // A tela manda o tema RESOLVIDO (claro/escuro); a barra de título e o fundo da janela acompanham, para não haver
+    // faixa clara sobre o app escuro nem clarão ao redimensionar.
+    void ApplyTheme(bool light)
+    {
+        int dark = light ? 0 : 1;
+        DwmSetWindowAttribute(Handle, 20, ref dark, sizeof(int)); // DWMWA_USE_IMMERSIVE_DARK_MODE (Windows 10 20H1+ e 11)
+        BackColor = light ? Color.FromArgb(0xf5, 0xf6, 0xfa) : Color.FromArgb(0x0b, 0x0d, 0x12);
+    }
+
+    [DllImport("dwmapi.dll")] static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int value, int size);
 
     // O app se chamava PR Pilot: a pasta de dados antiga vira a nova (contas, regras, histórico). O instalador do
     // Commitdeck já desinstalou o PR Pilot (replaces), mas os dados do usuário ficam em %APPDATA%.

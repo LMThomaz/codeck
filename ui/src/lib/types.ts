@@ -64,7 +64,7 @@ export interface AppState {
   issueErrors: Record<string, string>; lastPoll: string | null; lastDeployPoll: string | null; lastBuildPoll: string | null;
   lastIssuePoll: string | null; pollMs: number | null; me: Record<string, { id: string; name: string; email?: string; avatar?: string } | null>;
   orgs: string[]; githubAccounts: { id: string; login: string; avatar?: string }[]; sources: string[]; pollSeconds: number;
-  editor: string; rules: RulesCfg; archive: Record<string, any>; activity: Activity[]; creators: string[]; repos: string[];
+  editor: string; theme: "system" | "dark" | "light"; polling: string | null; rules: RulesCfg; archive: Record<string, any>; activity: Activity[]; creators: string[]; repos: string[];
   targets: string[]; ruleStats: Record<string, { count: number; last: string }>; configured: boolean;
   app: { version: string; build: number; platform: string; product: string };
   update: { available?: boolean; version?: string; build?: number; notes?: string; required?: boolean; disabled?: boolean; checkedAt?: string; error?: string };

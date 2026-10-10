@@ -319,6 +319,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKUI
         if body["type"] as? String == "pickFolder", let id = body["id"] as? String {
             return pickFolder(id: id, title: body["title"] as? String ?? "Escolha uma pasta")
         }
+        if body["type"] as? String == "theme" {
+            // a tela manda o tema RESOLVIDO; a barra de título e o fundo da janela acompanham
+            let light = body["mode"] as? String == "light"
+            window.appearance = NSAppearance(named: light ? .aqua : .darkAqua)
+            window.backgroundColor = light ? NSColor(srgbRed: 0.961, green: 0.965, blue: 0.980, alpha: 1)
+                                           : NSColor(srgbRed: 0.043, green: 0.051, blue: 0.071, alpha: 1)
+            return
+        }
         guard body["type"] as? String == "install", let path = body["path"] as? String else { return }
         do { try installUpdate(dmg: path) } catch { alert("Não consegui atualizar", error.localizedDescription) }
     }

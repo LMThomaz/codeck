@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Activity, BarChart3, CircleDot, FolderGit2, GitPullRequest, Hammer, History, Inbox, Pin, Rocket, Search, Settings, Zap } from "@lucide/svelte";
+  import { BarChart3, RefreshCw, CircleDot, FolderGit2, GitPullRequest, Hammer, History, Inbox, Pin, Rocket, Search, Settings, Zap } from "@lucide/svelte";
   import { BRAND } from "../lib/brand";
   import { post } from "../lib/api";
   import { repos } from "../lib/repos.svelte";
@@ -46,6 +46,12 @@
       ui.toast(on ? "Automação ligada" : "Automação pausada — nada é aprovado sozinho");
       store.load();
     } catch (e) { ui.error(e); }
+  }
+  const syncText = $derived(store.error ? "backend fora do ar" : s?.polling ? `lendo ${s.polling}…` : store.refreshing ? "pedindo leitura…"
+    : s?.lastPoll ? `lido às ${time(s.lastPoll)}` : "primeira leitura…");
+  async function manualRefresh() {
+    const ok = await store.refresh();
+    ui.toast(ok ? "Tudo atualizado" : "A leitura está demorando — os dados chegam assim que ela terminar", ok ? "ok" : "info");
   }
   const sourceErrors = $derived(s ? { ...s.errors, ...s.buildErrors, ...s.deployErrors } : {});
 </script>
@@ -99,9 +105,14 @@
         <span class:err={sourceErrors["gh:" + a.login]} title={sourceErrors["gh:" + a.login] || `GitHub · @${a.login}`}><ProviderIcon provider="github" size={12} />{a.login}</span>
       {/each}
     </div>
-    <div class="sync">
-      <Activity size={12} /> {store.error ? "backend fora do ar" : `lido às ${time(s?.lastPoll)}`}
-      <button class="btn ghost sm" title="Ler tudo agora" onclick={async () => { await post("refresh"); ui.toast("Lendo GitHub e Azure…", "info"); store.refreshSoon(4000); }}>Atualizar</button>
+    <div class="sync" class:on={store.fetching} class:off={!!store.error}>
+      <span class="state">
+        <span class="pulse"></span>
+        {#key syncText}<span class="txt">{syncText}</span>{/key}
+      </span>
+      <button class="btn ghost sm icon" title={store.fetching ? "Lendo…" : "Ler tudo agora"} aria-label="Atualizar" disabled={store.refreshing} onclick={manualRefresh}>
+        <RefreshCw size={14} class={store.fetching ? "spin" : ""} />
+      </button>
     </div>
   </div>
 </aside>
@@ -147,6 +158,14 @@
   .health { display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: 11.5px; color: var(--text-2); }
   .health span { display: inline-flex; align-items: center; gap: 5px; }
   .health .err { color: var(--bad); }
-  .sync { display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--muted); }
+  .sync { display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--muted); min-height: 27px; }
+  .state { flex: 1; min-width: 0; display: flex; align-items: center; gap: 7px; }
+  .txt { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; animation: rise 0.3s var(--ease-out); }
+  .sync.on .txt { color: var(--text-2); }
+  /* ponto de status: verde parado quando em dia, azul pulsando enquanto lê, vermelho se o backend caiu */
+  .pulse { width: 7px; height: 7px; border-radius: 50%; flex: none; background: var(--good); transition: background var(--t); }
+  .sync.on .pulse { background: var(--accent); animation: ping 1.2s var(--ease) infinite; }
+  .sync.off .pulse { background: var(--bad); }
+  @keyframes ping { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 65%, transparent); } 80%, 100% { box-shadow: 0 0 0 7px transparent; } }
   .sync .btn { margin-left: auto; }
 </style>

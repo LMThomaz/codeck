@@ -394,14 +394,21 @@ def poll_issues():
         state.update(issues=out, issueErrors=errors, lastIssuePoll=now_iso())
 
 
+POLL_STEP = {"poll_prs": "pull requests", "poll_builds": "builds", "poll_deploys": "deploys", "poll_issues": "issues e tarefas"}
+
+
 def poll_loop():
     while True:
         for fn in (poll_prs, poll_builds, poll_deploys) + ((poll_issues,) if _cycle["n"] % 3 == 0 else ()):
+            with lock:
+                state["polling"] = POLL_STEP[fn.__name__]  # a tela mostra "lendo <etapa>…" enquanto isto não volta a None
             try:
                 fn()
             except Exception as e:  # noqa: BLE001
                 with lock:
                     state["errors"]["_geral"] = f"{fn.__name__}: {e}"
+        with lock:
+            state["polling"] = None
         _cycle["n"] += 1
         wake.wait(max(15, int(ctx.config.get("pollSeconds", 60))))
         wake.clear()

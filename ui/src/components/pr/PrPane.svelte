@@ -1,14 +1,15 @@
 <script lang="ts">
   // Painel de detalhes da PR: ações de voto, descrição, revisores e checks/policies.
   import { AlertTriangle, Archive, ExternalLink, GitBranch } from "@lucide/svelte";
-  import { archive, vote } from "../../lib/actions";
+  import { archive } from "../../lib/actions";
   import { ago, dateTime } from "../../lib/format";
   import type { PR } from "../../lib/types";
   import Avatar from "../Avatar.svelte";
   import ProviderIcon from "../ProviderIcon.svelte";
   import { POLICY, VOTES } from "./votes";
+  import VoteButton from "./VoteButton.svelte";
 
-  let { pr, mine = false }: { pr: PR; mine?: boolean } = $props();
+  let { pr, mine = false, leaves = false }: { pr: PR; mine?: boolean; leaves?: boolean } = $props();
 
   async function doArchive() { await archive([pr.key], !pr.archived); }
   const btn = (v: number) => pr.myVote !== v;
@@ -23,11 +24,11 @@
   </div>
   <div class="acts">
     {#if !mine}
-      {#if btn(10)}<button class="btn sm good" onclick={() => vote(pr, 10)}>Aprovar</button>{/if}
-      {#if btn(5)}<button class="btn sm" onclick={() => vote(pr, 5)}>Aprovar c/ sugestões</button>{/if}
-      {#if btn(-5)}<button class="btn sm" onclick={() => vote(pr, -5)}>Aguardando autor</button>{/if}
-      {#if btn(-10)}<button class="btn sm danger" onclick={() => vote(pr, -10)}>{pr.provider === "github" ? "Pedir mudanças" : "Recusar"}</button>{/if}
-      {#if btn(0) && pr.provider === "azure"}<button class="btn sm ghost" onclick={() => vote(pr, 0)}>Remover voto</button>{/if}
+      {#if btn(10)}<VoteButton {pr} v={10} cls="good" {leaves}>Aprovar</VoteButton>{/if}
+      {#if btn(5)}<VoteButton {pr} v={5} {leaves}>Aprovar c/ sugestões</VoteButton>{/if}
+      {#if btn(-5)}<VoteButton {pr} v={-5} {leaves}>Aguardando autor</VoteButton>{/if}
+      {#if btn(-10)}<VoteButton {pr} v={-10} cls="danger" {leaves}>{pr.provider === "github" ? "Pedir mudanças" : "Recusar"}</VoteButton>{/if}
+      {#if btn(0) && pr.provider === "azure"}<VoteButton {pr} v={0} cls="ghost" {leaves}>Remover voto</VoteButton>{/if}
     {/if}
     <a class="btn sm" href={pr.url} target="_blank" rel="noopener"><ExternalLink size={13} /> Abrir</a>
     {#if !mine}<button class="btn sm ghost" onclick={doArchive}><Archive size={13} /> {pr.archived ? "Restaurar" : "Arquivar"}</button>{/if}

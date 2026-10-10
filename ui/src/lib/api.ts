@@ -1,3 +1,5 @@
+import { ui } from "./ui.svelte";
+
 // Cliente da API local. A chave da execução vem do app nativo (window.COMMITDECK_TOKEN); sem ela o backend recusa.
 declare global {
   interface Window { COMMITDECK_TOKEN?: string; COMMITDECK_PLATFORM?: string; openTarget?: (t: string) => void; checkUpdate?: (m?: boolean) => void;
@@ -24,8 +26,10 @@ export function get<T = any>(path: string, params?: Record<string, string | numb
   return fetch(`/api/${path}${qs}`, { headers: headers() }).then(r => handle<T>(r));
 }
 
+/** Envio de ação. Conta como "em andamento" até responder, o que acende a barra de progresso do topo. */
 export function post<T = any>(path: string, body: unknown = {}): Promise<T> {
+  ui.inflight++;
   return fetch(`/api/${path}`, {
     method: "POST", headers: { ...headers(), "Content-Type": "application/json", "X-Commitdeck": "1" }, body: JSON.stringify(body),
-  }).then(r => handle<T>(r));
+  }).then(r => handle<T>(r)).finally(() => ui.inflight--);
 }

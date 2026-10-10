@@ -72,7 +72,7 @@ wake = threading.Event()
 # Contas carregadas (trocadas inteiras pelo engine.reload_accounts): ctx.orgs = Azure, ctx.gh = GitHub.
 ctx = SimpleNamespace(orgs={}, gh={}, config={})
 state = {
-    "prs": [], "myPrs": [], "builds": [], "buildErrors": {}, "errors": {}, "lastPoll": None, "me": {}, "pollMs": None,
+    "polling": None, "prs": [], "myPrs": [], "builds": [], "buildErrors": {}, "errors": {}, "lastPoll": None, "me": {}, "pollMs": None,
     "deploys": [], "releases": [], "deployErrors": {}, "lastDeployPoll": None, "lastBuildPoll": None,
     "issues": [], "issueErrors": {}, "lastIssuePoll": None, "ghErrors": {},
 }

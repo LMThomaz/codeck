@@ -1,7 +1,6 @@
 <script lang="ts">
   // Fila: tudo que espera você — PRs (Azure + GitHub) e aprovações de deploy/permissões (Azure + GitHub).
   import { AlertTriangle } from "@lucide/svelte";
-  import { vote } from "../lib/actions";
   import { fmtH, hoursSince } from "../lib/format";
   import { go, router, soft } from "../lib/router.svelte";
   import { store } from "../lib/store.svelte";
@@ -12,6 +11,7 @@
   import Page from "../components/Page.svelte";
   import PrPane from "../components/pr/PrPane.svelte";
   import PrRow from "../components/pr/PrRow.svelte";
+  import VoteButton from "../components/pr/VoteButton.svelte";
   import Segmented from "../components/Segmented.svelte";
   import Skeleton from "../components/Skeleton.svelte";
   import SourceFilter from "../components/SourceFilter.svelte";
@@ -93,7 +93,7 @@
         {#if showPrs}
           {#each prs as p (p.key)}
             <PrRow pr={p} selected={p.key === selKey} onselect={() => select(p.key)}>
-              {#snippet actions()}<button class="btn sm good" onclick={() => vote(p, 10)}>Aprovar</button>{/snippet}
+              {#snippet actions()}<VoteButton pr={p} v={10} cls="good" leaves>Aprovar</VoteButton>{/snippet}
             </PrRow>
           {/each}
         {/if}
@@ -103,7 +103,7 @@
         {/if}
       {/snippet}
       {#snippet pane()}
-        {#if selDep}<DeployPane d={selDep} />{:else if selPr}<PrPane pr={selPr} />{/if}
+        {#if selDep}<DeployPane d={selDep} />{:else if selPr}<PrPane pr={selPr} leaves />{/if}
       {/snippet}
     </Split>
   {/if}
