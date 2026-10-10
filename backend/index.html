@@ -493,6 +493,38 @@
 
   .pane .pact .ghost { border-color: var(--line); }
   .pane .ph h2 { font-size: 17px; }
+  /* layout de aplicativo: a janela não rola; cada seção ocupa o que sobra da tela e rola o próprio conteúdo */
+  @media (min-width: 861px) {
+    html, body { height: 100%; overflow: hidden; }
+    .shell { height: 100vh; }
+    .content { height: 100vh; display: flex; flex-direction: column; overflow: hidden; padding-bottom: 18px; }
+    .content > #vhead, .content > #errors { flex: none; }
+    #view { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; overflow: auto; }
+    #view > * { flex: none; }
+    #view > .fill, #view > .skel-page { flex: 1 1 auto; min-height: 0; }
+    #view > .skel-page { display: flex; flex-direction: column; overflow: hidden; }
+    #view > .skel-page > * { flex: none; }
+    #view > .skel-page > .fill { flex: 1 1 auto; min-height: 0; }
+    .fill.split, .fill.lay2, .fill.lay-side { align-items: stretch; grid-auto-rows: minmax(0, 1fr); }
+    /* seção = cartão com cabeçalho preso e conteúdo rolando */
+    .fill > .card, .card.fill { display: flex; flex-direction: column; min-height: 0; overflow: auto; overscroll-behavior: contain; }
+    .fill > .card > *, .card.fill > * { flex: none; }
+    .fill > .card > .tbl-wrap, .card.fill > .tbl-wrap { flex: 1 1 auto; min-height: 0; overflow: auto; }
+    .fill > .card > .card-h, .card.fill > .card-h { position: sticky; top: 0; z-index: 3; background: var(--surface); }
+    .fill > .card > .sect { position: sticky; top: 0; z-index: 2; }
+    .fill > .card > .list-head { position: sticky; top: 0; z-index: 2; background: var(--surface); border-bottom: 1px solid var(--line); }
+    .fill > .card > .list-head + .pr { border-top: 0; }
+    .fill thead th { position: sticky; top: 0; z-index: 2; background: var(--surface); box-shadow: inset 0 -1px 0 var(--line); }
+    .fill > .card + .card { margin-top: 0; }
+    .fill > .pane { position: static; max-height: none; height: auto; }
+    /* colunas com vários cartões (Automação, Ambiente): a coluna rola */
+    .fill > .col { min-height: 0; overflow: auto; overscroll-behavior: contain; padding-right: 2px; }
+    .fill > .col > .card + .card { margin-top: 16px; }
+    .fill.scrollview { overflow: auto; overscroll-behavior: contain; padding-right: 2px; }
+    .fill.scrollview > .grid2, .fill.scrollview > .lay-side { margin-top: 16px; }
+    .fill > .card, .card.fill, .fill > .col, .fill.scrollview, .fill > .pane { scrollbar-gutter: stable; }
+  }
+
   /* estado vazio */
   .empty { padding: 56px 16px; }
   .empty::before { content: ""; display: block; width: 52px; height: 52px; margin: 0 auto 14px; border-radius: 50%;
@@ -701,7 +733,7 @@ function skeletonView(t) {
     <div class="loading-note">Lendo o Azure DevOps…</div>
     ${kpiN ? `<div class="kpis">${Array.from({length: kpiN}, () => `<div class="kpi" style="display:grid;gap:8px">${sh("70%", 10)}${sh("40%", 20)}${sh("55%", 9)}</div>`).join("")}</div>` : ""}
     <i class="shim skel-tool"></i>
-    ${wide() && ["fila", "todas", "minhas", "builds"].includes(t) ? `<div class="split">${list}${pane}</div>` : list}</div>`;
+    ${wide() && ["fila", "todas", "minhas", "builds"].includes(t) ? `<div class="split fill">${list}${pane}</div>` : `<div class="fill">${list}</div>`}</div>`;
 }
 function countUp(el) {
   const m = /^(\d+)(%?)$/.exec(el.textContent.trim());
@@ -892,7 +924,7 @@ function renderQueue() {
       <button class="ghost sm" data-bulk="clear">Limpar</button></div>` : ""}
     ${(() => { queueOrder = [...deps.map(d => d.key), ...(showPrs ? list.map(key) : [])];
       if (wide() && !queueOrder.includes(focusKey)) focusKey = queueOrder[0] || null; return ""; })()}
-    <div class="${wide() && queueOrder.length ? "split" : ""}"><div class="card">
+    <div class="fill ${wide() && queueOrder.length ? "split" : ""}"><div class="card">
       ${deps.length ? `<div class="sect">🚀 Releases e permissões <span class="muted" style="font-weight:500">${deps.length}</span></div>` + deps.map(deployRow).join("") : ""}
       ${showPrs && list.length ? (tab === "fila" ? `<div class="sect">Pull requests <span class="muted" style="font-weight:500">${list.length}</span></div>` : "") + `<div class="list-head">
           <input type="checkbox" id="selAll" ${list.every(p => selected.has(key(p))) ? "checked" : ""} title="Selecionar todas">
@@ -1107,8 +1139,8 @@ function renderReleases() {
       <span class="spacer"></span><span class="small muted">lido às ${S.lastDeployPoll ? new Date(S.lastDeployPoll).toLocaleTimeString("pt-BR") : "—"}</span>
       <button class="sm" data-goto="auto">⚡ Regras de release</button>
     </div>
-    <div class="lay2"><div class="card"><div class="card-h"><h3>Esperando liberação</h3><span class="muted small">${deps.length} item(ns)</span></div>
-      ${deps.length ? deps.map(deployRow).join("") : `<div class="empty"><b>Nada parado 🎉</b>Nenhuma release ou pipeline esperando você${F.org || F.kind ? " com esses filtros" : ""}.</div>`}</div>
+    <div class="lay2 fill"><div class="card"><div class="card-h"><h3>Esperando liberação</h3><span class="muted small">${deps.length} item(ns)</span></div>
+      ${deps.length ? deps.map(deployRow).join("") : `<div class="empty ${F.org || F.kind ? "" : "done"}"><b>Nada parado</b>Nenhuma release ou pipeline esperando você${F.org || F.kind ? " com esses filtros" : ""}.</div>`}</div>
     <div class="card"><div class="card-h"><h3>Releases recentes</h3><span class="spacer"></span>
       <label class="switch small"><input type="checkbox" id="relProd" ${relOnlyProd ? "checked" : ""}><span>Só de branch protegida (${S.rules.protectedTargets.map(esc).join(", ")})</span></label></div>
       <div class="tbl-wrap"><table class="relt"><thead><tr><th>Release</th><th>Origem</th><th>Estágios</th><th>Criada</th></tr></thead><tbody>
@@ -1162,7 +1194,7 @@ function renderMine() {
     </div>
     <div class="toolbar"><input type="search" id="q" placeholder="Buscar nas minhas PRs…" value="${esc(F.q)}">
       <div class="seg">${["", ...S.orgs].map(o => `<button class="${F.org === o ? "on" : ""}" data-org="${esc(o)}">${o ? esc(o) : "Todas"}</button>`).join("")}</div></div>
-    <div class="${wide() ? "split" : ""}"><div class="card">
+    <div class="fill ${wide() ? "split" : ""}"><div class="card">
       ${list.length ? list.map(myPrRow).join("") : `<div class="empty"><b>Nenhuma PR sua aberta</b>${q || F.org ? "Nada bate com os filtros." : "Quando você abrir uma, ela aparece aqui com o que estiver travando."}</div>`}
     </div>${wide() ? `<aside class="card pane">${p ? `<div class="ph">
         <div class="small muted"><i class="dot" style="background:${orgColor(p.org)}"></i> ${esc(p.org)} / ${esc(p.repo)} · <span class="prid">#${p.prId}</span></div>
@@ -1279,7 +1311,7 @@ function renderBuilds() {
       <button class="sm ${BF.prot ? "primary" : ""}" data-btoggle="prot">🔒 Só protegidas</button>
       <button class="sm ${BF.mine ? "primary" : ""}" data-btoggle="mine">Só os meus</button>
     </div>
-    <div class="${wide() ? "split" : ""}"><div class="card">
+    <div class="fill ${wide() ? "split" : ""}"><div class="card">
       ${list.length ? `<div class="list-head"><span class="small muted">${list.length} de ${S.builds.length} execuções recentes · mais novas primeiro</span></div>` + list.map(buildRow).join("")
         : `<div class="empty"><b>Nenhum build</b>Nada bate com os filtros.</div>`}
     </div>${wide() ? `<aside class="card pane">${b ? (() => { const [ic, cls, label] = BST(b); return `<div class="ph">
@@ -1350,7 +1382,7 @@ window.openTarget = target => {
 function renderArchived() {
   const entries = Object.entries(S.archive).map(([k, a]) => ({...a, k, live: S.prs.find(p => key(p) === k)}))
     .sort((a, b) => (b.ts || "").localeCompare(a.ts || ""));
-  $("#view").innerHTML = `<div class="card">
+  $("#view").innerHTML = `<div class="card fill">
     <div class="card-h"><h3>Arquivadas</h3><span class="muted small">Ficam fora da fila e o piloto não age nelas.
       ${S.rules.settings.resurfaceOnPush ? "Voltam sozinhas se receberem push novo." : "Não voltam sozinhas com push novo."} Somem daqui quando a PR fecha.</span></div>
     ${entries.length ? `<div class="tbl-wrap"><table><thead><tr><th>PR</th><th>Criador → destino</th><th>Motivo</th><th>Arquivada</th><th></th></tr></thead><tbody>
@@ -1437,7 +1469,7 @@ function renderAuto() {
   const st = S.rules.settings, rules = S.rules.rules;
   const sw = (id, label, help, on) => `<label class="switch"><input type="checkbox" data-setting="${id}" ${on ? "checked" : ""}><span>${label}<small>${help}</small></span></label>`;
   const tplItems = TEMPLATES.map((t, i) => `<button data-tpl="${i}">${esc(t.label)}</button>`).join("");
-  $("#view").innerHTML = `<div class="lay-side"><div class="col">
+  $("#view").innerHTML = `<div class="lay-side fill"><div class="col">
     <div class="card">
       <div class="card-h"><h3>Pull requests</h3><span class="muted small">Avaliadas de cima para baixo — a primeira que se aplicar à PR decide.</span>
         <span class="spacer"></span>
@@ -1902,7 +1934,7 @@ function renderAnalytics() {
   const maxMerged = Math.max(1, ...A.creators.map(c => c.merged));
   $("#view").innerHTML = head
     + Object.entries(A.errors || {}).map(([o, e]) => `<div class="error"><b>${esc(o)}:</b> ${esc(e)}</div>`).join("")
-    + `<div class="kpis">${tiles.map(([l, v, s]) => `<div class="kpi"><div class="l">${l}</div><div class="v">${v}</div><div class="s">${s}</div></div>`).join("")}</div>
+    + `<div class="fill scrollview"><div class="kpis">${tiles.map(([l, v, s]) => `<div class="kpi"><div class="l">${l}</div><div class="v">${v}</div><div class="s">${s}</div></div>`).join("")}</div>
     <div class="grid2">
       <div class="card"><div class="card-h"><h3>Minhas aprovações por dia</h3><span class="spacer"></span>
         <div class="legend"><span><i style="background:var(--series-1)"></i>Piloto</span><span><i style="background:var(--series-2)"></i>Manual</span></div></div>
@@ -1923,7 +1955,7 @@ function renderAnalytics() {
       <div class="card"><div class="card-h"><h3>Repositórios mais movimentados</h3></div><div class="card-b">${hbars(A.repos)}</div></div>
       <div class="card"><div class="card-h"><h3>Idade das PRs abertas</h3></div><div class="card-b">${hbars(A.aging)}
         <h3 style="font-size:14px;margin:18px 0 8px">Destino das concluídas</h3>${hbars(A.targets)}</div></div>
-    </div></div>`;
+    </div></div></div>`;
 }
 
 /* ------------------------------------------------------------------ histórico */
@@ -1941,7 +1973,7 @@ function renderHistory() {
   $("#view").innerHTML = `<div class="toolbar"><div class="seg">
       ${[["all", "Tudo"], ["auto", "Piloto"], ["manual", "Manual"]].map(([v, l]) => `<button class="${histFilter === v ? "on" : ""}" data-hist="${v}">${l}</button>`).join("")}
     </div><span class="muted small">últimos ${S.activity.length} eventos</span></div>
-    <div class="card"><div class="tbl-wrap"><table><thead><tr><th>Quando</th><th>Quem</th><th>Ação</th><th>Item</th></tr></thead><tbody>
+    <div class="card fill"><div class="tbl-wrap"><table><thead><tr><th>Quando</th><th>Quem</th><th>Ação</th><th>Item</th></tr></thead><tbody>
     ${list.map(a => { const [l, c] = label(a); return `<tr>
       <td class="small muted" style="white-space:nowrap">${new Date(a.ts).toLocaleString("pt-BR")}</td>
       <td>${a.by === "auto" ? `<span class="pill p-auto">⚡ piloto</span>` : `<span class="pill p-neutral">você</span>`}${a.detail ? `<div class="small muted">${esc(a.detail)}</div>` : ""}</td>
@@ -1983,7 +2015,7 @@ function renderEnv() {
     </div>`).join("");
   $("#view").innerHTML = `
     ${!S.configured ? `<div class="notice">👋 Bem-vindo! Cadastre ao menos uma organização do Azure DevOps com o seu PAT para começar. Tudo fica só nesta máquina.</div>` : ""}
-    <div class="lay-side"><div class="card">
+    <div class="lay-side fill"><div class="card">
       <div class="card-h"><h3>Organizações / contas Azure DevOps</h3><span class="muted small">Uma linha por organização. Cada uma usa o PAT da sua conta naquela org.</span>
         <span class="spacer"></span><button class="sm" data-cfadd>+ Adicionar organização</button></div>
       ${rows}
