@@ -22,7 +22,7 @@ export interface Session {
 }
 export interface Task {
   id: string; title: string; slug: string; branch: string; base: string; path: string; repoId: string; createdAt: string;
-  status: string; prompt: string; exists: boolean; terms: TermInfo[]; workItem?: any; pr?: any; copied: string[];
+  status: string; prompt: string; exists: boolean; terms: TermInfo[]; workItem?: any; pr?: any; copied: string[]; group?: string | null;
 }
 export interface Project {
   id: string; name: string; path: string; provider?: string | null; slug?: string | null; webUrl?: string | null;

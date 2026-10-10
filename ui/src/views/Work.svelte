@@ -2,7 +2,7 @@
   // Área de trabalho (v3): projetos abertos em abas; em cada um, o checkout principal e as tarefas (worktrees) à
   // esquerda com os arquivos; no centro, abas de agentes, terminais e arquivos; à direita, o agente e os limites.
   // ⌘P abre arquivo · ⌘⇧F busca no projeto · ⌘T novo terminal · ⌘W fecha a aba · ⌘1…9 troca de projeto.
-  import { Bot, ChevronDown, Code2, FolderGit2, FolderOpen, GitBranch, PanelRight, Plus, Search, SquareTerminal, X } from "@lucide/svelte";
+  import { Bot, ChevronDown, Code2, FolderGit2, FolderOpen, GitBranch, GitCompareArrows, LayoutGrid, PanelRight, Plus, Search, SquareTerminal, X } from "@lucide/svelte";
   import { untrack } from "svelte";
   import { post } from "../lib/api";
   import { pickFolder } from "../lib/native";
@@ -20,6 +20,8 @@
   import FileTree from "../components/work/FileTree.svelte";
   import NewTask from "../components/work/NewTask.svelte";
   import Terminal, { drop } from "../components/work/Terminal.svelte";
+  import Board from "../components/work/Board.svelte";
+  import Compare from "../components/work/Compare.svelte";
 
   type FileTab = { k: "file"; key: string; path: string; scope: string | null; line?: number };
   type View = { scope: string | null; files: FileTab[]; order: string[]; active: string | null; left: "files" | "search"; right: boolean };
@@ -30,11 +32,13 @@
 
   $effect(() => { if (!repos.loaded) repos.load(false); });
 
-  // projeto pela rota (/work/<id>) ou o ativo
-  const pid = $derived(router.parts[1] || work.active);
+  // projeto pela rota (/work/<id>) ou o ativo; /work/board é o quadro de todas as tarefas
+  const board = $derived(router.parts[1] === "board");
+  const pid = $derived(board ? null : router.parts[1] || work.active);
   const p = $derived(work.projects.find(x => x.id === pid) || null);
   $effect(() => {
     if (!work.loaded) return;
+    if (board) return;
     if (router.parts[1] && !work.projects.some(x => x.id === router.parts[1])) untrack(() => work.open(router.parts[1]).catch(e => ui.error(e)));
     else if (p && work.active !== p.id) untrack(() => work.activate(p.id));
   });
@@ -68,6 +72,7 @@
 
   // ------------------------------------------------------------ ações
   let newTask = $state<{ preset?: any } | null>(null);
+  let comparing = $state<string | null>(null);
   $effect(() => {
     const pt = work.pendingTask;
     if (pt && p && pt.projectId === p.id) untrack(() => { setScope(null); newTask = { preset: pt.preset }; work.pendingTask = null; });
@@ -158,9 +163,13 @@
       </div>
     {/each}
     <Menu items={projectItems} label="Abrir projeto" align="left">{#snippet trigger()}<span class="btn sm ghost addp"><Plus size={14} /> Projeto</span>{/snippet}</Menu>
+    <span class="grow"></span>
+    {#if work.projects.some(x => x.tasks.length)}<button class="btn sm" class:primary={board} onclick={() => go(board ? "/work" : "/work/board", "soft")}><LayoutGrid size={14} /> Quadro</button>{/if}
   </div>
 
-  {#if !p || !v}
+  {#if board}
+    <div class="boardwrap"><Board onopen={(bp, bt) => { go("/work/" + bp.id, "soft"); setTimeout(() => { const vv = views[bp.id]; if (vv) { vv.scope = bt.id; vv.active = null; } }, 60); }} /></div>
+  {:else if !p || !v}
     <div class="empty">
       <Empty title={work.loaded ? "Abra um projeto" : "Carregando…"} text="Cada projeto abre numa aba: agentes de IA, terminais, arquivos e tarefas em worktree, lado a lado.">
         {#if work.loaded}<Menu items={projectItems} align="left">{#snippet trigger()}<span class="btn primary"><FolderGit2 size={14} /> Abrir projeto</span>{/snippet}</Menu>{/if}
@@ -176,6 +185,9 @@
             {#if p.terms.length}<span class="tiny muted">{p.terms.length}</span>{/if}
           </button>
           <div class="sch"><span>Tarefas</span><button class="btn sm ghost" onclick={() => (newTask = {})}><Plus size={13} /> Nova</button></div>
+          {#each [...new Set(p.tasks.filter(t => t.group).map(t => t.group!))].filter(g => p!.tasks.filter(t => t.group === g).length > 1) as g (g)}
+            <button class="cmp" onclick={() => (comparing = g)}><GitCompareArrows size={13} /> Comparar {p.tasks.filter(t => t.group === g).length} soluções · {g}</button>
+          {/each}
           {#each p.tasks as t (t.id)}
             <button class="sc task" class:on={v.scope === t.id} onclick={() => setScope(t.id)} title={t.branch}>
               <span class="dot {taskTone(t)}"></span>
@@ -251,6 +263,10 @@
   {/if}
 </div>
 
+{#if comparing && p}
+  <Compare project={p} tasks={p.tasks.filter(t => t.group === comparing)} onclose={() => (comparing = null)} onview={(t) => setScope(t.id)} />
+{/if}
+
 {#if newTask && p}
   <NewTask project={p} preset={newTask.preset} onclose={() => (newTask = null)} oncreated={(ids) => { newTask = null; setScope(ids[0]); }} />
 {/if}
@@ -269,6 +285,10 @@
   .live { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); animation: ping 1.2s var(--ease) infinite; }
   @keyframes ping { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 60%, transparent); } 80%, 100% { box-shadow: 0 0 0 6px transparent; } }
   .addp { color: var(--muted); }
+  .ptabs .grow { flex: 1; }
+  .boardwrap { flex: 1; min-height: 0; }
+  .cmp { display: flex; align-items: center; gap: 6px; margin: 2px 4px 4px; padding: 6px 8px; border: 1px dashed var(--accent-line); border-radius: 8px;
+    background: var(--accent-soft); color: var(--accent); font: 600 12px var(--font); cursor: pointer; text-align: left; }
   .empty { flex: 1; display: grid; place-items: center; }
   .grid { flex: 1; min-height: 0; display: grid; grid-template-columns: 260px minmax(0, 1fr) 300px; gap: 10px; }
   .grid.noright { grid-template-columns: 260px minmax(0, 1fr); }

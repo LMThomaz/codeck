@@ -28,6 +28,22 @@ O app não é assinado por certificado comercial (decisão da ThomSoft):
 
 ## O que faz
 
+**Projetos (v3) — programar com IA sem sair do app**
+- Projetos abertos em abas, quantos quiser. Em cada um: agentes de IA, terminais de verdade e arquivos lado a lado.
+- **Tarefas em worktree:** "Nova tarefa" cria a branch, o worktree, copia os arquivos locais que o Git não leva
+  (`workspace.local.json`, `nuget.config`, `.env`… — e garante que eles nunca entrem num commit), roda a preparação e
+  abre o(s) agente(s) com o prompt. Vários agentes no mesmo pedido = cada um no seu worktree; **Comparar** mostra o que
+  cada um mudou e **Ficar com este** descarta os outros.
+- **Contas de IA:** Claude Code (cada `~/.claude-*` é uma conta), Codex (`CODEX_HOME`), Cursor Agent, Gemini CLI,
+  OpenCode. O login é o da própria CLI; o app nunca lê token de IA.
+- **Contexto, limite e reset:** por sessão, o modelo, o contexto usado, o custo e o estado (trabalhando, terminou,
+  precisa de você — com notificação). Por conta, os limites de 5 h e semanal com a contagem para o reset.
+- **Editor** (Monaco, o do VS Code) que acompanha ao vivo o que o agente edita, ⌘P, busca no projeto, terminais (⌘T).
+- **Quadro** de todas as tarefas por estado. Atalhos: "Revisar com IA" na PR, "Corrigir com IA" no build quebrado (com
+  o log), "Começar tarefa" na issue/work item.
+- Os terminais não herdam a chave do app nem segredos: um agente não consegue chamar a API local nem ler os PATs.
+
+
 **Revisão e entrega**
 - **Fila**: tudo que espera você — PRs aguardando o seu voto (conflito e build em destaque), deploys aguardando
   aprovação (releases clássicas, environments YAML e *pending deployments* do GitHub) e pipelines travados em

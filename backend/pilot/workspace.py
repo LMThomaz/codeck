@@ -143,6 +143,21 @@ def _exclude_from_enclosing_repo(wt_root):
             f.write(("" if current.endswith("\n") or not current else "\n") + f"# worktrees do Commitdeck\n{rel}\n")
 
 
+def _exclude_copied(wt, files):
+    """Os arquivos copiados (segredos locais: workspace.local.json, nuget.config…) NUNCA podem ir para commit — nem por um
+    `git add -A` do agente. Vão para o exclude do repositório (vale para os worktrees dele; local, não versionado)."""
+    if not files:
+        return
+    excl = git.run(wt, "rev-parse", "--git-path", "info/exclude").strip()
+    excl = excl if os.path.isabs(excl) else os.path.join(wt, excl)
+    os.makedirs(os.path.dirname(excl), exist_ok=True)
+    current = open(excl, encoding="utf-8").read().split("\n") if os.path.exists(excl) else []
+    new = [f"/{f}" for f in files if f"/{f}" not in current]
+    if new:
+        with open(excl, "a", encoding="utf-8") as fh:
+            fh.write(("\n" if current and current[-1] else "") + "# copiados pelo Commitdeck para os worktrees (não versionar)\n" + "\n".join(new) + "\n")
+
+
 def _copy_untracked(src, dst, patterns):
     """Copia para o worktree os arquivos locais que o Git não leva (só os que existem e não estão versionados)."""
     tracked = set(git.run(src, "ls-files", "-z").split("\0"))
@@ -197,6 +212,7 @@ def create_task(repo_id, body):
     else:
         git.run(repo["path"], "worktree", "add", "-b", branch, path, git._check_ref(base), timeout=120)
     copied = _copy_untracked(repo["path"], path, p["settings"].get("copy") or [])
+    _exclude_copied(path, copied)
     wt = git.add_repo(path)
     task = {"id": uuid.uuid4().hex[:10], "title": title, "slug": slug, "branch": branch, "base": base, "path": path,
             "repoId": wt["id"], "createdAt": now_iso(), "status": "open", "workItem": body.get("workItem"),
