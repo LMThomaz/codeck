@@ -88,6 +88,13 @@
     if (ws?.readyState === 1) ws.send(JSON.stringify({ t: "in", d: text }));
   }
 
+  // autoteste do desktop: lê o que o terminal RECEBEU (buffer), independente de a janela estar sendo desenhada
+  if ((window as any).__CD_SELFTEST) (window as any).__cdTermText = () => [...live.values()].map(l => {
+    const b = l.term.buffer.active, out: string[] = [];
+    for (let i = 0; i < b.length; i++) out.push(b.getLine(i)?.translateToString(true) || "");
+    return out.join("\n");
+  }).join("\n");
+
   export function retheme() { for (const l of live.values()) l.term.options.theme = theme(); }
   new MutationObserver(retheme).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
 </script>

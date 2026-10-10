@@ -1,0 +1,363 @@
+// Autoteste do app de DESKTOP — roda dentro da janela real (WKWebView no macOS, WebView2 no Windows).
+// Injetado pelo app nativo quando COMMITDECK_SELFTEST aponta para este arquivo (scripts/test-desktop.sh).
+// Cliques são eventos do DOM; teclas são eventos REAIS do sistema operacional (o app nativo os envia à janela),
+// então ⌘T, ⌘S, F12 e a digitação no terminal/editor passam pelo mesmo caminho que o usuário usa.
+(async () => {
+  const CTX = window.SELFTEST || {};
+  const results = [];
+  const jsErrors = [];
+  window.addEventListener("error", e => jsErrors.push(String(e.message || e.error)));
+  window.addEventListener("unhandledrejection", e => setTimeout(() => { if (!e.defaultPrevented) jsErrors.push("promise: " + String(e.reason?.message || e.reason)); }, 0));
+  const MAC = (window.COMMITDECK_PLATFORM || "macos") === "macos";
+  const MOD = MAC ? "cmd" : "ctrl";
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  const $ = (s, root = document) => root.querySelector(s);
+  const $$ = (s, root = document) => [...root.querySelectorAll(s)];
+  // o Monaco desenha os espaços como espaço não separável: normaliza para comparar texto
+  const txt = el => (el?.innerText || el?.textContent || "").replace(/\u00a0/g, " ").trim();
+  const byText = (sel, t, root = document) => $$(sel, root).find(e => txt(e).includes(t));
+  async function waitFor(fn, ms = 8000, step = 100) {
+    const end = Date.now() + ms;
+    while (Date.now() < end) {
+      const v = typeof fn === "string" ? $(fn) : fn();
+      if (v) return v;
+      await sleep(step);
+    }
+    throw new Error("não apareceu: " + (typeof fn === "string" ? fn : fn.toString().slice(0, 90)));
+  }
+  function click(el) {
+    if (!el) throw new Error("elemento não encontrado para clicar");
+    const r = el.getBoundingClientRect(), o = { bubbles: true, cancelable: true, clientX: r.x + r.width / 2, clientY: r.y + r.height / 2, button: 0, view: window };
+    el.dispatchEvent(new PointerEvent("pointerdown", o)); el.dispatchEvent(new MouseEvent("mousedown", o));
+    el.dispatchEvent(new PointerEvent("pointerup", o)); el.dispatchEvent(new MouseEvent("mouseup", o));
+    el.click();
+  }
+  function rightClick(el) {
+    const r = el.getBoundingClientRect();
+    el.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: r.x + 20, clientY: r.y + r.height / 2, button: 2, view: window }));
+  }
+  function setInput(el, value) {
+    const proto = el.tagName === "TEXTAREA" ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+    Object.getOwnPropertyDescriptor(proto, "value").set.call(el, value);
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+    el.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+
+  // ---- ponte com o app nativo (teclas reais, screenshots, estado das janelas)
+  const pending = {};
+  window.__selftestResolve = (id, v) => { pending[id]?.(v); delete pending[id]; };
+  function native(type, payload = {}) {
+    const id = Math.random().toString(36).slice(2);
+    return new Promise(res => {
+      pending[id] = res;
+      const msg = { type, id, ...payload };
+      if (window.webkit?.messageHandlers?.commitdeck) window.webkit.messageHandlers.commitdeck.postMessage(msg);
+      else window.chrome.webview.postMessage(msg);
+      setTimeout(() => { if (pending[id]) { delete pending[id]; res(null); } }, 15000);
+    });
+  }
+  // keyCodes do macOS (o WebView deriva o "code"/keyCode do evento a partir deles); no Windows, os virtuais (VK_*)
+  const MK = { a: 0, s: 1, d: 2, f: 3, h: 4, g: 5, z: 6, x: 7, c: 8, v: 9, b: 11, q: 12, w: 13, e: 14, r: 15, y: 16, t: 17, "1": 18, "2": 19, "3": 20, "4": 21,
+    "6": 22, "5": 23, "=": 24, "9": 25, "7": 26, "-": 27, "8": 28, "0": 29, "]": 30, o: 31, u: 32, "[": 33, i: 34, p: 35, l: 37, j: 38, "'": 39, k: 40, ";": 41,
+    "\\": 42, ",": 43, "/": 44, n: 45, m: 46, ".": 47, " ": 49, "`": 50 };
+  const SHIFTED = { "!": "1", "@": "2", "#": "3", $: "4", "%": "5", "^": "6", "&": "7", "*": "8", "(": "9", ")": "0", _: "-", "+": "=", "{": "[", "}": "]",
+    ":": ";", '"': "'", "<": ",", ">": ".", "?": "/", "|": "\\", "~": "`" };
+  const SPECIAL = MAC
+    ? { Enter: { c: "\r", k: 36 }, Escape: { c: "\u001b", k: 53 }, Tab: { c: "\t", k: 48 }, Backspace: { c: "\u007f", k: 51 }, F12: { c: "", k: 111 },
+        ArrowUp: { c: "", k: 126 }, ArrowDown: { c: "", k: 125 }, ArrowLeft: { c: "", k: 123 }, ArrowRight: { c: "", k: 124 },
+        Home: { c: "", k: 115 }, End: { c: "", k: 119 } }
+    : { Enter: { c: "\r", k: 13 }, Escape: { c: "\u001b", k: 27 }, Tab: { c: "\t", k: 9 }, Backspace: { c: "\b", k: 8 }, F12: { c: "", k: 123 },
+        ArrowUp: { c: "", k: 38 }, ArrowDown: { c: "", k: 40 }, ArrowLeft: { c: "", k: 37 }, ArrowRight: { c: "", k: 39 }, Home: { c: "", k: 36 }, End: { c: "", k: 35 } };
+  function keyOf(ch, mods = "") {
+    if (SPECIAL[ch]) return { ...SPECIAL[ch], m: mods, n: ch };   // n = nome da tecla (o WebView2 precisa dele)
+    if (!MAC) {
+      const up = ch.toUpperCase();
+      const vk = /^[A-Z0-9]$/.test(up) ? up.charCodeAt(0) : 0;
+      return { c: ch, k: vk, m: mods + (ch !== ch.toLowerCase() ? ",shift" : ""), n: ch };
+    }
+    const low = ch.toLowerCase();
+    if (MK[low] !== undefined) return { c: ch, i: low, k: MK[low], m: (ch !== low ? "shift," : "") + mods };
+    if (SHIFTED[ch]) return { c: ch, i: SHIFTED[ch], k: MK[SHIFTED[ch]], m: "shift," + mods };
+    return { c: ch, k: 0, m: mods };
+  }
+  let focusMisses = 0;
+  async function ensureFocus() { const ok = await native("selftest-focus"); if (ok === false) focusMisses++; }
+  const type = (text, win) => native("selftest-keys", { keys: [...text].map(c => keyOf(c)), window: win });
+  // o que o terminal RECEBEU (buffer do xterm) — vale mesmo com a janela coberta, quando o sistema não desenha a tela
+  const termText = () => (window.__cdTermText ? window.__cdTermText() : txt($(".xterm-rows")));
+  const M = () => window.__cdMonaco;
+  const press = (name, mods = "", win) => native("selftest-keys", { keys: [keyOf(name, mods)], window: win });
+  const shot = (name, win) => native("selftest-shot", { name, window: win });
+  const H = { "X-Commitdeck-Token": window.COMMITDECK_TOKEN || "", "X-Commitdeck": "1", "Content-Type": "application/json" };
+  const api = async (path, body) => {
+    const r = await fetch("/api/" + path, body ? { method: "POST", headers: H, body: JSON.stringify(body) } : { headers: H });
+    const j = await r.json(); if (!r.ok) throw new Error(j.error || r.status); return j;
+  };
+  const go = async (hash, ms = 700) => { location.hash = hash; await sleep(ms); };
+
+  async function step(name, fn) {
+    const t0 = Date.now(), before = jsErrors.length;
+    try {
+      const detail = await fn();
+      const errs = jsErrors.slice(before);
+      results.push({ name, ok: !errs.length, ms: Date.now() - t0, detail: errs.length ? "erro JS: " + errs.join(" | ").slice(0, 400) : detail || "" });
+    } catch (e) {
+      results.push({ name, ok: false, ms: Date.now() - t0, detail: String(e?.message || e).slice(0, 400) });
+      await shot("falha-" + results.length);
+    }
+    // nada de diálogo/menu sobrando entre as etapas
+    for (let i = 0; i < 2; i++) { if ($("[role=alertdialog]") || $(".items[role=menu]")) await press("Escape"); }
+  }
+
+  await native("selftest-focus");
+  await sleep(800);
+  const vis0 = await native("selftest-native");
+
+  // ============================================================ 1. abertura e navegação
+  await step("App abre com a barra lateral e sem erro", async () => {
+    await waitFor(".side");
+    await shot("01-inicio");
+    return `plataforma ${window.COMMITDECK_PLATFORM}`;
+  });
+  const VIEWS = [["#/inbox", "Fila"], ["#/prs/review", "Pull requests"], ["#/builds", "Builds"], ["#/deploys", "Deploys"], ["#/issues", "Issues"],
+    ["#/repos", "Repositórios"], ["#/automation", "Automação"], ["#/analytics", "Análise"], ["#/history", "Histórico"]];
+  for (const [hash, label] of VIEWS) {
+    await step(`Tela ${label} abre`, async () => {
+      await go(hash, 900);
+      const h = await waitFor(() => $("main h1"));
+      await waitFor(() => txt($("main h1")).toLowerCase().includes(label.toLowerCase().split(" ")[0]), 4000).catch(() => { throw new Error(`abriu "${txt(h)}" em vez de ${label}`); });
+      return txt($("main h1"));
+    });
+  }
+  for (const tab of ["accounts", "github", "ai", "prefs", "about"]) {
+    await step(`Configurações → ${tab}`, async () => { await go("#/settings/" + tab, 900); await waitFor(".body"); if (tab === "ai") await shot("02-ia"); });
+  }
+
+  // ============================================================ 2. tema e barra de título nativa
+  await step("Tema Claro/Escuro/Sistema troca a tela e a janela", async () => {
+    await go("#/settings/prefs", 900);
+    const tab = l => byText("[role=tab]", l);
+    click(await waitFor(() => tab("Claro"))); await sleep(900);
+    const n1 = await native("selftest-native");
+    if (document.documentElement.dataset.theme !== "light" || !/Aqua$/.test(n1?.appearance || "") || /dark/i.test(n1?.appearance || "")) {
+      if (MAC) throw new Error(`claro: tela=${document.documentElement.dataset.theme} janela=${n1?.appearance}`);
+    }
+    await shot("03-claro");
+    click(tab("Escuro")); await sleep(900);
+    const n2 = await native("selftest-native");
+    if (document.documentElement.dataset.theme !== "dark" || (MAC && !/dark/i.test(n2?.appearance || ""))) throw new Error(`escuro: tela=${document.documentElement.dataset.theme} janela=${n2?.appearance}`);
+    click(tab("Sistema")); await sleep(600);
+    return `janela: ${n1?.appearance} → ${n2?.appearance}`;
+  });
+
+  // ============================================================ 3. repositórios: lista, favorito, tag, clique direito
+  const fx = CTX.fixture;
+  let apiRepo = null;
+  await step("Repositórios locais: registrar e listar", async () => {
+    apiRepo = await api("repos/add", { path: fx + "/demo-api" });
+    await api("repos/add", { path: fx + "/demo-web" });
+    await go("#/repos", 1200);
+    await waitFor(() => byText(".list-row.repo", "demo-api"), 10000);
+    return `${$$(".list-row.repo").length} repositórios na lista`;
+  });
+  await step("Clique direito numa linha abre o menu", async () => {
+    rightClick(byText(".list-row.repo", "demo-api"));
+    const m = await waitFor(".items[role=menu]");
+    const items = $$(".items .it").map(txt);
+    await press("Escape");
+    if (!items.some(i => /Finder|Explorer/.test(i))) throw new Error("menu sem as ações: " + items.join(", "));
+    return items.slice(0, 3).join(" · ");
+  });
+  await step("Favoritar e criar tag pelo seletor", async () => {
+    const row = byText(".list-row.repo", "demo-api");
+    click($(".star", row)); await sleep(1200);
+    const row2 = byText(".list-row.repo", "demo-api");
+    click(await waitFor(() => $(".tags .add", row2))); await sleep(300);
+    const input = await waitFor(".tags .combo input");
+    input.focus();
+    await type("Desktop"); await sleep(300); await press("Enter"); await sleep(1200);
+    const chips = $$(".chip", byText(".list-row.repo", "demo-api")).map(txt);
+    if (!chips.some(c => c.includes("Desktop"))) throw new Error("tag não apareceu: " + chips.join(","));
+    return "tag criada por teclado real";
+  });
+
+  // ============================================================ 4. projetos: abrir, terminal, editor
+  await step("Projetos: abrir projeto pelo menu", async () => {
+    await go("#/work", 1200);
+    const trig = await waitFor(() => $(".ptabs .addp") || byText("button, span.btn", "Abrir projeto"));
+    click(trig.closest("button") || trig);
+    const it = await waitFor(() => byText(".items .it", "demo-api"));
+    click(it);
+    await waitFor(() => byText(".ptab.on", "demo-api"), 8000);
+    await shot("04-projeto");
+  });
+  await step("Terminal: ⌘T abre e responde à digitação real", async () => {
+    click(await waitFor(() => byText(".sc", "checkout principal")));
+    await sleep(300);
+    await native("selftest-focus");
+    await press("t", MOD); await sleep(2500);
+    await waitFor(".xterm");
+    click($(".xterm")); $(".xterm-helper-textarea")?.focus(); await sleep(300);
+    await type("echo desktop-ok-$((40+2))"); await press("Enter");
+    await waitFor(() => termText().includes("desktop-ok-42"), 10000);
+    await shot("05-terminal");
+    return "saída: desktop-ok-42";
+  });
+  await step("Terminal: histórico continua depois de trocar de aba", async () => {
+    click(await waitFor(() => byText(".ft .n.file", "a.txt"))); await sleep(2500);
+    click(byText(".tab", "terminal")); await sleep(1200);
+    if (!termText().includes("desktop-ok-42")) throw new Error("histórico sumiu");
+  });
+  await step("Editor: abrir, digitar e salvar com ⌘S", async () => {
+    click(byText(".tab", "a.txt")); await sleep(800);
+    const ta = await waitFor(".monaco-editor textarea", 10000);
+    ta.focus(); await sleep(300);
+    if (MAC) await press("ArrowDown", "cmd"); else await press("End", "ctrl");   // fim do arquivo
+    await press("End");
+    await type("\nlinha digitada no desktop");
+    await sleep(400);
+    if (!$(".tab.on .dirty")) throw new Error("não marcou como não salvo");
+    await press("s", MOD); await sleep(1200);
+    const f = await api("ws/file?repoId=" + apiRepo.id + "&path=a.txt");
+    if (!f.text.includes("linha digitada no desktop")) throw new Error("arquivo não foi salvo no disco");
+    await shot("06-editor");
+    return "salvo no disco";
+  });
+  await step("Editor: servidor de linguagem (erro, hover e F12)", async () => {
+    if (!CTX.lsp) return "pulado — sem servidor instalado no teste";
+    click(byText(".ft .n.file", "main.ts")); await sleep(1000);
+    await waitFor(() => $(".lsp.ok"), 20000);
+    // o erro de tipo chega como marcação do servidor de linguagem (estado do editor, não pixels)
+    const err = await waitFor(() => M()?.editor.getModelMarkers({}).find(m => m.severity === 8 && /string/i.test(m.message)), 45000);
+    const ed = M().editor.getEditors().find(e => e.getModel()?.uri.path.endsWith("main.ts"));
+    ed.focus(); ed.setPosition({ lineNumber: 3, column: 25 });   // em cima de "soma"
+    await press("F12"); await sleep(2500);
+    if (!txt($(".tab.on")).includes("util.ts")) throw new Error("F12 não abriu util.ts (aba: " + txt($(".tab.on")) + ")");
+    await shot("07-lsp");
+    return `erro: "${err.message.slice(0, 60)}" + F12 abriu util.ts`;
+  });
+
+  // ============================================================ 5. tarefas, revisão, divisão, quadro e comparação
+  let taskTitle = "Tarefa do desktop";
+  await step("Nova tarefa pelo formulário (worktree real)", async () => {
+    click(byText(".sch button", "Nova")); await sleep(600);
+    const inp = await waitFor(".form input.input");
+    inp.focus(); await type(taskTitle);
+    for (const a of $$(".acc.on")) click(a);   // sem agente nesta etapa
+    click(byText(".btn.primary", "Criar tarefa"));
+    await waitFor(() => byText(".sc.task", taskTitle), 20000);
+    const st = await api("ws");
+    const t = st.projects.find(p => p.name === "demo-api").tasks.find(x => x.title === taskTitle);
+    if (!t?.exists) throw new Error("worktree não existe");
+    return t.path.split("/").slice(-3).join("/");
+  });
+  await step("Revisão: diff, comentário e envio", async () => {
+    const st = await api("ws");
+    const t = st.projects.find(p => p.name === "demo-api").tasks.find(x => x.title === taskTitle);
+    await api("ws/file", { repoId: apiRepo.id, taskId: t.id, path: "a.txt", text: "a\nalteração do agente\n" });
+    click(byText(".tab", "Revisão")); await sleep(2500);
+    click(await waitFor(() => byText(".rv .f", "a.txt"), 8000)); await sleep(2000);
+    await waitFor(".monaco-diff-editor", 10000);
+    // os dois lados do diff carregados (base × agora) e uma linha selecionada no lado "agora"
+    const mod = await waitFor(() => M()?.editor.getEditors().find(e => e.getModel()?.uri.scheme === "review" && e.getModel().getValue().includes("alteração do agente")), 10000);
+    const base = M().editor.getModels().find(m => m.uri.scheme === "review-base" && m.uri.path.endsWith("a.txt"));
+    if (!base || base.getValue().includes("alteração do agente")) throw new Error("lado base do diff errado");
+    mod.focus(); mod.setSelection({ startLineNumber: 2, startColumn: 1, endLineNumber: 2, endColumn: 20 });
+    click(byText(".rv .btn", "Comentar"));
+    const ta = await waitFor("[role=alertdialog] textarea"); ta.focus();
+    await type("Renomear para o termo do domínio");
+    click(byText("[role=alertdialog] button", "Adicionar")); await sleep(500);
+    if ($$(".rv .c").length < 1) throw new Error("comentário não entrou");
+    await shot("08-revisao");
+    return "diff + comentário ok";
+  });
+  await step("Tela dividida (Abrir ao lado)", async () => {
+    await native("selftest-focus");
+    await press("t", MOD); await sleep(2000);
+    rightClick(byText(".tab", "Revisão"));
+    click(await waitFor(() => byText(".items .it", "Abrir ao lado"))); await sleep(1500);
+    if ($$(".body.split .pane").length !== 2) throw new Error("não dividiu");
+    await shot("09-dividido");
+    click($(".unsplit")); await sleep(400);
+  });
+  await step("Quadro e comparação de soluções", async () => {
+    for (const s of ["claude", "codex"]) {
+      const t = await api("ws/task", { repoId: apiRepo.id, title: `Frete (${s})`, slug: `frete-${s}`, base: "main", group: "frete" });
+      await api("ws/file", { repoId: apiRepo.id, taskId: t.id, path: "frete.txt", text: s + "\n" });
+    }
+    await sleep(3000);
+    click(byText(".ptabs .btn", "Quadro")); await sleep(1200);
+    const cards = $$(".tcard").length;
+    click(byText(".tcard", "Frete (claude)")); await sleep(1500);
+    click(await waitFor(".cmp")); await sleep(2500);
+    const cols = $$(".cols .col").length;
+    await shot("10-comparar");
+    await press("Escape");
+    if (cards < 3 || cols !== 2) throw new Error(`quadro=${cards} colunas=${cols}`);
+    return `${cards} cartões, ${cols} soluções`;
+  });
+  await step("Ajustes do projeto salvam", async () => {
+    click(byText(".sc", "checkout principal")); await sleep(300);
+    click($(".gear")); const box = await waitFor(".form textarea");
+    box.focus(); await type("echo preparando");
+    click(byText(".btn.primary", "Salvar")); await sleep(1000);
+    const st = await api("ws");
+    if (st.projects.find(p => p.name === "demo-api").settings.setup !== "echo preparando") throw new Error("não salvou");
+  });
+
+  // ============================================================ 6. agente de IA de verdade (telemetria)
+  await step("Agente Claude: abre, responde e mostra contexto/limites", async () => {
+    if (!CTX.trusted) return "pulado — sem pasta confiável no teste";
+    const p = await api("ws/open", { path: CTX.trusted });
+    await go("#/work/" + p.id, 1500);
+    click(byText(".sc", "checkout principal")); await sleep(300);
+    const acc = (await api("ai")).accounts.find(a => a.provider === "claude" && a.name === CTX.account && a.installed);
+    if (!acc) throw new Error("conta " + CTX.account + " não encontrada");
+    const trig = byText(".tact span.btn", "Agente");
+    click(trig.closest("button")); click(await waitFor(() => byText(".items .it", CTX.account)));
+    await waitFor(() => byText(".tab", "Claude Code"), 10000);
+    await sleep(4000);
+    const box = await waitFor(".send textarea"); box.focus();
+    await type("Responda apenas: OK");
+    click(byText(".send .btn", "Enviar"));
+    await waitFor(() => byText(".right .pill", "terminou"), 90000);
+    // depois da resposta: contexto em % e os limites (5 h / semanal) da conta têm de aparecer no painel
+    await waitFor(() => /\d+%/.test(txt(byText(".right .kv", "Contexto"))), 25000).catch(() => { throw new Error("contexto não apareceu: " + txt(byText(".right .kv", "Contexto"))); });
+    await waitFor(() => $$(".right .lim .win").length > 0, 25000).catch(() => { throw new Error("limites da conta não apareceram"); });
+    const model = txt(byText(".right .kv", "Modelo")), ctxv = txt(byText(".right .kv", "Contexto"));
+    await shot("11-agente");
+    if (!/Opus|Sonnet|Haiku|Claude/i.test(model)) throw new Error("modelo não apareceu: " + model);
+    const lim = $$(".right .lim .win").length;
+    return `${model.replace(/\s+/g, " ")} · ${ctxv.replace(/\s+/g, " ")} · ${lim} janela(s) de limite`;
+  });
+
+  // ============================================================ 7. janela própria de projeto
+  await step("Projeto em janela própria (nativa)", async () => {
+    await go("#/work", 1000);
+    rightClick(byText(".ptab", "demo-api"));
+    click(await waitFor(() => byText(".items .it", "janela própria")));
+    await sleep(4000);
+    const n = await native("selftest-native");
+    if (!n || n.windows < 2) throw new Error("segunda janela não abriu: " + JSON.stringify(n));
+    await shot("12-janela-propria", 1);
+    return `janelas: ${n.windows} (${n.titles.join(", ")})`;
+  });
+
+  // ============================================================ 8. limpeza e fechamento
+  await step("Remover tarefas pela tela (confirmação)", async () => {
+    await go("#/work/" + apiRepo.id, 1200);
+    for (const title of [taskTitle]) {
+      click(byText(".sc.task", title)); await sleep(800);
+      click(await waitFor(() => $(".right .danger-text")));
+      click(await waitFor(() => byText("[role=alertdialog] button", "Remover worktree"))); await sleep(2500);
+    }
+    const left = (await api("ws")).projects.find(p => p.name === "demo-api").tasks.map(t => t.title);
+    if (left.includes(taskTitle)) throw new Error("tarefa continuou");
+    return `restantes: ${left.length}`;
+  });
+
+  const ok = results.filter(r => r.ok).length;
+  const vis1 = await native("selftest-native");
+  await native("selftest-done", { result: JSON.stringify({ platform: window.COMMITDECK_PLATFORM, ok, total: results.length, results, jsErrors, focusMisses,
+    visible: { start: vis0?.visible, end: vis1?.visible } }, null, 1) });
+})();

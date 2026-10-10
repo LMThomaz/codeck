@@ -20,6 +20,8 @@
   let now = $state(Date.now());
 
   $effect(() => { const t = setInterval(() => (now = Date.now()), 30000); return () => clearInterval(t); });
+  // agente terminou: os limites da conta acabaram de chegar pela linha de status — relê sem esperar o ciclo de 30 s
+  $effect(() => { if (s?.status === "done" || s?.status === "needs-you") setTimeout(() => work.loadAi(), 1500); });
   $effect(() => {
     const t = task;
     diff = null;

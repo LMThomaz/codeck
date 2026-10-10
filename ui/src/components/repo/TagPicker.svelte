@@ -34,6 +34,7 @@
   const remove = (name: string) => save(current.filter(c => c !== name));
   async function start(e: MouseEvent) { e.stopPropagation(); open = true; await tick(); input?.focus(); }
   function key_(e: KeyboardEvent) {
+    e.stopPropagation();   // Enter/setas são do campo: a linha do repositório (que abre com Enter) não pode recebê-los
     if (e.key === "ArrowDown") { hi = Math.min(hi + 1, options.length - 1); e.preventDefault(); }
     else if (e.key === "ArrowUp") { hi = Math.max(hi - 1, 0); e.preventDefault(); }
     else if ((e.key === "Enter" || e.key === "Tab") && (options[hi] || text.trim())) { e.preventDefault(); add(options[hi]?.name ?? text); }
@@ -50,7 +51,7 @@
   {/each}
   {#if open}
     <span class="combo">
-      <input bind:this={input} bind:value={text} placeholder="tag…" onkeydown={key_} onblur={() => setTimeout(() => { open = false; text = ""; }, 150)} />
+      <input bind:this={input} bind:value={text} placeholder="tag…" onkeydown={key_} onblur={() => setTimeout(() => { if (!text.trim()) open = false; }, 150)} />
       {#if options.length}
         <div class="menu">
           {#each options as o, i (o.name + o.create)}

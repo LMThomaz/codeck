@@ -111,7 +111,10 @@
       if (d.view) editor.restoreViewState(d.view);
       if (ln) { editor.revealLineInCenter(ln); editor.setPosition({ lineNumber: ln, column: 1 }); }
       shownKey = k;
-      editor.focus();
+      // só pega o foco se ninguém está digitando em outro lugar (o arquivo pode terminar de abrir depois que o
+      // usuário já foi para um formulário — antes o editor roubava o foco no meio da digitação)
+      const a = document.activeElement;
+      if (!a || a === document.body || host?.contains(a)) editor.focus();
     }).catch(e => (note = e.message));
   });
 </script>

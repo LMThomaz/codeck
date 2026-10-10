@@ -68,7 +68,7 @@
   ] : web ? [{ label: "Abrir no navegador", icon: ExternalLink, href: web }] : []);
 </script>
 
-<div class="list-row repo" class:cloned={!!loc} onclick={() => loc && go("/repo/" + loc.id)} role="button" tabindex="-1" onkeydown={(e) => e.key === "Enter" && loc && go("/repo/" + loc.id)}>
+<div class="list-row repo" class:cloned={!!loc} onclick={() => loc && go("/repo/" + loc.id)} role="button" tabindex="-1" onkeydown={(e) => e.key === "Enter" && e.target === e.currentTarget && loc && go("/repo/" + loc.id)}>
   <span class="ic"><ProviderIcon {provider} size={16} /></span>
   <div class="grow">
     <div class="t">

@@ -21,9 +21,11 @@ function paint(animate: boolean) {
   const apply = () => { root.dataset.theme = t; };
   // troca com crossfade quando o navegador tem View Transitions (WebKit atual e WebView2); senão, troca direto
   const doc = document as any;
-  if (animate && doc.startViewTransition && !matchMedia("(prefers-reduced-motion: reduce)").matches) {
+  if (animate && doc.startViewTransition && document.visibilityState === "visible" && !matchMedia("(prefers-reduced-motion: reduce)").matches) {
     root.dataset.vt = "theme";
-    doc.startViewTransition(apply).finished.finally(() => { if (root.dataset.vt === "theme") delete root.dataset.vt; });
+    const t = doc.startViewTransition(apply);
+    t.ready?.catch(() => {});
+    t.finished.catch(() => {}).finally(() => { if (root.dataset.vt === "theme") delete root.dataset.vt; });
   } else apply();
   send({ type: "theme", mode: t }); // barra de título nativa acompanha
 }

@@ -24,10 +24,15 @@ export function loadMonaco(): Promise<typeof Monaco> {
       },
     };
     // o Monaco cancela buscas em andamento quando o arquivo troca (rejeita com "Canceled"): é esperado, não é erro
-    window.addEventListener("unhandledrejection", e => { if (e.reason?.name === "Canceled" || e.reason?.message === "Canceled") e.preventDefault(); });
+    // (idem "no diff result available": o diff foi fechado no meio do cálculo)
+    window.addEventListener("unhandledrejection", e => {
+      const m = e.reason?.message || "";
+      if (e.reason?.name === "Canceled" || m === "Canceled" || m === "no diff result available") e.preventDefault();
+    });
     // o TypeScript embutido não conhece o projeto (sem node_modules): sem erros falsos de import
     monaco.languages.typescript.typescriptDefaults.setDiagnosticsOptions({ noSemanticValidation: true, noSyntaxValidation: false });
     monaco.languages.typescript.javascriptDefaults.setDiagnosticsOptions({ noSemanticValidation: true, noSyntaxValidation: false });
+    if ((window as any).__CD_SELFTEST) (window as any).__cdMonaco = monaco;   // autoteste: marcações e modelos
     monaco.editor.defineTheme("commitdeck-dark", {
       base: "vs-dark", inherit: true, rules: [
         { token: "comment", foreground: "6e778c", fontStyle: "italic" }, { token: "keyword", foreground: "b07cff" },

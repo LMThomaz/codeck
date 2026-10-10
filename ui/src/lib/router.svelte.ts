@@ -17,7 +17,9 @@ function normalize(hash: string) {
 
 export const router = new Router();
 
-const canVT = () => !!(document as any).startViewTransition && !matchMedia("(prefers-reduced-motion: reduce)").matches;
+// Sem transição com a janela escondida/minimizada: o navegador pula e rejeita a promessa (era erro solto no app)
+const canVT = () => !!(document as any).startViewTransition && document.visibilityState === "visible" && !matchMedia("(prefers-reduced-motion: reduce)").matches;
+const quiet = (t: any) => { for (const p of [t?.ready, t?.finished, t?.updateCallbackDone]) p?.catch?.(() => {}); return t; };
 
 /** Troca de tela com View Transition: a tela antiga sai e a nova entra no sentido do menu. */
 export function go(path: string, kind?: "down" | "up" | "soft") {
@@ -32,7 +34,7 @@ export function go(path: string, kind?: "down" | "up" | "soft") {
   };
   if (!canVT()) { apply(); return; }
   document.documentElement.dataset.vt = dir;
-  const t = (document as any).startViewTransition(apply);
+  const t = quiet((document as any).startViewTransition(apply));
   t.finished.finally(() => { if (document.documentElement.dataset.vt === dir) delete document.documentElement.dataset.vt; });
 }
 
@@ -40,7 +42,7 @@ export function go(path: string, kind?: "down" | "up" | "soft") {
 export function soft(update: () => void | Promise<void>) {
   if (!canVT()) { update(); return; }
   document.documentElement.dataset.vt = "soft";
-  const t = (document as any).startViewTransition(async () => { await update(); await tick(); });
+  const t = quiet((document as any).startViewTransition(async () => { await update(); await tick(); }));
   t.finished.finally(() => delete document.documentElement.dataset.vt);
 }
 

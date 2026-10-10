@@ -49,6 +49,11 @@ sealed class MainForm : Form
     readonly HttpClient http = new() { Timeout = TimeSpan.FromSeconds(4) };
     readonly WebView2 web = new() { Dock = DockStyle.Fill };
     CoreWebView2Environment? envWv;   // o mesmo ambiente serve às janelas de projeto
+    // Autoteste do app de desktop (scripts/test-desktop / CI): roteiro JS rodando DENTRO desta janela
+    readonly string? selfTest = Environment.GetEnvironmentVariable("COMMITDECK_SELFTEST");
+    readonly string selfOut = Environment.GetEnvironmentVariable("COMMITDECK_SELFTEST_OUT") ?? Path.GetTempPath();
+    bool selfStarted;
+    bool lastLight;
     readonly NotifyIcon tray = new();
     readonly ToolStripMenuItem autostartItem = new("Iniciar com o Windows");
     readonly System.Windows.Forms.Timer timer = new() { Interval = 15000 };
@@ -135,6 +140,14 @@ sealed class MainForm : Form
             if ((await Get("api/summary")).Code == 200)
             {
                 loaded = true;
+                if (selfTest != null) web.CoreWebView2.NavigationCompleted += async (_, _) =>
+                {
+                    if (selfStarted || !web.Source.ToString().StartsWith(baseUrl)) return;
+                    selfStarted = true;
+                    await Task.Delay(1500);
+                    var ctx = Environment.GetEnvironmentVariable("COMMITDECK_SELFTEST_CTX") ?? "{}";
+                    await web.CoreWebView2.ExecuteScriptAsync("window.SELFTEST = " + ctx + ";\n" + File.ReadAllText(selfTest) + "\n;0");
+                };
                 web.CoreWebView2.Navigate(baseUrl);
                 timer.Start();
                 await Poll();
@@ -212,7 +225,8 @@ sealed class MainForm : Form
         core.Settings.IsStatusBarEnabled = false;
         core.Settings.AreDefaultContextMenusEnabled = attach;
         await core.AddScriptToExecuteOnDocumentCreatedAsync(
-            $"window.COMMITDECK_TOKEN = {JsonSerializer.Serialize(token)}; window.COMMITDECK_PLATFORM = 'windows';");
+            $"window.COMMITDECK_TOKEN = {JsonSerializer.Serialize(token)}; window.COMMITDECK_PLATFORM = 'windows';" +
+            (selfTest != null ? " window.__CD_SELFTEST = true;" : ""));
         core.NewWindowRequested += (_, e) => { e.Handled = true; OpenExternal(e.Uri); }; // target=_blank → navegador
         core.NavigationStarting += (_, e) =>
         {
@@ -384,6 +398,7 @@ sealed class MainForm : Form
         {
             var msg = JsonDocument.Parse(json).RootElement;
             var type = msg.GetProperty("type").GetString();
+            if (type != null && type.StartsWith("selftest-")) { _ = SelfTest(type, msg); return; }
             if (type == "pickFolder") { PickFolder(msg.GetProperty("id").GetString() ?? "", msg.TryGetProperty("title", out var t) ? t.GetString() : null); return; }
             if (type == "theme") { ApplyTheme(msg.TryGetProperty("mode", out var m) && m.GetString() == "light"); return; }
             if (type == "openWindow" && envWv != null)
@@ -415,6 +430,75 @@ sealed class MainForm : Form
         int dark = light ? 0 : 1;
         DwmSetWindowAttribute(Handle, 20, ref dark, sizeof(int)); // DWMWA_USE_IMMERSIVE_DARK_MODE (Windows 10 20H1+ e 11)
         BackColor = light ? Color.FromArgb(0xf5, 0xf6, 0xfa) : Color.FromArgb(0x0b, 0x0d, 0x12);
+        lastLight = light;
+    }
+
+    // ---------------------------------------------------------------- autoteste
+    static readonly Dictionary<string, string> KeyCodes = new()
+    {
+        ["Enter"] = "Enter", ["Escape"] = "Escape", ["Tab"] = "Tab", ["Backspace"] = "Backspace", ["F12"] = "F12",
+        ["ArrowUp"] = "ArrowUp", ["ArrowDown"] = "ArrowDown", ["ArrowLeft"] = "ArrowLeft", ["ArrowRight"] = "ArrowRight", ["Home"] = "Home", ["End"] = "End",
+    };
+
+    async Task SelfTest(string type, JsonElement msg)
+    {
+        if (selfTest == null) return;
+        var id = msg.TryGetProperty("id", out var i) ? i.GetString() : null;
+        var target = web;
+        if (msg.TryGetProperty("window", out var wn) && wn.ValueKind == JsonValueKind.Number && wn.GetInt32() > 0)
+        {
+            var pw = Application.OpenForms.OfType<ProjectWindow>().Skip(wn.GetInt32() - 1).FirstOrDefault();
+            if (pw != null) target = pw.View;
+        }
+        string reply = "true";
+        switch (type)
+        {
+            case "selftest-keys":
+                // teclas confiáveis (isTrusted) pelo próprio navegador: o mesmo caminho de uma tecla do usuário
+                foreach (var k in msg.GetProperty("keys").EnumerateArray())
+                {
+                    var c = k.TryGetProperty("c", out var cc) ? cc.GetString() ?? "" : "";
+                    var n = k.TryGetProperty("n", out var nn) ? nn.GetString() ?? c : c;
+                    var vk = k.TryGetProperty("k", out var kk) ? kk.GetInt32() : 0;
+                    var m = k.TryGetProperty("m", out var mm) ? mm.GetString() ?? "" : "";
+                    var mods = (m.Contains("alt") ? 1 : 0) | (m.Contains("ctrl") ? 2 : 0) | (m.Contains("cmd") ? 4 : 0) | (m.Contains("shift") ? 8 : 0);
+                    var special = KeyCodes.ContainsKey(n);
+                    var code = special ? KeyCodes[n] : (vk >= 65 && vk <= 90 ? "Key" + (char)vk : vk >= 48 && vk <= 57 ? "Digit" + (char)vk : "");
+                    var shortcut = (mods & 6) != 0;
+                    var down = new Dictionary<string, object>
+                    {
+                        ["type"] = special || shortcut ? "rawKeyDown" : "keyDown", ["key"] = special ? n : c, ["code"] = code,
+                        ["windowsVirtualKeyCode"] = vk, ["nativeVirtualKeyCode"] = vk, ["modifiers"] = mods,
+                    };
+                    if (!special && !shortcut) { down["text"] = c; down["unmodifiedText"] = c; }
+                    await target.CoreWebView2.CallDevToolsProtocolMethodAsync("Input.dispatchKeyEvent", JsonSerializer.Serialize(down));
+                    if (n == "Enter")
+                        await target.CoreWebView2.CallDevToolsProtocolMethodAsync("Input.dispatchKeyEvent", JsonSerializer.Serialize(new { type = "char", text = "\r", key = "Enter", modifiers = mods }));
+                    await target.CoreWebView2.CallDevToolsProtocolMethodAsync("Input.dispatchKeyEvent", JsonSerializer.Serialize(new
+                    {
+                        type = "keyUp", key = special ? n : c, code, windowsVirtualKeyCode = vk, nativeVirtualKeyCode = vk, modifiers = mods,
+                    }));
+                }
+                break;
+            case "selftest-shot":
+                var name = msg.TryGetProperty("name", out var nm) ? nm.GetString() ?? "shot" : "shot";
+                using (var fs = File.Create(Path.Combine(selfOut, name + ".png")))
+                    await target.CoreWebView2.CapturePreviewAsync(CoreWebView2CapturePreviewImageFormat.Png, fs);
+                break;
+            case "selftest-native":
+                var wins = Application.OpenForms.OfType<ProjectWindow>().ToList();
+                reply = JsonSerializer.Serialize(new { windows = 1 + wins.Count, appearance = lastLight ? "light" : "dark", titles = wins.Select(w => w.Text).ToArray(), keyWindow = ActiveForm?.Text ?? "", visible = Visible && WindowState != FormWindowState.Minimized });
+                break;
+            case "selftest-focus":
+                Activate();
+                web.Focus();
+                break;
+            case "selftest-done":
+                File.WriteAllText(Path.Combine(selfOut, "result.json"), msg.TryGetProperty("result", out var r) ? r.GetString() ?? "{}" : "{}");
+                Quit();
+                return;
+        }
+        if (id != null) await web.CoreWebView2.ExecuteScriptAsync($"window.__selftestResolve && window.__selftestResolve({JsonSerializer.Serialize(id)}, {reply})");
     }
 
     [DllImport("dwmapi.dll")] static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int value, int size);
@@ -451,6 +535,7 @@ sealed class MainForm : Form
 sealed class ProjectWindow : Form
 {
     readonly WebView2 view = new() { Dock = DockStyle.Fill };
+    public WebView2 View => view;
 
     public ProjectWindow(CoreWebView2Environment env, string baseUrl, string token, string hash, string title, Icon? icon, Color back)
     {

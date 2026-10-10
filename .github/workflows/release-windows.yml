@@ -234,6 +234,65 @@ jobs:
       - name: Runtime do Visual C++
         run: pwsh kit/tools/add-vc-runtime.ps1 -Bundle build/app -RedistOut build/redist
 
+      # O app de desktop de verdade (Commitdeck.exe + WebView2) roda tests/desktop/selftest.js dentro da janela, com
+      # teclas reais (Input.dispatchKeyEvent do WebView2): terminal ConPTY, editor, ⌘/Ctrl+S, tarefas em worktree,
+      # revisão, quadro, janela própria… Falhou alguma etapa, o build para aqui.
+      - name: Autoteste do app de desktop
+        timeout-minutes: 15
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $w = Join-Path $env:RUNNER_TEMP 'selftest'
+          $fx = Join-Path $w 'repos'; $out = Join-Path $w 'out'
+          New-Item -ItemType Directory -Force $fx, $out | Out-Null
+          git config --global user.email teste@commitdeck; git config --global user.name Teste; git config --global init.defaultBranch main
+          git init -q --bare -b main "$fx/origin.git"
+          git clone -q "$fx/origin.git" "$fx/demo-api" 2>$null
+          Push-Location "$fx/demo-api"
+          Set-Content a.txt "a" -NoNewline:$false
+          Set-Content util.ts "export function soma(a: number, b: number): number {`n  return a + b;`n}"
+          Set-Content main.ts "import { soma } from `"./util`";`n`nconst total: string = soma(1, 2);`nconsole.log(total);"
+          Set-Content tsconfig.json '{"compilerOptions":{"strict":true,"target":"es2020","module":"commonjs"}}'
+          Set-Content .gitignore 'workspace.local.json'
+          git add -A; git commit -qm inicial; git push -q -u origin main
+          Set-Content workspace.local.json '{"segredo":"local"}'
+          Pop-Location
+          git clone -q "$fx/origin.git" "$fx/demo-web" 2>$null
+          # servidor de linguagem do TypeScript (só para o teste)
+          $lsp = Join-Path $w 'lsp'; New-Item -ItemType Directory -Force $lsp | Out-Null
+          Push-Location $lsp; npm init -y | Out-Null; npm i --silent typescript-language-server@4.3.3 typescript@5.6.3 | Out-Null; Pop-Location
+          $ctx = @{ fixture = $fx; lsp = $true; trusted = $null; account = '' } | ConvertTo-Json -Compress
+          $env:COMMITDECK_PORT = '47861'
+          $env:COMMITDECK_DATA = Join-Path $w 'data'
+          $env:COMMITDECK_LSP_PATH = Join-Path $lsp 'node_modules\.bin'
+          $env:COMMITDECK_SELFTEST = (Resolve-Path tests/desktop/selftest.js).Path
+          $env:COMMITDECK_SELFTEST_OUT = $out
+          $env:COMMITDECK_SELFTEST_CTX = $ctx
+          $p = Start-Process build/app/Commitdeck.exe -PassThru
+          for ($i = 0; $i -lt 600 -and -not (Test-Path "$out/result.json"); $i++) { Start-Sleep 1; if ($p.HasExited) { break } }
+          Start-Sleep 2
+          Get-Process Commitdeck, python -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+          if (-not (Test-Path "$out/result.json")) { throw 'o autoteste não terminou' }
+          @'
+          import json, sys
+          r = json.load(open(sys.argv[1], encoding="utf-8"))
+          if "fatal" in r: print("erro ao injetar:", r["fatal"]); sys.exit(1)
+          for x in r["results"]:
+              print(("OK " if x["ok"] else "FALHOU ") + x["name"] + (" — " + x["detail"] if x["detail"] else ""))
+          print(f"{r['ok']}/{r['total']} etapas OK no Windows")
+          for e in r["jsErrors"][:10]: print("erro JS:", e)
+          sys.exit(0 if r["ok"] == r["total"] else 1)
+          '@ | Set-Content -Encoding utf8 (Join-Path $w 'report.py')
+          build/app/python/python.exe (Join-Path $w 'report.py') "$out/result.json"
+          if ($LASTEXITCODE -ne 0) { throw 'autoteste do desktop falhou' }
+
+      - name: Screenshots do autoteste
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: autoteste-windows
+          path: ${{ runner.temp }}/selftest/out
+          if-no-files-found: ignore
+
       # O ThomSoft Setup é um .exe genérico com o ícone do LuriSystem gravado: sem trocar, a janela e a barra de
       # tarefas do instalador (e o desinstalador) mostram a marca errada. O kit só troca o ícone do .exe de fora.
       - name: Ícone do Commitdeck no ThomSoft Setup

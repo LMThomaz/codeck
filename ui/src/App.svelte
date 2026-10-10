@@ -53,9 +53,13 @@
     const t = setInterval(() => { if (!store.hold) repos.load(); }, 30000);
     return () => { clearInterval(t); stopWork(); };
   });
+  // 1ª execução sem nenhuma conta: leva para Contas UMA vez, na abertura. Depois o usuário navega livre — na v3 dá
+  // para usar só Projetos e IA, sem Azure/GitHub (antes toda navegação voltava para Contas).
+  let routedOnce = false;
   $effect(() => {
-    // 1ª execução sem nenhuma conta: vai direto para Contas
-    if (store.s && !store.s.configured && !["settings", "work", "solo"].includes(router.view)) go("/settings/accounts");
+    if (!store.s || routedOnce) return;
+    routedOnce = true;
+    if (!store.s.configured && !["settings", "work", "solo"].includes(router.view) && !work.projects.length) go("/settings/accounts");
   });
 </script>
 
