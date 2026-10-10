@@ -19,7 +19,9 @@
   import DiffView from "../components/repo/DiffView.svelte";
   import Graph from "../components/repo/Graph.svelte";
 
-  const id = $derived(router.parts[1]);
+  // Repositório = projeto: esta tela é a aba "Git" do projeto (ou da tarefa, com o worktree dela)
+  let { repoId = undefined, embedded = false }: { repoId?: string; embedded?: boolean } = $props();
+  const id = $derived(repoId ?? router.parts[1]);
   const repo = $derived(repos.byId(id));
   let status = $state<RepoStatus | null>(null);
   let refs = $state<Refs | null>(null);
@@ -178,12 +180,12 @@
   ] : []);
 </script>
 
-<section class="repo">
+<section class="repo" class:embedded>
   {#if !repo && repos.loaded}
     <Empty title="Repositório não encontrado" text="Ele pode ter sido removido da lista."><button class="btn" onclick={() => go("/repos")}>Ver repositórios</button></Empty>
   {:else}
     <header class="rh">
-      <button class="btn ghost icon" title="Voltar" onclick={() => history.length > 1 ? history.back() : go("/repos")}><ArrowLeft size={17} /></button>
+      {#if !embedded}<button class="btn ghost icon" title="Voltar" onclick={() => history.length > 1 ? history.back() : go("/repos")}><ArrowLeft size={17} /></button>{/if}
       <div class="title">
         <div class="row" style="gap:8px"><ProviderIcon provider={repo?.provider} size={15} /><h1 class="ell">{repo?.name || "…"}</h1></div>
         <div class="path ell" title={repo?.path}>{repo?.path?.replace(/^\/Users\/[^/]+/, "~")}</div>
@@ -261,6 +263,8 @@
 
 <style>
   .repo { height: 100%; display: flex; flex-direction: column; padding: 14px 18px 18px; gap: 12px; }
+  .repo.embedded { padding: 10px 10px 10px; }
+  .embedded h1 { font-size: 15px; }
   .rh { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; flex: none; }
   .title { min-width: 0; max-width: 360px; }
   h1 { margin: 0; font-size: 19px; letter-spacing: -0.025em; }

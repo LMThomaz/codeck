@@ -181,6 +181,16 @@
     return "tag criada por teclado real";
   });
 
+  await step("Repositório é projeto: clicar na lista abre o projeto na aba Git", async () => {
+    await go("#/repos", 1200);
+    click(await waitFor(() => byText(".list-row.repo", "demo-api")));
+    await waitFor(() => location.hash.startsWith("#/work/"), 6000);
+    await waitFor(() => byText(".tab.on", "Git"), 6000);
+    await waitFor(() => $(".repo.embedded") && byText(".repo.embedded *", "inicial"), 10000);
+    await shot("04a-git-no-projeto");
+    return "aba Git com o grafo (commit inicial)";
+  });
+
   // ============================================================ 4. projetos: abrir, terminal, editor
   await step("Projetos: abrir projeto pelo menu", async () => {
     await go("#/work", 1200);
@@ -249,7 +259,10 @@
     const st = await api("ws");
     const t = st.projects.find(p => p.name === "demo-api").tasks.find(x => x.title === taskTitle);
     if (!t?.exists) throw new Error("worktree não existe");
-    return t.path.split("/").slice(-3).join("/");
+    // a aba Git da tarefa é o Git do worktree (branch da tarefa)
+    click(byText(".tab", "Git"));
+    await waitFor(() => byText(".repo.embedded .branch-btn", "feature/tarefa-do-desktop"), 10000);
+    return t.path.split(/[\\/]/).slice(-3).join("/") + " · Git na branch da tarefa";
   });
   await step("Revisão: diff, comentário e envio", async () => {
     const st = await api("ws");
@@ -299,6 +312,8 @@
   await step("Ajustes do projeto salvam", async () => {
     click(byText(".sc", "checkout principal")); await sleep(300);
     click($(".gear")); const box = await waitFor(".form textarea");
+    if (byText(".form h4", "Pasta")) throw new Error("ainda pede pasta");
+    if (!byText(".form h4", "Repositórios relacionados")) throw new Error("sem repositórios relacionados");
     box.focus(); await type("echo preparando");
     click(byText(".btn.primary", "Salvar")); await sleep(1000);
     const st = await api("ws");

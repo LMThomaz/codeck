@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onMount, untrack } from "svelte";
   import CommandPalette from "./components/CommandPalette.svelte";
   import DialogHost from "./components/DialogHost.svelte";
   import Sidebar from "./components/Sidebar.svelte";
@@ -23,14 +23,13 @@
   import Inbox from "./views/Inbox.svelte";
   import Issues from "./views/Issues.svelte";
   import PullRequests from "./views/PullRequests.svelte";
-  import RepoDetail from "./views/RepoDetail.svelte";
   import Repositories from "./views/Repositories.svelte";
   import Settings from "./views/Settings.svelte";
   import Work from "./views/Work.svelte";
 
   const views: Record<string, any> = {
-    inbox: Inbox, prs: PullRequests, builds: Builds, deploys: Deploys, issues: Issues, repos: Repositories, repo: RepoDetail,
-    automation: Automation, analytics: Analytics, history: History, settings: Settings, work: Work, solo: Work,
+    inbox: Inbox, prs: PullRequests, builds: Builds, deploys: Deploys, issues: Issues, repos: Repositories,
+    automation: Automation, analytics: Analytics, history: History, settings: Settings, work: Work, solo: Work, repo: Work,
   };
   const View = $derived(views[router.view] || Inbox);
 
@@ -53,6 +52,9 @@
     const t = setInterval(() => { if (!store.hold) repos.load(); }, 30000);
     return () => { clearInterval(t); stopWork(); };
   });
+  // #/repo/<id> (links antigos, barra lateral, ⌘K): repositório é projeto — abre o projeto na aba Git
+  $effect(() => { if (router.view === "repo" && router.param) { const id = router.param; untrack(() => work.openRepo(id)); } });
+
   // 1ª execução sem nenhuma conta: leva para Contas UMA vez, na abertura. Depois o usuário navega livre — na v3 dá
   // para usar só Projetos e IA, sem Azure/GitHub (antes toda navegação voltava para Contas).
   let routedOnce = false;

@@ -1,23 +1,28 @@
 <script lang="ts">
-  // Ajustes do projeto: o que copiar para cada worktree (arquivos locais que o Git não leva), o script de preparação,
-  // onde ficam os worktrees e o shell dos terminais.
-  import { FolderOpen, Plus, X } from "@lucide/svelte";
+  // Ajustes do projeto (projeto = repositório): o que copiar para cada worktree (arquivos locais que o Git não leva),
+  // a preparação, os repositórios relacionados e o shell. As pastas são as dos próprios repositórios — nada a configurar.
+  import { Plus, X } from "@lucide/svelte";
   import { untrack } from "svelte";
   import { post } from "../../lib/api";
-  import { pickFolder } from "../../lib/native";
   import { ui } from "../../lib/ui.svelte";
   import type { Project } from "../../lib/work.svelte";
   import { work } from "../../lib/work.svelte";
+  import { repos } from "../../lib/repos.svelte";
   import Drawer from "../Drawer.svelte";
 
   let { project, onclose }: { project: Project; onclose: () => void } = $props();
   const s0 = untrack(() => project.settings);
   let copy = $state<string[]>([...(s0.copy || [])]);
   let setup = $state(s0.setup || "");
-  let root = $state(s0.worktreeRoot || "");
   let shell = $state((s0 as any).shell || "");
   let addDirs = $state<string[]>([...((s0 as any).addDirs || [])]);
   let novo = $state("");
+  let relQ = $state("");
+  // relacionados = outros repositórios da sua lista (sem os worktrees das tarefas)
+  const isWt = (p: string) => /[\\/]\.worktrees[\\/]/.test(p);
+  const related = $derived(repos.local.filter(r => addDirs.includes(r.path)));
+  const candidates = $derived(repos.local.filter(r => r.exists && r.id !== project.id && !isWt(r.path) && !addDirs.includes(r.path)
+    && r.name.toLowerCase().includes(relQ.trim().toLowerCase())).slice(0, 12));
   let busy = $state(false);
   const SUGGEST = ["workspace.local.json", "nuget.config", ".env", ".env.local", "**/appsettings.Development.json", "**/appsettings.Local.json",
     ".claude/settings.local.json", ".vscode/settings.json", "*.pem", "*.p12"];
@@ -25,7 +30,7 @@
   async function save() {
     busy = true;
     try {
-      await post("ws/settings", { repoId: project.id, copy, setup, worktreeRoot: root, shell, addDirs });
+      await post("ws/settings", { repoId: project.id, copy, setup, shell, addDirs });
       await work.load();
       ui.toast("Ajustes do projeto salvos");
       onclose();
@@ -52,16 +57,11 @@
       <textarea class="input mono" rows="3" bind:value={setup} placeholder="vazio = nada"></textarea>
     </section>
     <section>
-      <h4>Pasta dos worktrees</h4>
-      <p class="small muted">Vazio = <span class="mono">&lt;pasta do repositório&gt;/../.worktrees/{project.name}</span>.</p>
-      <div class="row"><input class="input mono" bind:value={root} placeholder="padrão" />
-        <button class="btn" onclick={async () => { const p = await pickFolder("Pasta dos worktrees"); if (p) root = p; }}><FolderOpen size={14} /></button></div>
-    </section>
-    <section>
-      <h4>Pastas extras para o agente</h4>
-      <p class="small muted">Outros repositórios que o agente pode ler/editar junto (ex.: a lib de entidades). No Claude vira <span class="mono">--add-dir</span>.</p>
-      <div class="chips">{#each addDirs as d (d)}<span class="chip mono">{d.replace(/^\/Users\/[^/]+/, "~")}<button aria-label="Tirar" onclick={() => (addDirs = addDirs.filter(x => x !== d))}><X size={11} /></button></span>{/each}</div>
-      <button class="btn sm" onclick={async () => { const p = await pickFolder("Pasta extra para o agente"); if (p && !addDirs.includes(p)) addDirs = [...addDirs, p]; }}><Plus size={13} /> Adicionar pasta</button>
+      <h4>Repositórios relacionados</h4>
+      <p class="small muted">Outros repositórios que o agente pode ler e editar junto com este (ex.: a lib de entidades e a de infra). No Claude vira <span class="mono">--add-dir</span>.</p>
+      <div class="chips">{#each related as r (r.id)}<span class="chip">{r.name}<button aria-label="Tirar" onclick={() => (addDirs = addDirs.filter(x => x !== r.path))}><X size={11} /></button></span>{/each}</div>
+      <input class="input" bind:value={relQ} placeholder="buscar repositório…" />
+      {#if relQ.trim()}<div class="sugg">{#each candidates as r (r.id)}<button class="pill neutral" onclick={() => { addDirs = [...addDirs, r.path]; relQ = ""; }}>+ {r.name}</button>{/each}</div>{/if}
     </section>
     <section>
       <h4>Shell dos terminais</h4>

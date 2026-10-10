@@ -40,6 +40,8 @@ class Work {
   loaded = $state(false);
   /** "Nova tarefa" já preenchida, pedida de outra tela (PR, build, issue): a tela de trabalho abre o formulário */
   pendingTask = $state<{ projectId: string; preset: any } | null>(null);
+  /** abrir um projeto já numa aba (ex.: a Git), vindo de um link de repositório */
+  focusRequest = $state<{ projectId: string; scope: string | null; tab: "git" | "review" } | null>(null);
   private timer: ReturnType<typeof setInterval> | null = null;
 
   get project() { return this.projects.find(p => p.id === this.active) || null; }
@@ -117,6 +119,17 @@ class Work {
     const projectId = local ? await this.open(local.id) : this.active;
     if (!projectId) return ui.toast("Abra um projeto em Projetos primeiro", "info");
     this.pendingTask = { projectId, preset };
+    go("/work/" + projectId);
+  }
+
+  /** Repositório = projeto. Um link de repositório (lista, barra lateral, ⌘K) abre o projeto na aba Git; se o
+   *  repositório é o worktree de uma tarefa, abre a tarefa (o Git dela é o do worktree). */
+  async openRepo(repoId: string, tab: "git" | "review" = "git") {
+    if (!this.loaded) await this.load();
+    const owner = this.projects.find(p => p.tasks.some(t => t.repoId === repoId));
+    const task = owner?.tasks.find(t => t.repoId === repoId);
+    const projectId = owner ? owner.id : repoId;
+    this.focusRequest = { projectId, scope: task?.id || null, tab };
     go("/work/" + projectId);
   }
 

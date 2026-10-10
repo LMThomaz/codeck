@@ -25,6 +25,7 @@
   import Compare from "../components/work/Compare.svelte";
   import ProjectSettings from "../components/work/ProjectSettings.svelte";
   import Review from "../components/work/Review.svelte";
+  import RepoDetail from "./RepoDetail.svelte";
 
   type FileTab = { k: "file"; key: string; path: string; scope: string | null; line?: number };
   type View = { scope: string | null; files: FileTab[]; order: string[]; active: string | null; left: "files" | "search"; right: boolean; split?: string | null };
@@ -43,7 +44,7 @@
   const p = $derived(work.projects.find(x => x.id === pid) || null);
   $effect(() => {
     if (!work.loaded) return;
-    if (board || solo) return;
+    if (board || solo || router.view === "repo") return;   // #/repo/<id>: quem decide o projeto é o work.openRepo
     if (router.parts[1] && !work.projects.some(x => x.id === router.parts[1])) untrack(() => work.open(router.parts[1]).catch(e => ui.error(e)));
     else if (p && work.active !== p.id) untrack(() => work.activate(p.id));
   });
@@ -55,19 +56,23 @@
   const task = $derived(p && v?.scope ? p.tasks.find(t => t.id === v.scope) || null : null);
   const scopeTerms = $derived<TermInfo[]>(p ? (task ? task.terms : p.terms) : []);
 
-  type Tab = { key: string; kind: "term" | "file" | "review"; term?: TermInfo; file?: FileTab };
+  type Tab = { key: string; kind: "term" | "file" | "review" | "git"; term?: TermInfo; file?: FileTab };
   const tabs = $derived.by<Tab[]>(() => {
     if (!p || !v) return [];
     const list: Tab[] = [
+      // repositório = projeto: a aba Git (grafo, branches, alterações, commit, sync) fica sempre no começo — numa tarefa,
+      // é o Git do worktree dela
+      { key: "g:" + (v.scope || "main"), kind: "git" as const },
       // tarefa: a aba "Revisão" fica sempre no começo (o que mudou desde a base, para revisar e comentar)
       ...(task ? [{ key: "r:" + task.id, kind: "review" as const }] : []),
       ...scopeTerms.map(t => ({ key: "t:" + t.id, kind: "term" as const, term: t })),
       ...v.files.filter(f => f.scope === (v.scope || null)).map(f => ({ key: f.key, kind: "file" as const, file: f })),
     ];
-    const pos = (k: string) => { if (k.startsWith("r:")) return -1; const i = v.order.indexOf(k); return i < 0 ? 1e6 : i; };
+    const pos = (k: string) => { if (k.startsWith("g:")) return -2; if (k.startsWith("r:")) return -1; const i = v.order.indexOf(k); return i < 0 ? 1e6 : i; };
     return list.sort((a, b) => pos(a.key) - pos(b.key));
   });
-  const activeTab = $derived(tabs.find(t => t.key === v?.active) || tabs.find(t => t.kind !== "review") || tabs[0] || null);
+  // sem aba escolhida: o 1º terminal/arquivo; se não houver, a tela inicial (abrir agente, terminal, nova tarefa)
+  const activeTab = $derived(tabs.find(t => t.key === v?.active) || tabs.find(t => t.kind === "term" || t.kind === "file") || null);
   const splitTab = $derived(v?.split && v.split !== activeTab?.key ? tabs.find(t => t.key === v!.split) || null : null);
   const activeTerm = $derived(activeTab?.kind === "term" ? activeTab.term! : (scopeTerms.find(t => t.kind === "agent") || null));
 
@@ -80,6 +85,10 @@
 
   // ------------------------------------------------------------ ações
   let newTask = $state<{ preset?: any } | null>(null);
+  $effect(() => {
+    const fr = work.focusRequest;
+    if (fr && p && v && fr.projectId === p.id) untrack(() => { v!.scope = fr.scope; v!.active = (fr.tab === "git" ? "g:" : "r:") + (fr.scope || "main"); work.focusRequest = null; });
+  });
   let comparing = $state<string | null>(null);
   let settingsOpen = $state(false);
   $effect(() => {
@@ -157,7 +166,7 @@
     if (k === "p" && !e.shiftKey) { e.preventDefault(); v.left = "files"; setTimeout(() => document.querySelector<HTMLInputElement>(".work .ft input")?.focus(), 30); }
     else if (k === "f" && e.shiftKey) { e.preventDefault(); v.left = "search"; setTimeout(() => document.querySelector<HTMLInputElement>(".work .ft input")?.focus(), 30); }
     else if (k === "t" && !e.shiftKey) { e.preventDefault(); newTerm(); }
-    else if (k === "w" && activeTab && activeTab.kind !== "review") { e.preventDefault(); closeTab(activeTab); }
+    else if (k === "w" && activeTab && (activeTab.kind === "term" || activeTab.kind === "file")) { e.preventDefault(); closeTab(activeTab); }
     else if (/^[1-9]$/.test(k) && work.projects[+k - 1]) { e.preventDefault(); go("/work/" + work.projects[+k - 1].id, "soft"); }
   }
 </script>
@@ -166,6 +175,8 @@
           {#if tab?.kind === "term" && tab.term}
             {@const tid = tab.term.id}
             {#key tid}<Terminal id={tid} />{/key}
+          {:else if tab?.kind === "git"}
+            {#key (task?.repoId || p!.id)}<RepoDetail repoId={task?.repoId || p!.id} embedded />{/key}
           {:else if tab?.kind === "review" && task}
             {#key task.id}<Review project={p!} {task} onagent={(id) => focusTab("t:" + id)} />{/key}
           {:else if tab?.kind === "file" && tab.file}
@@ -230,7 +241,7 @@
       </Empty>
     </div>
   {:else}
-    <div class="grid" class:noright={!v.right}>
+    <div class="grid" class:noright={!v.right || activeTab?.kind === "git"}>
       <!-- esquerda: escopo (principal / tarefas) + arquivos -->
       <aside class="card left">
         <div class="scopes">
@@ -278,11 +289,12 @@
                 {#if t.kind === "term" && t.term?.kind === "agent"}<AgentIcon provider={t.term.meta.provider} size={13} />
                 {:else if t.kind === "term"}<SquareTerminal size={13} />
                 {:else if t.kind === "review"}<GitCompareArrows size={13} />
+                {:else if t.kind === "git"}<GitBranch size={13} />
                 {:else}<Code2 size={13} />{/if}
-                <span class="ell">{t.kind === "term" ? t.term!.title : t.kind === "review" ? "Revisão" : t.file!.path.split("/").pop()}</span>
+                <span class="ell">{t.kind === "term" ? t.term!.title : t.kind === "review" ? "Revisão" : t.kind === "git" ? "Git" : t.file!.path.split("/").pop()}</span>
                 {#if s}<span class="sdot {STATUS[s.status]?.[1]}" class:pulse={s.status === "working"} title={STATUS[s.status]?.[0]}></span>{/if}
                 {#if t.kind === "file" && dirty[t.key]}<span class="dirty" title="não salvo"></span>{/if}
-                {#if t.kind !== "review"}<button class="x" title="Fechar (⌘W)" onclick={(e) => { e.stopPropagation(); closeTab(t); }}><X size={11} /></button>{/if}
+                {#if t.kind !== "review" && t.kind !== "git"}<button class="x" title="Fechar (⌘W)" onclick={(e) => { e.stopPropagation(); closeTab(t); }}><X size={11} /></button>{/if}
               </div>
             {/each}
           </div>
@@ -300,7 +312,7 @@
         </div>
       </section>
 
-      {#if v.right}
+      {#if v.right && activeTab?.kind !== "git"}
         <aside class="card right">
           <AgentPanel project={p} {task} term={activeTerm} onremoved={() => setScope(null)} onreview={() => task && focusTab("r:" + task.id)} />
         </aside>
