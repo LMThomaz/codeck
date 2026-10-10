@@ -64,10 +64,9 @@ O app não é assinado por certificado comercial (decisão da ThomSoft):
 | **Azure DevOps** | PAT por organização (Configurações → Azure DevOps), com teste de cada permissão | PRs, builds, releases, environments, work items, repositórios |
 | **GitHub** | *Entrar com GitHub* (device flow), o login do `gh` CLI ou um token | contas pessoais, organizações e repositórios de terceiros a que o perfil tem acesso |
 
-O *Entrar com GitHub* precisa de um OAuth App com **device flow** habilitado: defina o client id em
-`backend/pilot/github.py` (`GITHUB_CLIENT_ID`), na variável `COMMITDECK_GITHUB_CLIENT_ID` ou em `githubClientId` no
-`config.json`. O client id é público (o device flow não usa client secret), então pode ir no código.
-Sem ele, o botão fica desabilitado e as outras duas formas funcionam.
+O *Entrar com GitHub* usa o OAuth App **Commitdeck** (device flow), cujo client id está em `backend/pilot/github.py`
+(`GITHUB_CLIENT_ID`). Ele é público: o device flow não usa client secret. Quem distribuir outro build pode trocá-lo
+pela variável `COMMITDECK_GITHUB_CLIENT_ID` ou por `githubClientId` no `config.json`.
 
 O Git local usa as mesmas credenciais (por variável de ambiente, nunca na linha de comando) para clonar, buscar e
 enviar por HTTPS; remotos SSH usam as suas chaves.

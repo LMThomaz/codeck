@@ -24,7 +24,7 @@ SCOPES = "repo read:org workflow"
 UA = "Commitdeck"
 # OAuth App com "device flow" habilitado. O client id é público por natureza (vai dentro do app); quem distribuir
 # outro build pode trocar por COMMITDECK_GITHUB_CLIENT_ID ou "githubClientId" no config.json.
-GITHUB_CLIENT_ID = ""
+GITHUB_CLIENT_ID = "Ov23liBS7zajZmsdvkL3"
 
 
 def client_id():
