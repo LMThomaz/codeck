@@ -1,12 +1,16 @@
 <script lang="ts">
-  // Repositórios: os locais registrados e os catálogos (repositórios de uma org/projeto, clonados ou não).
-  import { Download, FolderPlus, FolderSearch, Link, Pencil, Plus, RefreshCw } from "@lucide/svelte";
+  // Repositórios: os locais registrados, os favoritos (de qualquer conta, com tags) e os catálogos (repositórios de uma
+  // org/projeto, clonados ou não — criados sozinhos ao conectar a conta).
+  import { Download, FolderPlus, FolderSearch, Link, Pencil, Plus, RefreshCw, Search } from "@lucide/svelte";
   import { untrack } from "svelte";
   import { get, post } from "../lib/api";
   import { pickFolder } from "../lib/native";
   import { repos } from "../lib/repos.svelte";
   import { go, router, soft } from "../lib/router.svelte";
-  import type { CatalogView } from "../lib/types";
+  import type { CatalogView, FavRepo, RemoteRepo } from "../lib/types";
+  import CollectionsTree from "../components/repo/CollectionsTree.svelte";
+  import FavStar from "../components/repo/FavStar.svelte";
+  import ProviderIcon from "../components/ProviderIcon.svelte";
   import { ui } from "../lib/ui.svelte";
   import Drawer from "../components/Drawer.svelte";
   import Empty from "../components/Empty.svelte";
@@ -18,6 +22,44 @@
   import Toolbar from "../components/Toolbar.svelte";
 
   const catalogId = $derived(router.parts[1] === "catalog" ? router.parts[2] : null);
+  // favoritos ("/repos/favorites") e tag ("/repos/tag/<nome>") listam a coleção pessoal
+  const tagName = $derived(router.parts[1] === "tag" ? router.param.slice(4) : null);
+  const favMode = $derived(router.parts[1] === "favorites" || !!tagName);
+  const tagInfo = $derived(tagName ? repos.tag(tagName) : null);
+  const favList = $derived.by(() => {
+    const t = q.trim().toLowerCase();
+    return repos.favorites.filter(r => (!tagName || r.tags.includes(tagName))
+      && (filter === "all" || (filter === "cloned" ? r.cloned : filter === "not" ? !r.cloned : true))
+      && (!t || `${r.name} ${r.fullName} ${r.description || ""} ${r.tags.join(" ")}`.toLowerCase().includes(t)));
+  });
+  const favCounts = $derived.by(() => {
+    const base = repos.favorites.filter(r => !tagName || r.tags.includes(tagName));
+    return { all: base.length, cloned: base.filter(r => r.cloned).length, notCloned: base.filter(r => !r.cloned).length };
+  });
+
+  // busca em TODAS as contas conectadas, para favoritar (e já aplicar a tag aberta)
+  let searching = $state(false);
+  let sq = $state("");
+  let results = $state<(RemoteRepo & { favorite: boolean })[]>([]);
+  let sLoading = $state(false);
+  let sErrors = $state<Record<string, string>>({});
+  let sTimer: ReturnType<typeof setTimeout> | undefined;
+  function runSearch() {
+    clearTimeout(sTimer);
+    sTimer = setTimeout(async () => {
+      sLoading = true;
+      try { const r = await get("library/search", { q: sq }); results = r.repos; sErrors = r.errors; } catch (e) { ui.error(e); }
+      sLoading = false;
+    }, 220);
+  }
+  $effect(() => { if (searching) { void sq; untrack(runSearch); } });
+
+  async function cloneFav(r: FavRepo) {
+    let base = tagInfo?.baseDir || null;
+    if (!base) base = await pickFolder(`Onde clonar ${r.name}?`);
+    if (!base) return;
+    try { watch(r.key, await post("library/clone", { key: r.key, dest: base.replace(/\/$/, "") + "/" + r.name })); } catch (e) { ui.error(e); }
+  }
   let view = $state<CatalogView | null>(null);
   let loading = $state(false);
   let q = $state("");
@@ -58,7 +100,7 @@
         const j = await get("jobs", { id: job.id });
         jobs = { ...jobs, [key]: j };
         if (j.status === "running") return setTimeout(tick, 600);
-        if (j.status === "done") { ui.toast(`Clonado em ${j.dest}`); await repos.load(); await loadCatalog(); }
+        if (j.status === "done") { ui.toast(`Clonado em ${j.dest}`); await repos.load(); if (catalogId) await loadCatalog(); }
         else ui.toast(`Falhou ao clonar: ${j.error}`, "error");
       } catch (e) { ui.error(e); }
     };
@@ -122,10 +164,14 @@
   const counts = $derived(view ? { all: view.repos.length, cloned: view.repos.filter(r => r.cloned).length, notCloned: view.repos.filter(r => !r.cloned).length } : null);
 </script>
 
-<Page title={catalogId ? view?.name || "Catálogo" : "Repositórios"}
-  sub={catalogId ? (view ? `${view.counts.cloned} de ${view.counts.total} clonados${view.baseDir ? " · " + view.baseDir.replace(/^\/Users\/[^/]+/, "~") : ""}` : "carregando…") : "Seus repositórios locais e catálogos de GitHub e Azure DevOps"}>
+<Page title={catalogId ? view?.name || "Catálogo" : tagName ? tagName : favMode ? "Favoritos" : "Repositórios"}
+  sub={catalogId ? (view ? `${view.counts.cloned} de ${view.counts.total} clonados${view.baseDir ? " · " + view.baseDir.replace(/^\/Users\/[^/]+/, "~") : ""}` : "carregando…")
+    : favMode ? `${favCounts.cloned} de ${favCounts.all} clonados · GitHub e Azure DevOps juntos${tagInfo?.baseDir ? " · " + tagInfo.baseDir.replace(/^\/Users\/[^/]+/, "~") : ""}`
+    : "Seus repositórios locais, favoritos e catálogos de GitHub e Azure DevOps"}>
   {#snippet actions()}
-    {#if catalogId && view}
+    {#if favMode}
+      <button class="btn sm primary" onclick={() => { searching = true; sq = ""; }}><Search size={14} /> Adicionar repositório</button>
+    {:else if catalogId && view}
       <button class="btn sm ghost" onclick={() => loadCatalog(true)} title="Ler a lista de novo"><RefreshCw size={14} /></button>
       {#if counts?.notCloned}<button class="btn sm" onclick={cloneAll}><Download size={14} /> Clonar todos ({counts.notCloned})</button>{/if}
       <button class="btn sm" onclick={() => (editing = "edit")}><Pencil size={14} /> Editar</button>
@@ -138,17 +184,17 @@
   <div class="layout">
     <aside class="card collections">
       <div class="ch">Coleções</div>
-      <button class="col-it" class:on={!catalogId} onclick={() => go("/repos", "soft")}><span class="cdot" style="background:var(--text-2)"></span><span class="grow ell">Todos os locais</span><span class="n">{repos.local.length}</span></button>
-      {#each repos.catalogs as c (c.id)}
-        <button class="col-it" class:on={catalogId === c.id} onclick={() => go("/repos/catalog/" + c.id, "soft")}><span class="cdot" style="background:{c.color}"></span><span class="grow ell">{c.name}</span></button>
-      {/each}
-      <button class="col-it add" onclick={() => (editing = "new")}><Plus size={13} /> Novo catálogo</button>
+      <button class="col-it" class:on={!catalogId && !favMode} onclick={() => go("/repos", "soft")}><FolderPlus size={14} /><span class="grow ell">Todos os locais</span><span class="n">{repos.local.length}</span></button>
+      <CollectionsTree onnew={() => (editing = "new")} />
     </aside>
 
     <div class="main">
-      <Toolbar bind:query={q} placeholder={catalogId ? "Buscar no catálogo…" : "Buscar repositório local…"}>
+      <Toolbar bind:query={q} placeholder={catalogId ? "Buscar no catálogo…" : favMode ? "Buscar nos favoritos (nome, tag)…" : "Buscar repositório local…"}>
         {#snippet left()}
-          {#if catalogId}
+          {#if favMode}
+            <Segmented bind:value={filter} options={[{ value: "all", label: "Todos", count: favCounts.all }, { value: "cloned", label: "Clonados", count: favCounts.cloned },
+              { value: "not", label: "Não clonados", count: favCounts.notCloned }]} />
+          {:else if catalogId}
             <Segmented bind:value={filter} options={[{ value: "all", label: "Todos", count: counts?.all ?? "…" }, { value: "cloned", label: "Clonados", count: counts?.cloned ?? "…" },
               { value: "not", label: "Não clonados", count: counts?.notCloned ?? "…" }]} onchange={() => soft(() => {})} />
           {:else}
@@ -159,7 +205,18 @@
         {/snippet}
       </Toolbar>
       <div class="card scroll">
-        {#if catalogId}
+        {#if favMode}
+          {#if !repos.loaded}<Skeleton rows={6} />
+          {:else}
+            {#each favList as r (r.key)}<RepoRow remote={r} job={jobs[r.key]} onclone={() => cloneFav(r)} />
+            {:else}
+              <Empty title={q || filter !== "all" ? "Nada com esses filtros" : tagName ? `Nenhum favorito com a tag ${tagName}` : "Nenhum favorito ainda"}
+                text={q || filter !== "all" ? "" : "Favorite repositórios de qualquer conta — GitHub e Azure DevOps juntos — e organize com tags."}>
+                {#if !q && filter === "all"}<button class="btn primary" onclick={() => { searching = true; sq = ""; }}><Search size={14} /> Buscar nas contas</button>{/if}
+              </Empty>
+            {/each}
+          {/if}
+        {:else if catalogId}
           {#if loading || !view}<Skeleton rows={9} />
           {:else}
             {#each Object.entries(view.errors) as [k, e] (k)}<div class="err">{k}: {e}</div>{/each}
@@ -185,6 +242,26 @@
   <CatalogEditor catalog={editing === "edit" ? view : null} onclose={() => { editing = null; if (router.parts[1] === "new-catalog") go("/repos", "soft"); loadCatalog(); }} />
 {/if}
 
+{#if searching}
+  <Drawer title={tagName ? `Adicionar a ${tagName}` : "Adicionar aos favoritos"} subtitle="Busca em todas as contas conectadas — GitHub e Azure DevOps" onclose={() => (searching = false)} width={560}>
+    <!-- svelte-ignore a11y_autofocus -->
+    <label class="sbox"><Search size={15} /><input bind:value={sq} placeholder="nome do repositório, dono ou projeto…" autofocus />{#if sLoading}<RefreshCw size={13} class="spin" />{/if}</label>
+    {#each Object.entries(sErrors) as [k, e] (k)}<div class="err">{k}: {e}</div>{/each}
+    <div class="results">
+      {#each results as r (r.key)}
+        <div class="res" class:fav={!!repos.fav(r.remoteKey || r.key)}>
+          <ProviderIcon provider={r.provider} size={15} />
+          <div class="grow"><div class="ell"><b>{r.name}</b> <span class="muted small">{r.owner}</span></div>{#if r.description}<div class="small muted ell">{r.description}</div>{/if}</div>
+          <FavStar repo={r} tags={tagName ? [tagName] : []} />
+        </div>
+      {:else}
+        {#if !sLoading}<div class="small muted pad">{sq ? "Nada encontrado." : "Digite para buscar."}</div>{/if}
+      {/each}
+    </div>
+    {#if tagName}<p class="small muted">Ao favoritar daqui, o repositório já entra com a tag <b>{tagName}</b>.</p>{/if}
+  </Drawer>
+{/if}
+
 {#if adding}
   <Drawer title="Adicionar repositório local" subtitle="Registre clones que já existem ou clone um novo" onclose={() => { adding = false; if (router.parts[1] === "add") go("/repos", "soft"); }} width={520}>
     <div class="opts">
@@ -199,15 +276,24 @@
 {/if}
 
 <style>
+  .sbox { display: flex; align-items: center; gap: 9px; height: 38px; padding: 0 12px; margin-top: 12px; border-radius: 10px; border: 1px solid var(--line-2);
+    background: var(--bg-2); color: var(--muted); }
+  .sbox:focus-within { border-color: var(--accent); box-shadow: var(--ring); }
+  .sbox input { flex: 1; border: 0; outline: none; background: none; color: var(--text); font: 14px var(--font); }
+  .results { display: grid; gap: 2px; margin-top: 10px; }
+  .res { display: flex; align-items: center; gap: 11px; padding: 8px 10px; border-radius: 9px; transition: background var(--t); animation: rise 0.25s var(--ease-out) both; }
+  .res:hover { background: var(--surface-2); }
+  .res.fav { background: color-mix(in srgb, var(--warn-soft) 60%, transparent); }
+  .res .grow { min-width: 0; flex: 1; }
+  .pad { padding: 14px 4px; }
   .layout { flex: 1; min-height: 0; display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 14px; }
   .collections { padding: 8px; display: flex; flex-direction: column; gap: 2px; overflow: auto; }
   .ch { font: 650 10.5px/1 var(--font); text-transform: uppercase; letter-spacing: 0.07em; color: var(--muted); padding: 8px 10px 8px; }
+  .col-it { margin-bottom: 4px; }
   .col-it { display: flex; align-items: center; gap: 9px; height: 32px; padding: 0 10px; border-radius: 8px; border: 0; background: none; color: var(--text-2);
     font: 500 13px var(--font); cursor: pointer; text-align: left; transition: background var(--t), color var(--t); }
   .col-it:hover { background: var(--surface-2); color: var(--text); }
   .col-it.on { background: var(--accent-soft); color: var(--text); font-weight: 600; }
-  .col-it.add { color: var(--accent); margin-top: 4px; }
-  .cdot { width: 9px; height: 9px; border-radius: 3px; flex-shrink: 0; }
   .n { font-size: 11.5px; color: var(--muted); }
   .main { min-height: 0; display: flex; flex-direction: column; }
   .scroll { flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; }

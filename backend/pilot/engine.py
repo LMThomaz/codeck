@@ -9,7 +9,7 @@ import time
 import uuid
 from datetime import timedelta
 
-from . import azure, git, github, secrets
+from . import azure, catalogs, git, github, secrets
 from .analytics import analytics_cache
 from .core import (ARCHIVE_FILE, CONFIG_FILE, NOTIFIED_FILE, ctx, load_json, lock, log_activity, log_deploy, notify,
                    now, now_iso, parse_dt, pr_summary, save_json, state, wake)
@@ -63,6 +63,7 @@ def reload_accounts():
         state["errors"], state["deployErrors"], state["buildErrors"], state["ghErrors"] = {}, {}, {}, {}
     analytics_cache.clear()
     wake.set()
+    catalogs.auto_sync_async()   # conta nova já ganha os catálogos dela
 
 
 def gh_by_login(login):
@@ -417,6 +418,7 @@ def poll_loop():
 def start():
     orgs, gh, cfg = load_accounts()
     ctx.orgs, ctx.gh, ctx.config = orgs, gh, cfg
+    catalogs.auto_sync_async()
     if os.environ.get("COMMITDECK_NO_POLL") != "1":
         import threading
         threading.Thread(target=poll_loop, daemon=True).start()

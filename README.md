@@ -43,8 +43,13 @@ O app não é assinado por certificado comercial (decisão da ThomSoft):
 - **Análise** (lead time, aprovações, criadores, repositórios) e **Histórico** de tudo que você e o piloto fizeram.
 
 **Repositórios e Git**
-- **Catálogos**: agrupe repositórios (ex.: "Cifal" = a organização inteira do Azure ou um owner do GitHub), filtre
-  por clonado/não clonado, clone um ou todos de uma vez. Clones que já existem na pasta são reconhecidos sozinhos.
+- **Catálogos**: nascem sozinhos ao conectar uma conta (um por projeto do Azure; no GitHub, o pessoal e um por
+  organização) e ficam agrupados pela conta, com o logo do provedor, recolhíveis no painel e na barra lateral. Também dá
+  para criar os seus. Filtre por clonado/não clonado e clone um ou todos de uma vez; clones que já existem na pasta
+  são reconhecidos sozinhos.
+- **Favoritos e tags**: favorite repositórios de qualquer conta (GitHub e Azure misturados) — pela estrela ou buscando
+  em todas as contas — e organize com tags livres ("Open-Source", "Sustentação"…). Cada tag vira uma coleção; tag nova
+  é criada digitando no próprio seletor.
 - **Limpar repositório local** (manda para a Lixeira) — desabilitado quando há algo não commitado, stash, operação
   em andamento ou commit que não subiu.
 - **Repositório**: graph de commits no estilo GitKraken (faixas coloridas, avatar do autor, branches e tags),

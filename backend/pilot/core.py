@@ -56,6 +56,7 @@ NOTIFIED_FILE = os.path.join(DATA, "notified.json")
 ACTIVITY_FILE = os.path.join(DATA, "activity.jsonl")
 REPOS_FILE = os.path.join(DATA, "repos.json")
 CATALOGS_FILE = os.path.join(DATA, "catalogs.json")
+LIBRARY_FILE = os.path.join(DATA, "library.json")
 UPDATES_DIR = os.path.join(DATA, "updates")
 STATIC_DIR = os.path.join(BACKEND_DIR, "static")
 

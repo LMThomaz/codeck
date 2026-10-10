@@ -8,6 +8,7 @@
   import { ui } from "../lib/ui.svelte";
   import { time } from "../lib/format";
   import Mark from "./Mark.svelte";
+  import CollectionsTree from "./repo/CollectionsTree.svelte";
   import ProviderIcon from "./ProviderIcon.svelte";
   import Switch from "./Switch.svelte";
 
@@ -32,13 +33,23 @@
   let navEl: HTMLElement | undefined = $state();
   let ind = $state({ y: 0, h: 0, ready: false });
   $effect(() => {
-    void router.view; void router.param; void repos.pinned.length; void repos.catalogs.length;
-    requestAnimationFrame(() => {
-      const on = navEl?.querySelector<HTMLElement>(".item.on");
-      ind = on ? { y: on.offsetTop, h: on.offsetHeight, ready: true } : { ...ind, ready: false };
-    });
+    void router.view; void router.param; void repos.pinned.length; void repos.catalogs.length; void repos.tags.length; void repos.favorites.length;
+    requestAnimationFrame(place);
   });
-  const isOn = (id: string) => router.view === id || (id === "repos" && router.view === "repo" && !repos.pinned.some(r => r.id === router.param));
+  function place() {
+    const on = navEl?.querySelector<HTMLElement>(".item.on");
+    ind = on ? { y: on.offsetTop, h: on.offsetHeight, ready: true } : { ...ind, ready: false };
+  }
+  // grupo do catálogo abrindo/fechando muda a altura da árvore: o marcador do item ativo acompanha
+  let treeEl: HTMLElement | undefined = $state();
+  $effect(() => {
+    if (!treeEl) return;
+    const ro = new ResizeObserver(() => place());
+    ro.observe(treeEl);
+    return () => ro.disconnect();
+  });
+  // "Repositórios" só fica marcado na lista de locais; favoritos, tags e catálogos marcam o próprio subitem
+  const isOn = (id: string) => (router.view === id && !(id === "repos" && router.param)) || (id === "repos" && router.view === "repo" && !repos.pinned.some(r => r.id === router.param));
   const paused = $derived(!!s?.rules.settings.paused);
   async function toggleAuto(on: boolean) {
     try {
@@ -79,11 +90,7 @@
           {#if n.count !== undefined && n.count !== null}<span class="count" class:hot={n.hot && n.count > 0 && !isOn(n.id)}>{n.count}</span>{/if}
         </button>
         {#if n.id === "repos"}
-          {#each repos.catalogs as c (c.id)}
-            <button class="item sub" class:on={router.view === "repos" && router.param === "catalog/" + c.id} onclick={() => go("/repos/catalog/" + c.id)}>
-              <span class="cdot" style="background:{c.color}"></span><span class="lbl">{c.name}</span>
-            </button>
-          {/each}
+          <div class="tree" bind:this={treeEl}><CollectionsTree compact /></div>
           {#each repos.pinned as r (r.id)}
             <button class="item sub" class:on={router.view === "repo" && router.param === r.id} onclick={() => go("/repo/" + r.id)}>
               <Pin size={12} /><span class="lbl">{r.name}</span>
@@ -145,7 +152,7 @@
   .item.on :global(svg) { color: var(--accent); }
   .item.sub { height: 27px; padding-left: 36px; font-size: 12.5px; gap: 8px; }
   .item.sub:hover:not(.on) { padding-left: 38px; }
-  .cdot { width: 8px; height: 8px; border-radius: 3px; flex-shrink: 0; }
+  .tree { position: relative; z-index: 1; }
   .lbl { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .count { font: 650 11px/1 var(--font); font-variant-numeric: tabular-nums; padding: 3px 7px; border-radius: 99px; background: var(--surface-2); color: var(--text-2);
     border: 1px solid var(--line); transition: background var(--t), color var(--t); }

@@ -81,12 +81,15 @@ export interface RemoteRepo {
   key: string; provider: Provider; account: string; owner: string; name: string; fullName: string; cloneUrl?: string;
   sshUrl?: string; webUrl?: string; defaultBranch?: string; private: boolean; archived?: boolean; fork?: boolean;
   description: string; updated?: string | null; language?: string | null; cloned: boolean; clonePath?: string | null;
-  local: (Partial<LocalRepo> & { id: string; path: string }) | null;
+  local: (Partial<LocalRepo> & { id: string; path: string }) | null; remoteKey?: string; favorite?: boolean;
 }
+/** Favorito: retrato do repositório (de qualquer conta) + tags livres. `key` = remoto normalizado, ou "local:<id>". */
+export interface FavRepo extends Omit<RemoteRepo, "account" | "owner"> { account?: string; owner?: string; tags: string[]; addedAt?: string }
+export interface Tag { name: string; color: string; baseDir: string | null; count: number }
 export interface CatalogSource { provider: Provider; account: string; owner?: string | null; project?: string | null }
 export interface Catalog {
   id: string; name: string; color: string; baseDir: string | null; sources: CatalogSource[]; extra: string[]; exclude: string[];
-  description?: string;
+  description?: string; auto?: string;
 }
 export interface CatalogView extends Catalog { repos: RemoteRepo[]; errors: Record<string, string>; counts: { total: number; cloned: number } }
 

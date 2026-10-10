@@ -6,13 +6,17 @@
   import { fileManagerName } from "../../lib/native";
   import { repos } from "../../lib/repos.svelte";
   import { go } from "../../lib/router.svelte";
-  import type { LocalRepo, RemoteRepo } from "../../lib/types";
+  import type { FavRepo, LocalRepo, RemoteRepo } from "../../lib/types";
   import { ui } from "../../lib/ui.svelte";
   import Menu from "../Menu.svelte";
   import ProviderIcon from "../ProviderIcon.svelte";
+  import FavStar from "./FavStar.svelte";
+  import TagPicker from "./TagPicker.svelte";
 
   let { remote = null, local = null, onchanged = () => {}, job = null, onclone = undefined }:
-    { remote?: RemoteRepo | null; local?: LocalRepo | null; onchanged?: () => void; job?: any; onclone?: () => void } = $props();
+    { remote?: RemoteRepo | FavRepo | null; local?: LocalRepo | null; onchanged?: () => void; job?: any; onclone?: () => void } = $props();
+  const favKey = $derived(repos.keyOf((remote || local)!));
+  const isFav = $derived(!!repos.fav(favKey));
 
   const loc = $derived(local || (remote?.local as LocalRepo | null) || null);
   const st = $derived(loc?.status);
@@ -69,6 +73,7 @@
   <div class="grow">
     <div class="t">
       <span class="title ell">{name}</span>
+      <FavStar repo={(remote || local)!} size={13} />
       {#if remote?.private}<Lock size={11} class="muted" />{/if}
       {#if remote?.archived}<span class="pill neutral">arquivado</span>{/if}
       {#if remote?.fork}<span class="pill neutral">fork</span>{/if}
@@ -81,6 +86,7 @@
       {#if loc}<span class="path ell" title={loc.path}>{loc.path.replace(/^\/Users\/[^/]+/, "~")}</span>{/if}
       {#if loc?.lastCommit}<span>último commit {ago(loc.lastCommit.date)}</span>{:else if remote?.updated}<span>atualizado {ago(remote.updated)}</span>{/if}
     </div>
+    {#if isFav}<div class="tagline"><TagPicker key={favKey} /></div>{/if}
     {#if job && job.status === "running"}
       <div class="progress"><span style="width:{Math.max(4, job.percent)}%"></span></div>
       <div class="tiny muted">{job.progress || "Clonando…"}</div>
@@ -105,6 +111,8 @@
 </div>
 
 <style>
+  .tagline { margin-top: 6px; animation: rise 0.25s var(--ease-out); }
+  .t :global(.star) { width: 22px; height: 22px; margin-left: -2px; }
   .ic { width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center; background: var(--surface-2); border: 1px solid var(--line); }
   .cloned .ic { background: var(--surface-3); }
   .t { display: flex; align-items: center; gap: 7px; min-width: 0; }

@@ -11,7 +11,9 @@ import time
 import uuid
 
 from . import git
-from .core import CATALOGS_FILE, ctx, load_json, save_json
+import threading
+
+from .core import CATALOGS_FILE, DATA, ctx, load_json, save_json
 
 _remote_cache = {}   # (provider, account, owner, project) -> (ts, repos)
 COLORS = ["#3F8CF0", "#22C38E", "#F0A23F", "#E5577B", "#8B6CF0", "#2EC4D6", "#F06A3F", "#9AA4B2"]
@@ -46,6 +48,9 @@ def upsert(body):
         "extra": [str(x) for x in body.get("extra", [])][:500], "exclude": [str(x) for x in body.get("exclude", [])][:500],
         "description": (body.get("description") or "").strip()[:200],
     }
+    prev = next((c for c in cats if c["id"] == cid), None)
+    if prev and prev.get("auto"):   # catálogo criado pela conta continua agrupado nela depois de editado
+        entry["auto"] = prev["auto"]
     idx = next((i for i, c in enumerate(cats) if c["id"] == cid), None)
     if idx is None:
         cats.append(entry)
@@ -137,25 +142,36 @@ def adopt_existing(base, repos, local):
     return adopted
 
 
+def _account_suggestions(provider, name):
+    """Catálogos naturais de UMA conta: um por projeto do Azure; no GitHub, o pessoal e um por organização."""
+    out = []
+    if provider == "azure":
+        org = ctx.orgs[name]
+        for p in org.projects():
+            out.append({"name": p["name"] if p["name"].lower() != name.lower() else name,
+                        "sources": [{"provider": "azure", "account": name, "owner": None, "project": p["name"]}],
+                        "label": f"Azure · {name} / {p['name']}"})
+    else:
+        acc = next(a for a in ctx.gh.values() if a.login == name)
+        me = acc.identity()
+        out.append({"name": me["login"], "sources": [{"provider": "github", "account": acc.login, "owner": me["login"], "project": None}],
+                    "label": f"GitHub · @{me['login']} (pessoal)"})
+        for o in acc.orgs():
+            out.append({"name": o["login"], "sources": [{"provider": "github", "account": acc.login, "owner": o["login"], "project": None}],
+                        "label": f"GitHub · {o['login']}", "avatar": o.get("avatar")})
+    return out
+
+
+def _connected():
+    return [("azure", n) for n in ctx.orgs] + [("github", a.login) for a in ctx.gh.values()]
+
+
 def suggestions():
     """Um catálogo sugerido por organização/projeto do Azure e por organização/conta do GitHub conectados."""
     out = []
-    for name, org in ctx.orgs.items():
+    for prov, name in _connected():
         try:
-            for p in org.projects():
-                out.append({"name": p["name"] if p["name"].lower() != name.lower() else name,
-                            "sources": [{"provider": "azure", "account": name, "project": p["name"]}],
-                            "label": f"Azure · {name} / {p['name']}"})
-        except Exception:  # noqa: BLE001
-            continue
-    for acc in ctx.gh.values():
-        try:
-            me = acc.identity()
-            out.append({"name": me["login"], "sources": [{"provider": "github", "account": acc.login, "owner": me["login"]}],
-                        "label": f"GitHub · @{me['login']} (pessoal)"})
-            for o in acc.orgs():
-                out.append({"name": o["login"], "sources": [{"provider": "github", "account": acc.login, "owner": o["login"]}],
-                            "label": f"GitHub · {o['login']}", "avatar": o.get("avatar")})
+            out.extend(_account_suggestions(prov, name))
         except Exception:  # noqa: BLE001
             continue
     names = {c["name"].lower() for c in load()}
@@ -179,3 +195,49 @@ def clone(cid, repo_key, dest=None):
         url = re.sub(r"^https://[^@/]+@", "https://", url)   # o Azure põe o usuário na URL; a credencial vai pelo header
     info = git.parse_remote(url)
     return git.clone(url, dest, auth=git._auth_lookup["fn"](info.get("provider"), info.get("owner")) if git._auth_lookup["fn"] else None)
+
+
+# ---------------------------------------------------------------- catálogos automáticos por conta
+# Conta conectada pela 1ª vez → os catálogos dela nascem sozinhos (marcados com auto = "provider:conta", que agrupa
+# no painel). AUTO_FILE lembra as contas já processadas: catálogo apagado à mão não volta. Conta removida leva junto
+# os catálogos automáticos dela.
+AUTO_FILE = os.path.join(DATA, "catalogs-auto.json")
+_auto_lock = threading.Lock()
+
+
+def auto_sync():
+    with _auto_lock:
+        seen = set(load_json(AUTO_FILE, []))
+        live = {f"{p}:{n}" for p, n in _connected()}
+        cats = load()
+        changed = False
+        gone = [c for c in cats if c.get("auto") and c["auto"] not in live]
+        if gone:
+            cats = [c for c in cats if c not in gone]
+            changed = True
+        seen &= live
+        for prov, name in _connected():
+            tag = f"{prov}:{name}"
+            if tag in seen:
+                continue
+            try:
+                sugg = _account_suggestions(prov, name)
+            except Exception:  # noqa: BLE001 — sem rede/permissão agora: tenta de novo na próxima vez
+                continue
+            have = {(s["provider"], s["account"].lower(), (s.get("owner") or "").lower(), (s.get("project") or "").lower())
+                    for c in cats for s in c.get("sources", [])}
+            for sg in sugg:
+                s = sg["sources"][0]
+                if (s["provider"], s["account"].lower(), (s.get("owner") or "").lower(), (s.get("project") or "").lower()) in have:
+                    continue
+                cats.append({"id": uuid.uuid4().hex[:10], "name": sg["name"][:60], "color": COLORS[len(cats) % len(COLORS)],
+                             "baseDir": None, "sources": sg["sources"], "extra": [], "exclude": [], "description": "", "auto": tag})
+                changed = True
+            seen.add(tag)
+        if changed:
+            save(cats)
+        save_json(AUTO_FILE, sorted(seen))
+
+
+def auto_sync_async():
+    threading.Thread(target=auto_sync, daemon=True).start()

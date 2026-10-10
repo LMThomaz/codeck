@@ -13,7 +13,7 @@ import time
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from . import accounts, analytics, azure, catalogs, engine, git, github, rules, update
+from . import accounts, analytics, azure, catalogs, engine, git, github, library, rules, update
 from .core import (APP_BUILD, APP_PLATFORM, APP_VERSION, ARCHIVE_FILE, CONFIG_FILE, DATA, DEFAULT_PORT, PRODUCT, RULES_FILE,
                    STATIC_DIR, TOKEN, ctx, load_json, lock, log_activity, log_build, log_deploy, notifications, notify_seq,
                    now_iso, pr_summary, read_activity, save_json, state, wake)
@@ -405,6 +405,43 @@ def post_pr_create(qs, body):
 
 
 # ---------------------------------------------------------------- catálogos
+# ---------------------------------------------------------------- favoritos e tags (qualquer conta)
+@route("GET", "/api/library")
+def get_library(qs, body):
+    return library.view()
+
+
+@route("GET", "/api/library/search")
+def get_library_search(qs, body):
+    return library.search(q1(qs, "q", ""), force=q1(qs, "force", "0") == "1")
+
+
+@route("POST", "/api/library/favorite")
+def post_library_favorite(qs, body):
+    return library.favorite(body)
+
+
+@route("POST", "/api/library/tags")
+def post_library_tags(qs, body):
+    return library.set_tags(body)
+
+
+@route("POST", "/api/library/tag")
+def post_library_tag(qs, body):
+    return library.save_tag(body)
+
+
+@route("POST", "/api/library/tag/delete")
+def post_library_tag_delete(qs, body):
+    library.delete_tag(body.get("name"))
+    return {"ok": True}
+
+
+@route("POST", "/api/library/clone")
+def post_library_clone(qs, body):
+    return library.clone(body.get("key"), body.get("dest"))
+
+
 @route("GET", "/api/catalogs")
 def get_catalogs(qs, body):
     return {"catalogs": catalogs.load()}
