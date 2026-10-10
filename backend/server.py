@@ -97,7 +97,7 @@ DEFAULT_RULES = {
 lock = threading.RLock()
 wake = threading.Event()
 state = {"prs": [], "myPrs": [], "builds": [], "buildErrors": {}, "errors": {}, "lastPoll": None, "me": {}, "pollMs": None,
-         "deploys": [], "releases": [], "deployErrors": {}, "lastDeployPoll": None}
+         "deploys": [], "releases": [], "deployErrors": {}, "lastDeployPoll": None, "lastBuildPoll": None}
 TOKEN = os.environ.get("PR_PILOT_TOKEN") or ""
 NATIVE_NOTIFY = os.environ.get("PR_PILOT_NATIVE_NOTIFY") == "1"
 notifications = []    # fila lida pelo app: {"seq", "title", "subtitle", "message", "target"}
@@ -1049,7 +1049,7 @@ def poll_builds():
     save_json(NOTIFIED_FILE, sorted(notified))
     all_b.sort(key=lambda b: b.get("queued") or "", reverse=True)
     with lock:
-        state.update(builds=all_b, buildErrors=errors)
+        state.update(builds=all_b, buildErrors=errors, lastBuildPoll=now_iso())
 
 
 def poll_loop():
@@ -1464,6 +1464,7 @@ class Handler(BaseHTTPRequestHandler):
                 payload["releases"] = list(state["releases"])
                 payload["deployErrors"] = dict(state["deployErrors"])
                 payload["lastDeployPoll"] = state["lastDeployPoll"]
+                payload["lastBuildPoll"] = state["lastBuildPoll"]
             payload["configured"] = bool(ORGS)
             payload["app"] = {"version": APP_VERSION, "build": APP_BUILD, "platform": APP_PLATFORM}
             payload["update"] = dict(update_state)

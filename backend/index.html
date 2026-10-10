@@ -415,7 +415,15 @@
   /* menu lateral */
   .side { box-shadow: 1px 0 0 var(--line); border-right: 0; }
   .nav button { position: relative; transition: background-color var(--t) var(--ease), color var(--t) var(--ease), padding var(--t) var(--ease); }
-  .nav button::before { content: ""; position: absolute; left: -10px; top: 50%; width: 3px; height: 0; border-radius: 0 3px 3px 0;
+  .nav { position: relative; }
+  .nav button, .nav .grp { position: relative; z-index: 1; }
+  .nav button.on { background: transparent; }
+  .nav-ind { position: absolute; left: 0; top: 0; z-index: 0; border-radius: 8px; background: var(--accent-soft); pointer-events: none; opacity: 0;
+             transition: transform .42s var(--ease-out), width .42s var(--ease-out), height .42s var(--ease-out), opacity .2s var(--ease); }
+  .nav-ind.ready { opacity: 1; }
+  .nav-ind::before { content: ""; position: absolute; left: -10px; top: 20%; bottom: 20%; width: 3px; border-radius: 0 3px 3px 0; background: var(--accent); }
+  .nav .count[hidden] { display: none; }
+  .nav button::before { content: none; position: absolute; left: -10px; top: 50%; width: 3px; height: 0; border-radius: 0 3px 3px 0;
                         background: var(--accent); transform: translateY(-50%); transition: height var(--t) var(--ease-out); }
   .nav button.on::before { height: 60%; }
   .nav button:hover:not(.on) { padding-left: 13px; }
@@ -434,18 +442,18 @@
   .pr .actions { transition: opacity var(--t) var(--ease); }
   .pr.r-enter { animation: rowIn .5s var(--ease-out) both, flash 1.6s var(--ease) .1s; }
   .pr.r-leave { animation: rowOut .26s var(--ease) forwards; pointer-events: none; }
-  .detail { animation: fadeDown var(--t) var(--ease-out); }
+  .pr.d-enter .detail { animation: fadeDown var(--t) var(--ease-out); }
   tbody tr { transition: background-color var(--t-fast) var(--ease); }
   tbody tr:hover { background: var(--surface-2); }
 
   /* entrada de tela e do painel lateral */
-  #view.v-enter > * { animation: viewIn var(--t-slow) var(--ease-out) both; }
-  #view.v-enter > *:nth-child(2) { animation-delay: .04s; } #view.v-enter > *:nth-child(3) { animation-delay: .08s; }
-  #view.v-enter > *:nth-child(4) { animation-delay: .12s; } #view.v-enter > *:nth-child(n+5) { animation-delay: .16s; }
-  #view.v-enter .kpi { animation: viewIn var(--t-slow) var(--ease-out) both; }
-  #view.v-enter .kpi:nth-child(2) { animation-delay: .03s; } #view.v-enter .kpi:nth-child(3) { animation-delay: .06s; }
-  #view.v-enter .kpi:nth-child(4) { animation-delay: .09s; } #view.v-enter .kpi:nth-child(5) { animation-delay: .12s; }
-  #view.v-enter .kpi:nth-child(n+6) { animation-delay: .15s; }
+  /* revelação: troca de tela, ou o esqueleto dando lugar aos dados — os itens entram em cascata */
+  #view.reveal .stg { animation: rowIn .46s var(--ease-out) both; animation-delay: calc(var(--i, 0) * 26ms + 40ms); }
+  #view.reveal .kpi { animation: viewIn .42s var(--ease-out) both; animation-delay: calc(var(--i, 0) * 30ms); }
+  #view.reveal :is(.notice, .conflict-banner, .warnbox, .toolbar) { animation: fadeDown .3s var(--ease-out) both; }
+  #view.reveal .empty { animation: emptyIn .5s var(--ease-out) both; }
+  #view.reveal .empty.done::before { animation: popIn .55s var(--ease-out) .12s both; }
+  #view.reveal.novt > * { animation: viewIn var(--t-slow) var(--ease-out) both; }   /* sem View Transitions (WebKit antigo) */
   .pane.p-enter > * { animation: paneIn var(--t) var(--ease-out) both; }
   .pane.p-enter > .pb { animation-delay: .04s; }
 
@@ -468,9 +476,8 @@
   /* avisos */
   .toast { animation: toastIn .32s var(--ease-out) both; border-radius: 10px; padding: 10px 16px; display: flex; gap: 8px; align-items: center; }
   .toast.out { animation: toastOut .22s var(--ease) forwards; }
-  .notice, .error, .conflict-banner, .warnbox { animation: fadeDown var(--t) var(--ease-out); }
-  #updBlock { animation: fadeIn var(--t) var(--ease); }
-  #updBlock .card { animation: popIn .4s var(--ease-out); }
+  #updBlock.u-enter { animation: fadeIn var(--t) var(--ease); }
+  #updBlock.u-enter .card { animation: popIn .4s var(--ease-out); }
 
   .pane .pact .ghost { border-color: var(--line); }
   .pane .ph h2 { font-size: 17px; }
@@ -479,7 +486,7 @@
   .empty::before { content: ""; display: block; width: 52px; height: 52px; margin: 0 auto 14px; border-radius: 50%;
                    background: var(--surface-2) center / 24px no-repeat; border: 1px solid var(--line);
                    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23858c9a' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='11' cy='11' r='7'/%3E%3Cpath d='m20 20-3.5-3.5'/%3E%3C/svg%3E"); }
-  .empty.done::before { background-color: var(--good-bg); border-color: color-mix(in srgb, var(--good) 30%, transparent); animation: popIn .5s var(--ease-out);
+  .empty.done::before { background-color: var(--good-bg); border-color: color-mix(in srgb, var(--good) 30%, transparent);
                         background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2322C38E' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E"); }
   .empty b { font-size: 16px; }
 
@@ -489,6 +496,46 @@
             background-size: 200% 100%; animation: shimmer 1.2s linear infinite; }
   .skel i:nth-child(2) { width: 82%; } .skel i:nth-child(3) { width: 64%; } .skel i:nth-child(4) { width: 74%; }
   .skel.tall i { height: 18px; }
+
+  /* View Transitions: a tela antiga sai e a nova entra no sentido do menu; menu lateral parado */
+  #view { view-transition-name: view; }
+  #vhead { view-transition-name: vhead; }
+  ::view-transition-old(root), ::view-transition-new(root) { animation: none; }
+  ::view-transition-group(view), ::view-transition-group(vhead) { animation: none; }
+  ::view-transition-image-pair(view) { isolation: auto; }
+  ::view-transition-old(view), ::view-transition-new(view) { mix-blend-mode: normal; height: auto; width: 100%; }
+  ::view-transition-old(view) { animation: vtOutUp .2s var(--ease) both; }
+  ::view-transition-new(view) { animation: vtInUp .42s var(--ease-out) .04s both; }
+  html[data-vt="up"]::view-transition-old(view) { animation-name: vtOutDown; }
+  html[data-vt="up"]::view-transition-new(view) { animation-name: vtInDown; }
+  html[data-vt="data"]::view-transition-old(view) { animation: fadeOut .22s var(--ease) both; }
+  html[data-vt="data"]::view-transition-new(view) { animation: fadeIn .34s var(--ease-out) both; }
+  html[data-vt="soft"]::view-transition-old(view) { animation: fadeOut .14s var(--ease) both; }
+  html[data-vt="soft"]::view-transition-new(view) { animation: fadeIn .24s var(--ease-out) both; }
+  ::view-transition-old(vhead) { animation: vtOutUp .16s var(--ease) both; }
+  ::view-transition-new(vhead) { animation: vhIn .38s var(--ease-out) both; }
+  html[data-vt="data"]::view-transition-old(vhead), html[data-vt="data"]::view-transition-new(vhead),
+  html[data-vt="soft"]::view-transition-old(vhead), html[data-vt="soft"]::view-transition-new(vhead) { animation: none; }
+  @keyframes vtOutUp { to { opacity: 0; transform: translateY(-12px); filter: blur(3px); } }
+  @keyframes vtOutDown { to { opacity: 0; transform: translateY(12px); filter: blur(3px); } }
+  @keyframes vtInUp { from { opacity: 0; transform: translateY(22px); } }
+  @keyframes vtInDown { from { opacity: 0; transform: translateY(-22px); } }
+  @keyframes vhIn { from { opacity: 0; transform: translateX(-10px); } }
+  @keyframes emptyIn { from { opacity: 0; transform: scale(.98) translateY(6px); } }
+
+  /* esqueleto da tela inteira (antes do primeiro dado) */
+  .skel-page .kpi { min-height: 66px; }
+  .skel-row { display: grid; grid-template-columns: 30px minmax(0, 1fr) 120px; gap: 12px; align-items: center; padding: 14px 16px; border-top: 1px solid var(--line); }
+  .skel-row:first-child { border-top: 0; }
+  .skel-row .sa { width: 30px; height: 30px; border-radius: 50%; }
+  .skel-row .sl { display: grid; gap: 8px; }
+  .shim { display: block; border-radius: 6px; background: linear-gradient(90deg, var(--surface-2) 0%, var(--line) 50%, var(--surface-2) 100%);
+          background-size: 200% 100%; animation: shimmer 1.2s linear infinite; }
+  .skel-tool { height: 34px; border-radius: 8px; margin-bottom: 12px; }
+  .loading-note { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); margin: 0 0 10px 2px; }
+  .loading-note::before { content: ""; width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--line-2); border-top-color: var(--accent);
+                          animation: spin .8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
 
   @keyframes viewIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
   @keyframes paneIn { from { opacity: 0; transform: translateX(10px); } to { opacity: 1; transform: none; } }
@@ -606,25 +653,85 @@ function toast(msg) {
 }
 // A tela é redesenhada a cada 15 s: as animações só rodam no que MUDOU (troca de aba, item novo, contador que
 // mudou, outro item no painel), nunca no redesenho em si.
-const motion = {tab: null, seen: new Set(), counts: {}, kpis: {}, focus: null};
+const motion = {tab: null, seen: new Set(), counts: {}, kpis: {}, focus: null, loading: null, reveal: false, opened: null};
+const reduceMotion = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
+const canVT = () => !!document.startViewTransition && !reduceMotion();
+// Troca com View Transitions (WebKit 18+/WebView2): a tela antiga sai e a nova entra; sem suporte, cai no fade por CSS.
+function swap(update, kind) {
+  if (!canVT()) { update(); return; }
+  const html = document.documentElement;
+  html.dataset.vt = kind;
+  const t = document.startViewTransition(() => { motion.vt = true; update(); motion.vt = false; });
+  t.finished.finally(() => { if (html.dataset.vt === kind) delete html.dataset.vt; });
+}
+function goTab(next) {
+  if (next === tab) return;
+  const dir = TAB_IDS.indexOf(next) >= TAB_IDS.indexOf(tab) ? "down" : "up";
+  swap(() => { tab = next; history.replaceState(null, "", "#" + tab); render(); window.scrollTo({top: 0}); }, dir);
+}
+// Cada tela só tem dado depois que o backend leu o Azure pela 1ª vez: até lá, esqueleto (e não "Fila zerada").
+function sectionReady(t = tab) {
+  if (!S) return false;
+  if (!S.configured) return true;
+  if (t === "fila") return !!(S.lastPoll && S.lastDeployPoll);
+  if (["todas", "minhas", "arquivadas"].includes(t)) return !!S.lastPoll;
+  if (t === "builds") return !!S.lastBuildPoll;
+  if (t === "releases") return !!S.lastDeployPoll;
+  return true;
+}
+function skeletonView(t) {
+  const sh = (w, h = 12) => `<i class="shim" style="width:${w};height:${h}px"></i>`;
+  const kpiN = {fila: 7, todas: 7, minhas: 4, builds: 5, analise: 6}[t] ?? 0;
+  const rows = Array.from({length: 7}, (_, i) => `<div class="skel-row"><i class="shim sa"></i><div class="sl">${sh(`${72 - (i * 9) % 30}%`, 13)}${sh(`${46 + (i * 13) % 30}%`, 10)}</div>${sh("100%", 24)}</div>`).join("");
+  const list = `<div class="card">${rows}</div>`;
+  const pane = `<aside class="card pane"><div class="card-b" style="display:grid;gap:12px">${sh("40%")}${sh("85%", 18)}${sh("60%")}${sh("100%", 80)}${sh("70%")}${sh("90%")}</div></aside>`;
+  return `<div class="skel-page">
+    <div class="loading-note">Lendo o Azure DevOps…</div>
+    ${kpiN ? `<div class="kpis">${Array.from({length: kpiN}, () => `<div class="kpi" style="display:grid;gap:8px">${sh("70%", 10)}${sh("40%", 20)}${sh("55%", 9)}</div>`).join("")}</div>` : ""}
+    <i class="shim skel-tool"></i>
+    ${wide() && ["fila", "todas", "minhas", "builds"].includes(t) ? `<div class="split">${list}${pane}</div>` : list}</div>`;
+}
+function countUp(el) {
+  const m = /^(\d+)(%?)$/.exec(el.textContent.trim());
+  if (!m || reduceMotion()) return;
+  const end = Number(m[1]), t0 = performance.now(), dur = 520;
+  el.dataset.final = el.textContent.trim();
+  if (end < 2) return;
+  const step = now => {
+    const k = Math.min(1, (now - t0) / dur), e = 1 - Math.pow(1 - k, 3);
+    el.textContent = Math.round(end * e) + m[2];
+    if (k < 1) requestAnimationFrame(step);
+  };
+  el.textContent = "0" + m[2];
+  requestAnimationFrame(step);
+}
 const skel = (n = 3, tall = false) => `<div class="skel ${tall ? "tall" : ""}">${"<i></i>".repeat(n)}</div>`;
 function afterRender() {
-  const view = $("#view"), tabChanged = motion.tab !== tab;
-  if (tabChanged) { view.classList.remove("v-enter"); void view.offsetWidth; view.classList.add("v-enter"); motion.tab = tab;
-                    clearTimeout(motion.vt); motion.vt = setTimeout(() => view.classList.remove("v-enter"), 700); }
+  const view = $("#view"), tabChanged = motion.tab !== tab, reveal = tabChanged || motion.reveal;
+  motion.tab = tab; motion.reveal = false;
+  if (reveal && !view.querySelector(".skel-page")) {
+    view.classList.remove("reveal", "novt"); void view.offsetWidth;
+    view.classList.add("reveal"); if (!canVT()) view.classList.add("novt");
+    view.querySelectorAll(":scope .pr, :scope .rule, :scope tbody tr, :scope .orgform").forEach((el, i) => { if (i < 18) { el.classList.add("stg"); el.style.setProperty("--i", i); } });
+    view.querySelectorAll(".kpi").forEach((el, i) => { el.style.setProperty("--i", i); const v = el.querySelector(".v"); if (v) countUp(v); });
+    clearTimeout(motion.rt); motion.rt = setTimeout(() => { view.classList.remove("reveal", "novt"); view.querySelectorAll(".stg").forEach(e => e.classList.remove("stg")); }, 1100);
+  }
+  if (motion.opened) { view.querySelector(`[data-row="${CSS.escape(motion.opened)}"]`)?.classList.add("d-enter"); motion.opened = null; }
+  const ub = document.getElementById("updBlock");
+  if (ub && !motion.updShown) { ub.classList.add("u-enter"); motion.updShown = true; }
   view.querySelectorAll("[data-row]").forEach(el => {
     const k = el.dataset.row;
     if (!motion.seen.has(k)) { motion.seen.add(k); if (!tabChanged && motion.ready) el.classList.add("r-enter"); }
   });
   document.querySelectorAll("#tabs [data-tab]").forEach(b => {
     const c = b.querySelector(".count"), v = c?.textContent;
-    if (c && motion.counts[b.dataset.tab] !== undefined && motion.counts[b.dataset.tab] !== v) c.classList.add("pop");
+    if (c && motion.counts[b.dataset.tab] !== undefined && motion.counts[b.dataset.tab] !== v) { c.classList.remove("pop"); void c.offsetWidth; c.classList.add("pop"); }
     motion.counts[b.dataset.tab] = v;
   });
   view.querySelectorAll(".kpi").forEach((k, i) => {
     const id = `${tab}:${i}`, v = k.querySelector(".v");
-    if (!tabChanged && motion.kpis[id] !== undefined && motion.kpis[id] !== v.textContent) v.classList.add("pop");
-    motion.kpis[id] = v?.textContent;
+    if (!reveal && v && motion.kpis[id] !== undefined && motion.kpis[id] !== v.textContent) v.classList.add("pop");
+    motion.kpis[id] = v?.dataset.final ?? v?.textContent;
   });
   const pane = view.querySelector(".pane");
   if (pane && (motion.focus !== focusKey || tabChanged)) { pane.classList.add("p-enter"); motion.focus = focusKey; }
@@ -645,7 +752,10 @@ async function load() {
   if (hashRule && ["fila", "todas", "builds", "minhas"].includes(hashTab) && !load.focused) {  // link direto: #builds/<org>|<id>
     load.focused = true; focusKey = decodeURIComponent(location.hash.slice(1).split("/").slice(1).join("/")); expanded.add(focusKey);
   }
-  render();
+  if (motion.loading === tab && $("#view .skel-page") && sectionReady()) {
+    motion.loading = null; motion.reveal = true;
+    swap(render, "data");
+  } else render();
   if (hashRule && !load.opened) {  // link direto: #auto/nova ou #auto/<id da regra>
     load.opened = true;
     const r = S.rules.rules.find(x => x.id === hashRule), dr = (S.rules.deployRules || []).find(x => x.id === hashRule);
@@ -655,6 +765,32 @@ async function load() {
 }
 
 /* ------------------------------------------------------------------ casca */
+function renderNav(tabs) {
+  const nav = $("#tabs"), sig = tabs.map(t => typeof t === "string" ? t : t[0]).join(",");
+  if (nav.dataset.sig !== sig) {
+    nav.dataset.sig = sig;
+    nav.innerHTML = `<span class="nav-ind" aria-hidden="true"></span>` + tabs.map(t => typeof t === "string" ? `<div class="grp">${t}</div>` :
+      `<button data-tab="${t[0]}">${svg(ICON[t[0]])}<span>${t[1]}</span><span class="count" hidden></span></button>`).join("");
+  }
+  for (const t of tabs) {
+    if (typeof t === "string") continue;
+    const b = nav.querySelector(`[data-tab="${t[0]}"]`), c = b.querySelector(".count");
+    b.classList.toggle("on", tab === t[0]);
+    c.hidden = t[2] === undefined;
+    if (c.textContent !== String(t[2] ?? "")) c.textContent = t[2] ?? "";
+    c.classList.toggle("hot", !!(t[3] && t[2] && tab !== t[0]));
+  }
+  moveNavIndicator();
+}
+function moveNavIndicator() {
+  const nav = $("#tabs"), on = nav.querySelector("button.on"), ind = nav.querySelector(".nav-ind");
+  if (!on || !ind) return;
+  ind.style.transform = `translate(${on.offsetLeft}px, ${on.offsetTop}px)`;
+  ind.style.width = on.offsetWidth + "px";
+  ind.style.height = on.offsetHeight + "px";
+  if (!ind.classList.contains("ready")) requestAnimationFrame(() => ind.classList.add("ready"));
+}
+addEventListener("resize", () => moveNavIndicator());
 function render() {
   const pending = S.prs.filter(p => !p.archived && p.myVote === 0);
   const active = S.prs.filter(p => !p.archived);
@@ -664,8 +800,7 @@ function render() {
   const tabs = [["fila", "Fila", pending.length + S.deploys.length, true], ["minhas", "Minhas PRs", myBlocked || S.myPrs.length, myBlocked > 0],
                 ["todas", "PRs abertas", active.length], ["builds", "Builds", running || undefined], ["releases", "Releases", S.deploys.length, true],
                 ["arquivadas", "Arquivadas", archived.length], "Configurar", ["auto", "Automação"], ["analise", "Análise"], ["historico", "Histórico"], ["ambiente", "Ambiente"]];
-  $("#tabs").innerHTML = tabs.map(t => typeof t === "string" ? `<div class="grp">${t}</div>` :
-    `<button class="${tab === t[0] ? "on" : ""}" data-tab="${t[0]}">${svg(ICON[t[0]])}<span>${t[1]}</span>${t[2] !== undefined ? `<span class="count ${t[3] && t[2] && tab !== t[0] ? "hot" : ""}">${t[2]}</span>` : ""}</button>`).join("");
+  renderNav(tabs);
   const [vt, vs] = VIEW_HEAD[tab];
   $("#vhead").innerHTML = `<h1>${vt}</h1><span class="sub">${vs}</span>`;
 
@@ -684,6 +819,13 @@ function render() {
   $("#dl-creators").innerHTML = S.creators.map(c => `<option value="${esc(c)}">`).join("");
   $("#dl-repos").innerHTML = S.repos.map(c => `<option value="${esc(c)}">`).join("");
 
+  if (!sectionReady()) {
+    if (!$("#view .skel-page") || motion.loading !== tab) $("#view").innerHTML = skeletonView(tab);
+    motion.loading = tab;
+    clearTimeout(motion.fast); motion.fast = setTimeout(load, 1500);   // até chegar o 1º dado, lê mais rápido
+    afterRender();
+    return;
+  }
   ({fila: renderQueue, todas: renderQueue, minhas: renderMine, builds: renderBuilds, releases: renderReleases, arquivadas: renderArchived, auto: renderAuto,
     analise: renderAnalytics, historico: renderHistory, ambiente: renderEnv})[tab]();
   afterRender();
@@ -1070,7 +1212,7 @@ function loadBuildDetail(b) {
   buildDetail[b.key] = {ck, loading: true};
   fetch(`/api/build?key=${encodeURIComponent(b.key)}`).then(async r => { const j = await r.json(); if (!r.ok) throw new Error(j.error); return j; })
     .then(j => { buildDetail[b.key] = {ck, data: j}; }).catch(e => { buildDetail[b.key] = {ck, error: e.message}; })
-    .finally(() => { if (tab === "builds") renderBuilds(); });
+    .finally(() => { if (tab === "builds") { motion.focus = null; renderBuilds(); afterRender(); } });
 }
 
 function buildDetailHtml(b) {
@@ -1187,9 +1329,8 @@ window.checkUpdate = async manual => {
 /* abre um item vindo de notificação do app: "aba/chave" */
 window.openTarget = target => {
   const [t, ...rest] = (target || "").split("/"), k = rest.join("/");
-  if (TAB_IDS.includes(t)) tab = t;
   if (k) { focusKey = k; expanded.add(k); }
-  history.replaceState(null, "", "#" + tab);
+  if (TAB_IDS.includes(t) && t !== tab) goTab(t); else render();
   load();
 };
 
@@ -1708,7 +1849,7 @@ async function loadAnalytics(force) {
     A = await r.json(); if (!r.ok) throw new Error(A.error);
   } catch (e) { A = {error: e.message}; }
   aLoading = false;
-  if (tab === "analise") renderAnalytics();
+  if (tab === "analise") swap(() => { motion.reveal = true; renderAnalytics(); afterRender(); }, "data");
 }
 
 function hbars(items, valueKey = "count", fmt = v => v) {
@@ -1934,21 +2075,20 @@ document.addEventListener("click", async e => {
   if (d.bact) return buildAction(d.k, d.bact, t);
   if (d.update !== undefined) return runUpdate();
   if (d.checkupd !== undefined) return window.checkUpdate(true);
-  if (d.bstatus !== undefined) { BF.status = d.bstatus; render(); return; }
-  if (d.btoggle) { BF[d.btoggle] = !BF[d.btoggle]; render(); return; }
+  if (d.bstatus !== undefined) { swap(() => { BF.status = d.bstatus; motion.reveal = true; render(); }, "soft"); return; }
+  if (d.btoggle) { swap(() => { BF[d.btoggle] = !BF[d.btoggle]; motion.reveal = true; render(); }, "soft"); return; }
   if (d.gofila) { window.openTarget(`fila/${d.gofila}`); return; }
   if (d.gopr) { const p = S.prs.find(x => key(x) === d.gopr); window.openTarget(p ? `todas/${d.gopr}` : S.myPrs.some(x => key(x) === d.gopr) ? `minhas/${d.gopr}` : "builds/"); return; }
-  if (d.kind !== undefined && !ded) { F.kind = d.kind; render(); return; }
-  if (d.goto) { tab = d.goto; history.replaceState(null, "", "#" + tab); render(); window.scrollTo(0, 0); return; }
-  if (d.kfilter) { F.conflict = !F.conflict; render(); return; }
-  if (d.tab) {
-    tab = d.tab; history.replaceState(null, "", "#" + tab); render(); window.scrollTo(0, 0); return; }
-  if (d.org !== undefined) { F.org = d.org; render(); return; }
+  if (d.kind !== undefined && !ded) { swap(() => { F.kind = d.kind; motion.reveal = true; render(); }, "soft"); return; }
+  if (d.goto) { goTab(d.goto); return; }
+  if (d.kfilter) { swap(() => { F.conflict = !F.conflict; motion.reveal = true; render(); }, "soft"); return; }
+  if (d.tab) { goTab(d.tab); return; }
+  if (d.org !== undefined) { swap(() => { F.org = d.org; motion.reveal = true; render(); }, "soft"); return; }
   if (d.vote !== undefined) { t.closest("details")?.removeAttribute("open"); return vote(d.k, Number(d.vote), t); }
   if (d.sel) { t.checked ? selected.add(d.sel) : selected.delete(d.sel); render(); return; }
   if (t.id === "selAll") { document.querySelectorAll("[data-sel]").forEach(c => t.checked ? selected.add(c.dataset.sel) : selected.delete(c.dataset.sel)); render(); return; }
   if (d.expand && !e.target.closest("a")) {
-    if (wide()) focusKey = d.expand; else expanded.has(d.expand) ? expanded.delete(d.expand) : expanded.add(d.expand);
+    if (wide()) focusKey = d.expand; else if (expanded.has(d.expand)) expanded.delete(d.expand); else { expanded.add(d.expand); motion.opened = d.expand; }
     render(); return;
   }
   if (d.archive) {
@@ -1980,7 +2120,7 @@ document.addEventListener("click", async e => {
   if (d.days) { aDays = Number(d.days); return loadAnalytics(); }
   if (d.aorg !== undefined) { aOrg = d.aorg; return loadAnalytics(); }
   if (t.id === "aReload") return loadAnalytics(true);
-  if (d.hist) { histFilter = d.hist; return render(); }
+  if (d.hist) { swap(() => { histFilter = d.hist; motion.reveal = true; render(); }, "soft"); return; }
 });
 
 document.addEventListener("input", e => {
@@ -2014,6 +2154,10 @@ document.addEventListener("mousemove", e => {
   tip.style.top = (e.clientY + 14 + h > innerHeight ? e.clientY - h - 10 : e.clientY + 14) + "px";
 });
 
+// antes do 1º dado: casca e esqueleto da tela atual
+$("#vhead").innerHTML = `<h1>${VIEW_HEAD[tab][0]}</h1><span class="sub">${VIEW_HEAD[tab][1]}</span>`;
+$("#view").innerHTML = skeletonView(tab);
+motion.loading = tab;
 load();
 setInterval(() => {
   // não redesenha no meio de uma edição (menu aberto, digitando regra)
