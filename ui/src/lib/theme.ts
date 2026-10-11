@@ -3,7 +3,7 @@
 import { send } from "./native";
 
 export type ThemePref = "system" | "dark" | "light";
-const KEY = "commitdeck.theme";
+const KEY = "codeck.theme";
 const mq = window.matchMedia("(prefers-color-scheme: light)");
 let pref: ThemePref = "system";
 

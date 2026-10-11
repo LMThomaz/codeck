@@ -1,12 +1,12 @@
 import { ui } from "./ui.svelte";
 
-// Cliente da API local. A chave da execução vem do app nativo (window.COMMITDECK_TOKEN); sem ela o backend recusa.
+// Cliente da API local. A chave da execução vem do app nativo (window.CODECK_TOKEN); sem ela o backend recusa.
 declare global {
-  interface Window { COMMITDECK_TOKEN?: string; COMMITDECK_PLATFORM?: string; openTarget?: (t: string) => void; checkUpdate?: (m?: boolean) => void;
+  interface Window { CODECK_TOKEN?: string; CODECK_PLATFORM?: string; openTarget?: (t: string) => void; checkUpdate?: (m?: boolean) => void;
     __nativeResolve?: (id: string, value: string | null) => void; webkit?: any; chrome?: any }
 }
 
-const headers = () => ({ "X-Commitdeck-Token": window.COMMITDECK_TOKEN || "" });
+const headers = () => ({ "X-Codeck-Token": window.CODECK_TOKEN || "" });
 
 export class ApiError extends Error {
   constructor(message: string, public status: number) { super(message); }
@@ -30,6 +30,6 @@ export function get<T = any>(path: string, params?: Record<string, string | numb
 export function post<T = any>(path: string, body: unknown = {}): Promise<T> {
   ui.inflight++;
   return fetch(`/api/${path}`, {
-    method: "POST", headers: { ...headers(), "Content-Type": "application/json", "X-Commitdeck": "1" }, body: JSON.stringify(body),
+    method: "POST", headers: { ...headers(), "Content-Type": "application/json", "X-Codeck": "1" }, body: JSON.stringify(body),
   }).then(r => handle<T>(r)).finally(() => ui.inflight--);
 }

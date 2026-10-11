@@ -1,21 +1,23 @@
-# Commitdeck
+# Codeck
 
-> Antes se chamava **PR Pilot**. Quem tem o PR Pilot instalado recebe o Commitdeck pela atualização automática:
-> contas, regras e histórico vêm junto, e os PATs e tokens continuam no mesmo cofre.
+> Antes se chamava **Commitdeck** (e, antes, **PR Pilot**). Quem tem um deles instalado recebe o Codeck pela
+> atualização automática: contas, regras, projetos e histórico vêm junto, e os PATs e tokens continuam no mesmo cofre.
 
-Central de versionamento de desktop (**macOS e Windows**) para **GitHub e Azure DevOps**. Junta numa fila só as
-PRs, builds/Actions, deploys, issues e work items de várias contas e organizações, com regras de automação, e traz
-um cliente Git completo: catálogos de repositórios, graph de commits, stage/commit, branches, stash, cherry-pick,
-criação de PR. Você não precisa mais trocar de conta no navegador nem de ferramenta.
+A ferramenta de desktop (**macOS e Windows**) para programar com IA. Cada repositório abre como um projeto, com
+agentes de IA (Claude Code, Codex, Cursor…) que mostram contexto, limites e quando resetam, terminais de verdade,
+editor com servidor de linguagem, tarefas em git worktree, revisão do que o agente fez e a execução do projeto como no
+VS Code. Em volta disso, o versionamento de **GitHub e Azure DevOps** numa fila só — PRs, builds/Actions, deploys,
+issues e work items de várias contas, com regras de automação — e um cliente Git completo. Você não precisa trocar
+de ferramenta.
 
 ## Instalar
 
 | | |
 |---|---|
-| **Windows** | baixe `Commitdeck-<versão>-setup.exe` em `https://thomsoft.com.br/downloads/commitdeck/latest.json` (campo `windows.url`) e rode. Instala no seu perfil, sem administrador. |
-| **macOS** | baixe o `.dmg` (campo `macos.url` do mesmo `latest.json`) e arraste o Commitdeck para Aplicativos. |
+| **Windows** | baixe `Codeck-<versão>-setup.exe` em `https://thomsoft.com.br/downloads/codeck/latest.json` (campo `windows.url`) e rode. Instala no seu perfil, sem administrador. |
+| **macOS** | baixe o `.dmg` (campo `macos.url` do mesmo `latest.json`) e arraste o Codeck para Aplicativos. |
 
-Os mesmos instaladores ficam em [Releases](https://github.com/LMThomaz/commitdeck/releases/latest).
+Os mesmos instaladores ficam em [Releases](https://github.com/LMThomaz/codeck/releases/latest).
 
 Depois de instalado, o app **se atualiza sozinho**:
 - Ele consulta o `latest.json`, mostra um aviso e o botão **Atualizar agora**.
@@ -107,9 +109,9 @@ fixo, tenta reconectar a cada 10 s e atualiza tudo assim que a rede volta.
 | **Azure DevOps** | PAT por organização (Configurações → Azure DevOps), com teste de cada permissão | PRs, builds, releases, environments, work items, repositórios |
 | **GitHub** | *Entrar com GitHub* (device flow), o login do `gh` CLI ou um token | contas pessoais, organizações e repositórios de terceiros a que o perfil tem acesso |
 
-O *Entrar com GitHub* usa o OAuth App **Commitdeck** (device flow), cujo client id está em `backend/pilot/github.py`
+O *Entrar com GitHub* usa o OAuth App **Codeck** (device flow), cujo client id está em `backend/pilot/github.py`
 (`GITHUB_CLIENT_ID`). Ele é público: o device flow não usa client secret. Quem distribuir outro build pode trocá-lo
-pela variável `COMMITDECK_GITHUB_CLIENT_ID` ou por `githubClientId` no `config.json`.
+pela variável `CODECK_GITHUB_CLIENT_ID` ou por `githubClientId` no `config.json`.
 
 O Git local usa as mesmas credenciais (por variável de ambiente, nunca na linha de comando) para clonar, buscar e
 enviar por HTTPS; remotos SSH usam as suas chaves.
@@ -123,8 +125,8 @@ enviar por HTTPS; remotos SSH usam as suas chaves.
 - O backend atende só em `127.0.0.1:47821` e exige uma **chave nova a cada execução**, que só o app conhece. Outros programas da máquina não leem a fila nem agem por você.
 - O backend encerra junto com o app (watchdog do processo-pai; no Windows também um Job Object).
 - Dados por usuário, fora do repositório:
-  - macOS: `~/Library/Application Support/Commitdeck`
-  - Windows: `%APPDATA%\Commitdeck`
+  - macOS: `~/Library/Application Support/Codeck`
+  - Windows: `%APPDATA%\Codeck`
 
 ## Como é feito
 
@@ -134,8 +136,8 @@ backend/        server.py + pacote pilot/ (Python, só biblioteca padrão) — i
   static/       a interface compilada (gerada, não versionada)
 ui/             interface do app em Svelte 5 + TypeScript, compilada com Vite (npm run build → backend/static)
 brand/          make-logo.py gera logo.svg e icon.svg; make-icons.sh gera .icns e .ico
-macos/          Commitdeck.swift — janela nativa (AppKit + WebKit), Dock, barra de menus, notificações, troca do .app
-windows/        Commitdeck (C# .NET 8, WinForms + WebView2) — janela, bandeja, notificações, atualização pelo ThomSoft Setup
+macos/          Codeck.swift — janela nativa (AppKit + WebKit), Dock, barra de menus, notificações, troca do .app
+windows/        Codeck (C# .NET 8, WinForms + WebView2) — janela, bandeja, notificações, atualização pelo ThomSoft Setup
 scripts/        build-macos.sh · release-macos.sh · set-required.sh
 .github/        release-windows.yml — gera, testa e publica o instalador do Windows
 VERSION         x.y.z+N — a versão das duas plataformas
@@ -151,8 +153,8 @@ reconhecimento do remoto em `git.parse_remote`. A interface já trata os itens p
 
 ## Desenvolver
 
-O Commitdeck só existe como app de desktop (macOS e Windows) — não há versão web. No VS Code ou no Cursor, dê ▶ em
-**Commitdeck (dev, macOS)** ou **Commitdeck (dev, Windows)**.
+O Codeck só existe como app de desktop (macOS e Windows) — não há versão web. No VS Code ou no Cursor, dê ▶ em
+**Codeck (dev, macOS)** ou **Codeck (dev, Windows)**.
 
 - O backend sobe em depuração (porta `47822`, dados em `data-sandbox/`) e o app nativo se conecta a ele.
 - `cd ui && npm run check` confere os tipos; `npm run build` gera `backend/static/`.
@@ -170,12 +172,12 @@ Requisitos:
 navegação, tema e barra de título, repositórios, favoritos/tags, terminal (digitação real), editor e ⌘S, servidor de
 linguagem, tarefas em worktree, revisão, tela dividida, quadro, ajustes, janela própria e remoção. Com
 `AGENT_ACCOUNT=<conta> TRUSTED_DIR=<pasta>` inclui um agente Claude de verdade. No Windows, o mesmo roteiro roda no
-`Commitdeck.exe` dentro do build do GitHub Actions, e o build só publica se todas as etapas passarem.
+`Codeck.exe` dentro do build do GitHub Actions, e o build só publica se todas as etapas passarem.
 
 ## Publicar uma versão
 
 1. Suba o `+N` do arquivo `VERSION`, faça commit e push na `main`.
-2. **Windows:** o GitHub Actions gera o instalador e testa: instala sem janela, abre o app, atualiza por cima e desinstala. Depois publica no site da ThomSoft (`downloads/commitdeck/`) e no GitHub Releases. Ele só roda quando o `VERSION` muda, para não gastar a cota.
+2. **Windows:** o GitHub Actions gera o instalador e testa: instala sem janela, abre o app, atualiza por cima e desinstala. Depois publica no site da ThomSoft (`downloads/codeck/`) e no GitHub Releases. Ele só roda quando o `VERSION` muda, para não gastar a cota.
 3. **macOS:** no Mac, rode `scripts/release-macos.sh`. Ele gera o `.dmg` e publica no mesmo lugar.
 4. Cada plataforma atualiza só a própria parte do `latest.json`. Para obrigar quem está abaixo do build N a atualizar, rode `scripts/set-required.sh N`, só depois de N estar publicado nas duas plataformas.
 

@@ -16,7 +16,7 @@
   const s = $derived(work.session(term));
   const acc = $derived(work.account(term?.meta.account));
   let prompt = $state("");
-  let limitsOpen = $state((() => { try { return localStorage.getItem("commitdeck.limitsOpen") !== "0"; } catch { return true; } })());
+  let limitsOpen = $state((() => { try { return localStorage.getItem("codeck.limitsOpen") !== "0"; } catch { return true; } })());
   let diff = $state<any>(null);
   let now = $state(Date.now());
 
@@ -133,7 +133,7 @@
   {/if}
 
   <section class="limits" class:shut={!limitsOpen}>
-    <button class="lh" onclick={() => { limitsOpen = !limitsOpen; try { localStorage.setItem("commitdeck.limitsOpen", limitsOpen ? "1" : "0"); } catch { /* */ } }} aria-expanded={limitsOpen}>
+    <button class="lh" onclick={() => { limitsOpen = !limitsOpen; try { localStorage.setItem("codeck.limitsOpen", limitsOpen ? "1" : "0"); } catch { /* */ } }} aria-expanded={limitsOpen}>
       <h4>Limites das contas</h4><ChevronDown size={13} class="chev {limitsOpen ? '' : 'rot'}" /></button>
     {#if limitsOpen}
     {#each accounts as a (a.id)}

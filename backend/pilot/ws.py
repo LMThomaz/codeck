@@ -4,7 +4,7 @@ Serve os terminais: o navegador fala WebSocket com o servidor local; cada conex�
 (ThreadingHTTPServer). Suporta texto/binário, ping/pong, close e mensagens fragmentadas. Sem extensões (deflate).
 
 O navegador não manda cabeçalhos próprios no WebSocket, então a chave da execução vem no subprotocolo
-("commitdeck.<token>") — nunca na URL, que pode parar em log.
+("codeck.<token>") — nunca na URL, que pode parar em log.
 """
 import base64
 import hashlib

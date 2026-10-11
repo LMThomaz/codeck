@@ -75,7 +75,7 @@
 <aside class="side">
   <div class="brand">
     <span class="mk"><Mark size={26} /></span>
-    <div class="bn"><b>{BRAND.name}</b><span>versionamento</span></div>
+    <div class="bn"><b>{BRAND.name}</b><span>{BRAND.short}</span></div>
   </div>
 
   <button class="search" onclick={() => (ui.palette = true)}>

@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Gera o "Commitdeck.app" (universal: Apple Silicon + Intel, macOS 13+).
+# Gera o "Codeck.app" (universal: Apple Silicon + Intel, macOS 13+).
 #   scripts/build-macos.sh               gera em dist/ e instala em /Applications (ou ~/Applications)
 #   scripts/build-macos.sh --no-install  só gera em dist/
 # Precisa das Command Line Tools (xcode-select --install): trazem o swiftc e o python3 que o app usa.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-APP="$ROOT/dist/Commitdeck.app"
+APP="$ROOT/dist/Codeck.app"
 line="$(sed -nE 's/^([0-9]+\.[0-9]+\.[0-9]+)\+([0-9]+)$/\1 \2/p' "$ROOT/VERSION")"
 [ -n "$line" ] || { echo "VERSION precisa ser x.y.z+N" >&2; exit 1; }
 read -r VERSION BUILD <<< "$line"
@@ -24,9 +24,9 @@ tmp="$(mktemp -d)"
 for arch in arm64 x86_64; do
   swiftc -O -swift-version 5 -target "$arch-apple-macos13.0" \
     -framework Cocoa -framework WebKit -framework ServiceManagement -framework UserNotifications \
-    "$ROOT/macos/Commitdeck.swift" -o "$tmp/Commitdeck-$arch"
+    "$ROOT/macos/Codeck.swift" -o "$tmp/Codeck-$arch"
 done
-lipo -create "$tmp/Commitdeck-arm64" "$tmp/Commitdeck-x86_64" -output "$APP/Contents/MacOS/Commitdeck"
+lipo -create "$tmp/Codeck-arm64" "$tmp/Codeck-x86_64" -output "$APP/Contents/MacOS/Codeck"
 rm -rf "$tmp"
 sed -e "s/__VERSION__/$VERSION/" -e "s/__BUILD__/$BUILD/" "$ROOT/macos/Info.plist" > "$APP/Contents/Info.plist"
 cp "$ROOT/backend/server.py" "$APP/Contents/Resources/backend/"
@@ -45,11 +45,14 @@ for label in dev.prpilot com.thomaz.prpilot; do
 done
 DEST="/Applications"; [ -w "$DEST" ] || DEST="$HOME/Applications"
 mkdir -p "$DEST"
-osascript -e 'tell application "Commitdeck" to quit' >/dev/null 2>&1 || true
-osascript -e 'tell application "PR Pilot" to quit' >/dev/null 2>&1 || true   # nome antigo
-rm -rf "$DEST/PR Pilot.app"
+osascript -e 'tell application "Codeck" to quit' >/dev/null 2>&1 || true
+for n in Commitdeck "PR Pilot"; do   # nomes antigos
+  osascript -e "tell application \"$n\" to quit" >/dev/null 2>&1 || true
+done
+sleep 1
+rm -rf "$DEST/Commitdeck.app" "$DEST/PR Pilot.app"
 sleep 2
-rm -rf "$DEST/Commitdeck.app"
-ditto "$APP" "$DEST/Commitdeck.app"
-echo "Instalado em $DEST/Commitdeck.app"
-open "$DEST/Commitdeck.app"
+rm -rf "$DEST/Codeck.app"
+ditto "$APP" "$DEST/Codeck.app"
+echo "Instalado em $DEST/Codeck.app"
+open "$DEST/Codeck.app"

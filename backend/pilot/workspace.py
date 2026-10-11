@@ -147,7 +147,7 @@ def _exclude_from_enclosing_repo(wt_root):
     current = open(excl, encoding="utf-8").read() if os.path.exists(excl) else ""
     if rel not in current.split("\n"):
         with open(excl, "a", encoding="utf-8") as f:
-            f.write(("" if current.endswith("\n") or not current else "\n") + f"# worktrees do Commitdeck\n{rel}\n")
+            f.write(("" if current.endswith("\n") or not current else "\n") + f"# worktrees do Codeck\n{rel}\n")
 
 
 def _exclude_copied(wt, files):
@@ -162,7 +162,7 @@ def _exclude_copied(wt, files):
     new = [f"/{f}" for f in files if f"/{f}" not in current]
     if new:
         with open(excl, "a", encoding="utf-8") as fh:
-            fh.write(("\n" if current and current[-1] else "") + "# copiados pelo Commitdeck para os worktrees (não versionar)\n" + "\n".join(new) + "\n")
+            fh.write(("\n" if current and current[-1] else "") + "# copiados pelo Codeck para os worktrees (não versionar)\n" + "\n".join(new) + "\n")
 
 
 def _copy_untracked(src, dst, patterns):

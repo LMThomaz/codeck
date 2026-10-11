@@ -21,14 +21,14 @@ from .core import CONFIG_FILE, OfflineError, is_network_error, load_json, now_is
 
 API_URL = "https://api.github.com"
 SCOPES = "repo read:org workflow"
-UA = "Commitdeck"
+UA = "Codeck"
 # OAuth App com "device flow" habilitado. O client id é público por natureza (vai dentro do app); quem distribuir
-# outro build pode trocar por COMMITDECK_GITHUB_CLIENT_ID ou "githubClientId" no config.json.
+# outro build pode trocar por CODECK_GITHUB_CLIENT_ID ou "githubClientId" no config.json.
 GITHUB_CLIENT_ID = "Ov23liBS7zajZmsdvkL3"
 
 
 def client_id():
-    return os.environ.get("COMMITDECK_GITHUB_CLIENT_ID") or load_json(CONFIG_FILE, {}).get("githubClientId") or GITHUB_CLIENT_ID
+    return os.environ.get("CODECK_GITHUB_CLIENT_ID") or load_json(CONFIG_FILE, {}).get("githubClientId") or GITHUB_CLIENT_ID
 
 
 def github_message(e):
@@ -395,7 +395,7 @@ class GitHub:
     def decide_deploy(self, item, approve, comment=""):
         self.req("POST", f"repos/{item['project']}/actions/runs/{item['runId']}/pending_deployments", {
             "environment_ids": [item["envId"]], "state": "approved" if approve else "rejected",
-            "comment": comment or ("Aprovado pelo Commitdeck" if approve else "Rejeitado pelo Commitdeck")})
+            "comment": comment or ("Aprovado pelo Codeck" if approve else "Rejeitado pelo Codeck")})
 
     # ------------------------------------------------------------ issues
     def fetch_issues(self):

@@ -174,7 +174,7 @@ def launch_spec(aid, prompt=None, mode=None, sid=None, extra_dirs=None, resume=N
     secret = pysecrets.token_urlsafe(18)
     if prov == "claude":
         post = _hook_cmd(sid, secret)
-        status_cmd = (f"{post} >/dev/null 2>&1; echo 'Commitdeck'" if os.name != "nt" else f"{post} >NUL 2>&1 & echo Commitdeck")
+        status_cmd = (f"{post} >/dev/null 2>&1; echo 'Codeck'" if os.name != "nt" else f"{post} >NUL 2>&1 & echo Codeck")
         settings = {"statusLine": {"type": "command", "command": status_cmd, "padding": 0},
                     "hooks": {ev: [{"hooks": [{"type": "command", "command": post}]}]
                               for ev in ("UserPromptSubmit", "Stop", "Notification", "SubagentStop", "SessionStart", "PreCompact")}}

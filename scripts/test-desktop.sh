@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
-# Autoteste do Commitdeck no DESKTOP (macOS): compila o app, monta repositórios Git de verdade numa pasta temporária,
+# Autoteste do Codeck no DESKTOP (macOS): compila o app, monta repositórios Git de verdade numa pasta temporária,
 # abre o app com dados e porta próprios (não toca na sua instalação) e roda tests/desktop/selftest.js DENTRO da janela,
 # com teclas reais do sistema. Resultado em dist/selftest/result.json + screenshots da janela.
 #
 #   scripts/test-desktop.sh                 tudo, menos o agente de IA
 #   AGENT_ACCOUNT=dematec2 TRUSTED_DIR=~/x scripts/test-desktop.sh   inclui um agente Claude de verdade (custa 1 resposta)
-#   SKIP_BUILD=1 scripts/test-desktop.sh    usa o dist/Commitdeck.app já compilado
+#   SKIP_BUILD=1 scripts/test-desktop.sh    usa o dist/Codeck.app já compilado
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 OUT="$ROOT/dist/selftest"
-WORK="$(mktemp -d /tmp/commitdeck-selftest.XXXXXX)"
+WORK="$(mktemp -d /tmp/codeck-selftest.XXXXXX)"
 PORT="${PORT:-47860}"
 rm -rf "$OUT"; mkdir -p "$OUT"
 
@@ -21,7 +21,7 @@ git init -q --bare -b main "$FX/origin.git"
 git clone -q "$FX/origin.git" "$FX/demo-api" 2>/dev/null
 (
   cd "$FX/demo-api"
-  git config user.email teste@commitdeck && git config user.name Teste
+  git config user.email teste@codeck && git config user.name Teste
   printf 'a\n' > a.txt
   printf 'export function soma(a: number, b: number): number {\n  return a + b;\n}\n' > util.ts
   printf 'import { soma } from "./util";\n\nconst total: string = soma(1, 2);\nconsole.log(total);\n' > main.ts
@@ -35,7 +35,7 @@ git clone -q "$FX/origin.git" "$FX/demo-api" 2>/dev/null
 git clone -q "$FX/origin.git" "$FX/demo-web" 2>/dev/null
 
 # ---- servidor de linguagem do TypeScript (só para o teste; fica em cache)
-LSP_DIR="${HOME}/Library/Caches/commitdeck-selftest-lsp"
+LSP_DIR="${HOME}/Library/Caches/codeck-selftest-lsp"
 if [ ! -x "$LSP_DIR/node_modules/.bin/typescript-language-server" ] && command -v npm >/dev/null; then
   mkdir -p "$LSP_DIR" && (cd "$LSP_DIR" && npm init -y >/dev/null && npm i --silent typescript-language-server@4.3.3 typescript@5.6.3 >/dev/null 2>&1) || true
 fi
@@ -46,9 +46,9 @@ CTX=$(python3 -c "import json,os,sys; print(json.dumps({'fixture': sys.argv[1], 
 
 echo "▸ abrindo o app de desktop com o autoteste (porta $PORT, dados em $WORK/data)…"
 env -u CLAUDECODE $(env | grep -o '^CLAUDE_CODE_[A-Z_]*' | sed 's/^/-u /') \
-  COMMITDECK_PORT="$PORT" COMMITDECK_DATA="$WORK/data" COMMITDECK_LSP_PATH="$LSP_DIR/node_modules/.bin" \
-  COMMITDECK_SELFTEST="${SCRIPT:-$ROOT/tests/desktop/selftest.js}" COMMITDECK_SELFTEST_OUT="$OUT" COMMITDECK_SELFTEST_CTX="$CTX" \
-  "$ROOT/dist/Commitdeck.app/Contents/MacOS/Commitdeck" >"$OUT/app.log" 2>&1 &
+  CODECK_PORT="$PORT" CODECK_DATA="$WORK/data" CODECK_LSP_PATH="$LSP_DIR/node_modules/.bin" \
+  CODECK_SELFTEST="${SCRIPT:-$ROOT/tests/desktop/selftest.js}" CODECK_SELFTEST_OUT="$OUT" CODECK_SELFTEST_CTX="$CTX" \
+  "$ROOT/dist/Codeck.app/Contents/MacOS/Codeck" >"$OUT/app.log" 2>&1 &
 APP=$!
 for _ in $(seq 1 600); do
   [ -f "$OUT/result.json" ] && break

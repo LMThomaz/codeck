@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# O .dmg do Commitdeck para macOS, feito no Mac e publicado — o runner de macOS do GitHub conta dez vezes na cota
+# O .dmg do Codeck para macOS, feito no Mac e publicado — o runner de macOS do GitHub conta dez vezes na cota
 # gratuita, então o Mac sai daqui e só o Windows sai do Actions (.github/workflows/release-windows.yml).
 #
 #   scripts/release-macos.sh            gera e publica
@@ -9,7 +9,7 @@
 #
 # Publica o que está na main (árvore limpa, commit já no origin/main), na versão do arquivo VERSION (x.y.z+N),
 # a mesma do Windows. Destinos:
-#   · site da ThomSoft: downloads/commitdeck/<dmg> + latest.json (o canal público que o app consulta)
+#   · site da ThomSoft: downloads/codeck/<dmg> + latest.json (o canal público que o app consulta)
 #   · GitHub Releases (privado): tag v<x.y.z>-<N>, como histórico
 # Credenciais do FTP do site — as mesmas do Chefinho/LuriSystem:
 #   · servidor e usuário em ~/.config/thomsoft/downloads.env (DOWNLOADS_FTP_SERVER, DOWNLOADS_FTP_USER)
@@ -28,7 +28,7 @@ done
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 BASE_URL="${DOWNLOADS_BASE_URL:-https://thomsoft.com.br/downloads}"
-CHANNEL=commitdeck
+CHANNEL=codeck
 KEYCHAIN_SERVICE=thomsoft-downloads-ftp
 CONFIG="$HOME/.config/thomsoft/downloads.env"
 
@@ -48,7 +48,7 @@ if [ "$DRY_RUN" = false ]; then
   git fetch -q origin main
   git merge-base --is-ancestor HEAD origin/main || fail "O commit atual não está no origin/main. Faça o push antes."
 fi
-say "Commitdeck $VERSION (build $BUILD) — $(git rev-parse --short HEAD)"
+say "Codeck $VERSION (build $BUILD) — $(git rev-parse --short HEAD)"
 
 if [ "$DRY_RUN" = false ]; then
   [ -f "$CONFIG" ] || fail "Crie $CONFIG com DOWNLOADS_FTP_SERVER e DOWNLOADS_FTP_USER (ver o topo deste script)."
@@ -85,7 +85,7 @@ lftp_run() {
 }
 
 out="$ROOT/dist/release-macos"
-dmg="$out/Commitdeck-$VERSION-$BUILD.dmg"
+dmg="$out/Codeck-$VERSION-$BUILD.dmg"
 
 # Grava a parte do Mac no latest.json de um canal. O instalador JÁ deve estar no servidor: ler, ajustar e gravar
 # acontecem em sequência, em segundos — a mesma ordem do CI do Windows, para um não apagar a parte do outro.
@@ -113,19 +113,32 @@ publish_json() {
   lftp_run "cd /$ch; lcd $out; put $(basename "$next") -o latest.json;"
 }
 
-# Confere os dois canais e regrava a parte do Mac onde ela não for a deste build.
+# Pontes para quem ainda tem o app com um nome antigo: cada um lê o latest.json do próprio canal e só aceita
+# instalador com o próprio prefixo. O mesmo .dmg vai para lá com esse nome; instalado, o app se renomeia para
+# Codeck.app e adota a pasta de dados antiga. Podem sair quando ninguém mais estiver nos nomes antigos.
+#   canal:prefixo do arquivo
+LEGACY_CHANNELS="commitdeck:Commitdeck pr-pilot:PR-Pilot"
+channel_file() {   # channel_file <canal> → nome do .dmg deste build naquele canal
+  local ch="$1" pair
+  [ "$ch" = "$CHANNEL" ] && { echo "Codeck-$VERSION-$BUILD.dmg"; return; }
+  for pair in $LEGACY_CHANNELS; do [ "${pair%%:*}" = "$ch" ] && echo "${pair#*:}-$VERSION-$BUILD.dmg"; done
+}
+all_channels() { echo "$CHANNEL"; for pair in $LEGACY_CHANNELS; do echo "${pair%%:*}"; done; }
+channel_notes() { [ "$1" = "$CHANNEL" ] || printf 'Agora se chama Codeck. '; git log -1 --format=%s; }
+
+# Confere os canais e regrava a parte do Mac onde ela não for a deste build.
 verify_channels() {
-  local ok=true ch file pid got
-  for ch in commitdeck pr-pilot; do
+  local ok=true ch file got
+  for ch in $(all_channels); do
     got="$(curl -fsS "$BASE_URL/$ch/latest.json?t=$(date +%s)" | jq -r '.macos.build // empty')"
     [ "$got" = "$BUILD" ] && continue
     ok=false
-    if [ "$ch" = commitdeck ]; then file="Commitdeck-$VERSION-$BUILD.dmg"; pid=commitdeck; else file="PR-Pilot-$VERSION-$BUILD.dmg"; pid=pr-pilot; fi
+    file="$(channel_file "$ch")"
     curl -fsSI "$BASE_URL/$ch/$file" >/dev/null || fail "$ch: o $file não está no servidor — publique de novo."
     say "$ch servia o Mac no build ${got:-nenhum} — corrigindo para $BUILD"
-    publish_json "$ch" "$file" "$pid" "$([ "$ch" = pr-pilot ] && echo "Agora se chama Commitdeck. ")$(git log -1 --format=%s)"
+    publish_json "$ch" "$file" "$ch" "$(channel_notes "$ch")"
   done
-  $ok && echo "✓ commitdeck e pr-pilot servem o Mac no build $BUILD"
+  $ok && echo "✓ $(all_channels | xargs | sed 's/ /, /g') servem o Mac no build $BUILD"
   return 0
 }
 
@@ -138,11 +151,11 @@ fi
 say "Build"
 bash scripts/build-macos.sh --no-install
 rm -rf "$out"; mkdir -p "$out/stage"
-cp -R "$ROOT/dist/Commitdeck.app" "$out/stage/"
+cp -R "$ROOT/dist/Codeck.app" "$out/stage/"
 ln -s /Applications "$out/stage/Aplicativos"
-create-dmg --volname "Commitdeck" --volicon macos/AppIcon.icns \
+create-dmg --volname "Codeck" --volicon macos/AppIcon.icns \
   --window-pos 200 120 --window-size 600 380 --icon-size 104 --text-size 13 \
-  --icon "Commitdeck.app" 160 180 --hide-extension "Commitdeck.app" --icon "Aplicativos" 440 180 \
+  --icon "Codeck.app" 160 180 --hide-extension "Codeck.app" --icon "Aplicativos" 440 180 \
   --no-internet-enable "$dmg" "$out/stage/" >/dev/null
 echo "✓ $dmg ($(du -h "$dmg" | cut -f1))"
 
@@ -152,27 +165,26 @@ if [ "$DRY_RUN" = true ]; then say "Ensaio: o .dmg está em $out — nada foi pu
 say "Publicando no site"
 name="$(basename "$dmg")"
 lftp_run "mkdir -p -f /$CHANNEL; cd /$CHANNEL; put $dmg;"
-publish_json "$CHANNEL" "$name" commitdeck "$(git log -1 --format=%s)"
-old="$(lftp_run "cd /$CHANNEL; cls -1" | sed -nE 's/^Commitdeck-[0-9.]+-([0-9]+)\.dmg$/\1/p' | sort -un | awk '{a[NR]=$0} END {for (i = 1; i <= NR - 2; i++) print a[i]}')"
-for b in $old; do lftp_run "cd /$CHANNEL; glob -a rm -f Commitdeck-*-$b.dmg;" || true; done
+publish_json "$CHANNEL" "$name" codeck "$(git log -1 --format=%s)"
+old="$(lftp_run "cd /$CHANNEL; cls -1" | sed -nE 's/^Codeck-[0-9.]+-([0-9]+)\.dmg$/\1/p' | sort -un | awk '{a[NR]=$0} END {for (i = 1; i <= NR - 2; i++) print a[i]}')"
+for b in $old; do lftp_run "cd /$CHANNEL; glob -a rm -f Codeck-*-$b.dmg;" || true; done
 got="$(curl -fsS "$BASE_URL/$CHANNEL/latest.json?t=$(date +%s)" | jq -r .macos.build)"
 [ "$got" = "$BUILD" ] || fail "O site ainda serve o build $got."
 curl -fsSI "$BASE_URL/$CHANNEL/$name" >/dev/null || fail "O .dmg não responde no site."
 
-# Ponte para quem ainda tem o PR Pilot (nome antigo): esse app lê downloads/pr-pilot/latest.json e só aceita
-# instalador chamado PR-Pilot-*. O mesmo .dmg vai para lá com esse nome; instalado, o app se renomeia para
-# Commitdeck.app e adota a pasta de dados antiga. Pode sair quando ninguém mais estiver no PR Pilot.
-LEGACY=pr-pilot
-legacy="$out/PR-Pilot-$VERSION-$BUILD.dmg"
-cp "$dmg" "$legacy"
-say "Ponte no canal antigo ($LEGACY)"
-lftp_run "mkdir -p -f /$LEGACY; cd /$LEGACY; put $legacy;"
-publish_json "$LEGACY" "$(basename "$legacy")" pr-pilot "Agora se chama Commitdeck. $(git log -1 --format=%s)"
-old="$(lftp_run "cd /$LEGACY; cls -1" | sed -nE 's/^PR-Pilot-[0-9.]+-([0-9]+)\.dmg$/\1/p' | sort -un | awk '{a[NR]=$0} END {for (i = 1; i <= NR - 2; i++) print a[i]}')"
-for b in $old; do lftp_run "cd /$LEGACY; glob -a rm -f PR-Pilot-*-$b.dmg;" || true; done
+for pair in $LEGACY_CHANNELS; do
+  ch="${pair%%:*}" prefix="${pair#*:}"
+  legacy="$out/$(channel_file "$ch")"
+  cp "$dmg" "$legacy"
+  say "Ponte no canal antigo ($ch)"
+  lftp_run "mkdir -p -f /$ch; cd /$ch; put $legacy;"
+  publish_json "$ch" "$(basename "$legacy")" "$ch" "$(channel_notes "$ch")"
+  old="$(lftp_run "cd /$ch; cls -1" | sed -nE "s/^$prefix-[0-9.]+-([0-9]+)\.dmg$/\1/p" | sort -un | awk '{a[NR]=$0} END {for (i = 1; i <= NR - 2; i++) print a[i]}')"
+  for b in $old; do lftp_run "cd /$ch; glob -a rm -f $prefix-*-$b.dmg;" || true; done
+done
 
 say "GitHub Releases ($TAG)"
-gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --title "Commitdeck $VERSION (build $BUILD)" \
+gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --title "Codeck $VERSION (build $BUILD)" \
   --notes "$(git log -1 --format=%B)" --target "$(git rev-parse HEAD)"
 gh release upload "$TAG" "$dmg" --clobber
 cp "$out/$CHANNEL-latest.json" "$out/latest.json" && gh release upload "$TAG" "$out/latest.json" --clobber

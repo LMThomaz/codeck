@@ -14,7 +14,7 @@
   let { compact = false, onnew = undefined }: { compact?: boolean; onnew?: () => void } = $props();
 
   const scope = () => (compact ? "side" : "page");
-  const STORE = "commitdeck.collapsed";
+  const STORE = "codeck.collapsed";
   let closed = $state<Record<string, boolean>>(read());
   function read() {
     try { return JSON.parse(localStorage.getItem(STORE) || "{}")[scope()] || {}; } catch { return {}; }

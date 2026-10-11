@@ -6,7 +6,7 @@ do Windows Terminal, disponível do Windows 10 1809 em diante.
 Cada terminal guarda as últimas saídas (até MAX_SCROLLBACK bytes) para a tela poder reconectar — trocar de aba ou
 recarregar a interface não mata o processo. Quem assina recebe a saída ao vivo (os WebSockets da tela).
 
-O processo NUNCA herda a chave do app (COMMITDECK_*) nem segredos que o app conhece: um agente rodando no terminal
+O processo NUNCA herda a chave do app (CODECK_*) nem segredos que o app conhece: um agente rodando no terminal
 não pode chamar a API local nem ler os PATs.
 """
 import os
@@ -19,7 +19,7 @@ import uuid
 
 
 MAX_SCROLLBACK = 1_500_000
-_SECRET_ENV = ("COMMITDECK_", "LFTP_PASSWORD", "AZURE_DEVOPS_EXT_PAT", "VSS_NUGET_EXTERNAL_FEED_ENDPOINTS",
+_SECRET_ENV = ("CODECK_", "COMMITDECK_", "LFTP_PASSWORD", "AZURE_DEVOPS_EXT_PAT", "VSS_NUGET_EXTERNAL_FEED_ENDPOINTS",
                # marcas de uma sessão de IA de FORA (se o app foi aberto de dentro de um agente): herdadas, fariam o
                # agente novo se achar "sessão filha" (sem histórico) ou usar a conta errada — a conta vem do app
                "CLAUDECODE", "CLAUDE_CODE_", "CLAUDE_CONFIG_DIR", "CLAUDE_AGENT", "CODEX_HOME", "CODEX_SANDBOX", "CODEX_THREAD")
@@ -28,7 +28,7 @@ IS_WIN = os.name == "nt"
 
 def clean_env(extra=None):
     env = {k: v for k, v in os.environ.items() if not k.startswith(_SECRET_ENV)}
-    env.update(TERM="xterm-256color", COLORTERM="truecolor", TERM_PROGRAM="Commitdeck", LANG=env.get("LANG") or "pt_BR.UTF-8")
+    env.update(TERM="xterm-256color", COLORTERM="truecolor", TERM_PROGRAM="Codeck", LANG=env.get("LANG") or "pt_BR.UTF-8")
     env.update(extra or {})
     return env
 

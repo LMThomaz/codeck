@@ -4,7 +4,7 @@
     { "label": "Compilar app macOS", "type": "shell", "command": "bash scripts/build-macos.sh --no-install", "problemMatcher": [] },
     {
       "label": "Compilar app Windows", "type": "shell",
-      "command": "dotnet build windows/Commitdeck/Commitdeck.csproj --source https://api.nuget.org/v3/index.json", "problemMatcher": "$msCompile"
+      "command": "dotnet build windows/Codeck/Codeck.csproj --source https://api.nuget.org/v3/index.json", "problemMatcher": "$msCompile"
     },
     { "label": "Publicar versão macOS", "type": "shell", "command": "bash scripts/release-macos.sh", "problemMatcher": [] }
   ]

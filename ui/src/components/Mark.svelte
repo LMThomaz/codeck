@@ -1,5 +1,5 @@
 <script lang="ts">
-  // A marca do Commitdeck (deck de cartões + grafo em "C"): gerada de brand/make-logo.py.
+  // A marca do Codeck (deck de cartões + grafo em "C"): gerada de brand/make-logo.py.
   let { size = 24 }: { size?: number } = $props();
   const gid = "mk" + Math.random().toString(36).slice(2, 7);
 </script>

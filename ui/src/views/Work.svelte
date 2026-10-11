@@ -33,10 +33,10 @@
   type FileTab = { k: "file"; key: string; path: string; scope: string | null; line?: number };
   type View = { scope: string | null; files: FileTab[]; order: string[]; active: string | null; left: "files" | "search"; right: boolean; split?: string | null; lastRun?: string | null;
     mode?: "code" | "git" | "prs"; leftOpen?: boolean };
-  const LS = "commitdeck.work.views";
+  const LS = "codeck.work.views";
   let views = $state<Record<string, View>>(readViews());
   // larguras/alturas ajustáveis arrastando as bordas (valem para todos os projetos)
-  const SZ = "commitdeck.work.sizes";
+  const SZ = "codeck.work.sizes";
   let sizes = $state<{ left: number; right: number; scopes: number }>((() => { try { return { left: 260, right: 300, scopes: 240, ...JSON.parse(localStorage.getItem(SZ) || "{}") }; } catch { return { left: 260, right: 300, scopes: 240 }; } })());
   const scopesH = $derived(sizes.scopes);
   function drag(e: PointerEvent, which: "left" | "right" | "scopes") {
@@ -214,7 +214,7 @@
   }
   /** Projeto numa janela própria (outro monitor) — janela nativa do app. */
   function popOut(x: Project) {
-    send({ type: "openWindow", hash: "/solo/" + x.id, title: `${x.name} — Commitdeck` });
+    send({ type: "openWindow", hash: "/solo/" + x.id, title: `${x.name} — Codeck` });
   }
   const agentItems = $derived([
     { heading: "Abrir agente" + (task ? " na tarefa" : "") },

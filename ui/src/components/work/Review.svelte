@@ -24,8 +24,8 @@
   let changed = $state(false);
   type C = { path: string; from: number; to: number; text: string; quote: string };
   let comments = $state<C[]>(readComments());
-  function readComments(): C[] { try { return JSON.parse(localStorage.getItem("commitdeck.review." + task.id) || "[]"); } catch { return []; } }
-  $effect(() => { const c = JSON.stringify(comments); try { localStorage.setItem("commitdeck.review." + task.id, c); } catch { /* sem armazenamento */ } });
+  function readComments(): C[] { try { return JSON.parse(localStorage.getItem("codeck.review." + task.id) || "[]"); } catch { return []; } }
+  $effect(() => { const c = JSON.stringify(comments); try { localStorage.setItem("codeck.review." + task.id, c); } catch { /* sem armazenamento */ } });
 
   async function loadFiles() {
     loading = true;

@@ -1,5 +1,5 @@
 // Autoteste do app de DESKTOP — roda dentro da janela real (WKWebView no macOS, WebView2 no Windows).
-// Injetado pelo app nativo quando COMMITDECK_SELFTEST aponta para este arquivo (scripts/test-desktop.sh).
+// Injetado pelo app nativo quando CODECK_SELFTEST aponta para este arquivo (scripts/test-desktop.sh).
 // Cliques são eventos do DOM; teclas são eventos REAIS do sistema operacional (o app nativo os envia à janela),
 // então ⌘T, ⌘S, F12 e a digitação no terminal/editor passam pelo mesmo caminho que o usuário usa.
 (async () => {
@@ -8,7 +8,7 @@
   const jsErrors = [];
   window.addEventListener("error", e => jsErrors.push(String(e.message || e.error)));
   window.addEventListener("unhandledrejection", e => setTimeout(() => { if (!e.defaultPrevented) jsErrors.push("promise: " + String(e.reason?.message || e.reason)); }, 0));
-  const MAC = (window.COMMITDECK_PLATFORM || "macos") === "macos";
+  const MAC = (window.CODECK_PLATFORM || "macos") === "macos";
   const MOD = MAC ? "cmd" : "ctrl";
   const sleep = ms => new Promise(r => setTimeout(r, ms));
   const $ = (s, root = document) => root.querySelector(s);
@@ -52,7 +52,7 @@
     return new Promise(res => {
       pending[id] = res;
       const msg = { type, id, ...payload };
-      if (window.webkit?.messageHandlers?.commitdeck) window.webkit.messageHandlers.commitdeck.postMessage(msg);
+      if (window.webkit?.messageHandlers?.codeck) window.webkit.messageHandlers.codeck.postMessage(msg);
       else window.chrome.webview.postMessage(msg);
       setTimeout(() => { if (pending[id]) { delete pending[id]; res(null); } }, 15000);
     });
@@ -89,7 +89,7 @@
   const M = () => window.__cdMonaco;
   const press = (name, mods = "", win) => native("selftest-keys", { keys: [keyOf(name, mods)], window: win });
   const shot = (name, win) => native("selftest-shot", { name, window: win });
-  const H = { "X-Commitdeck-Token": window.COMMITDECK_TOKEN || "", "X-Commitdeck": "1", "Content-Type": "application/json" };
+  const H = { "X-Codeck-Token": window.CODECK_TOKEN || "", "X-Codeck": "1", "Content-Type": "application/json" };
   const api = async (path, body) => {
     const r = await fetch("/api/" + path, body ? { method: "POST", headers: H, body: JSON.stringify(body) } : { headers: H });
     const j = await r.json(); if (!r.ok) throw new Error(j.error || r.status); return j;
@@ -118,7 +118,7 @@
   await step("App abre com a barra lateral e sem erro", async () => {
     await waitFor(".side");
     await shot("01-inicio");
-    return `plataforma ${window.COMMITDECK_PLATFORM}`;
+    return `plataforma ${window.CODECK_PLATFORM}`;
   });
   const VIEWS = [["#/inbox", "Fila"], ["#/prs/review", "Pull requests"], ["#/builds", "Builds"], ["#/deploys", "Deploys"], ["#/issues", "Issues"],
     ["#/repos", "Repositórios"], ["#/automation", "Automação"], ["#/analytics", "Análise"], ["#/history", "Histórico"], ["#/ai", "Uso de IA"]];
@@ -455,6 +455,6 @@
 
   const ok = results.filter(r => r.ok).length;
   const vis1 = await native("selftest-native");
-  await native("selftest-done", { result: JSON.stringify({ platform: window.COMMITDECK_PLATFORM, ok, total: results.length, results, jsErrors, focusMisses,
+  await native("selftest-done", { result: JSON.stringify({ platform: window.CODECK_PLATFORM, ok, total: results.length, results, jsErrors, focusMisses,
     visible: { start: vis0?.visible, end: vis1?.visible } }, null, 1) });
 })();

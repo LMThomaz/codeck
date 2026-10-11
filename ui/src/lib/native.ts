@@ -7,14 +7,14 @@ window.__nativeResolve = (id, value) => {
 };
 
 export function send(msg: Record<string, unknown>) {
-  if (window.webkit?.messageHandlers?.commitdeck) window.webkit.messageHandlers.commitdeck.postMessage(msg);
+  if (window.webkit?.messageHandlers?.codeck) window.webkit.messageHandlers.codeck.postMessage(msg);
   else if (window.chrome?.webview) window.chrome.webview.postMessage(msg);
   else return false;
   return true;
 }
 
-export const isNative = () => !!(window.webkit?.messageHandlers?.commitdeck || window.chrome?.webview);
-export const platform = () => window.COMMITDECK_PLATFORM || (navigator.userAgent.includes("Windows") ? "windows" : "macos");
+export const isNative = () => !!(window.webkit?.messageHandlers?.codeck || window.chrome?.webview);
+export const platform = () => window.CODECK_PLATFORM || (navigator.userAgent.includes("Windows") ? "windows" : "macos");
 
 /** Abre o seletor de pasta do sistema (janela nativa). */
 export function pickFolder(title = "Escolha uma pasta"): Promise<string | null> {

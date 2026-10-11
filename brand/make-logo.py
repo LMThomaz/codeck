@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Gera brand/logo.svg (marca com gradiente, sem fundo) e brand/icon.svg (ícone do app).
 
-A marca do Commitdeck: um deck de cartões empilhados — cada cartão é um provedor (GitHub, Azure DevOps, os que vierem)
+A marca do Codeck: um deck de cartões empilhados — cada cartão é um provedor (GitHub, Azure DevOps, os que vierem)
 — e, no da frente, um grafo do git que desenha o "C": a branch sai de um commit, contorna e volta num merge (verde).
 Tudo sai como <path> PREENCHIDO de polígonos (traços e círculos viram contorno aqui): o ThomSoft Setup desenha o logo
 com um renderizador que não aceita filtros e é instável com stroke, e quando falha mostra o logo de demonstração.

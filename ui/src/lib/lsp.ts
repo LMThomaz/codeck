@@ -15,7 +15,7 @@ class Client {
   docs = new Map<string, { model: Monaco.editor.ITextModel; version: number }>();   // uri do LSP → modelo
   constructor(public monaco: typeof Monaco, public lang: string, public repoId: string, public taskId: string | null, public root: string, onStatus: (s: string) => void) {
     const qs = new URLSearchParams({ repoId, ...(taskId ? { taskId } : {}) });
-    this.ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws/lsp/${lang}?${qs}`, ["commitdeck." + (window.COMMITDECK_TOKEN || "")]);
+    this.ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws/lsp/${lang}?${qs}`, ["codeck." + (window.CODECK_TOKEN || "")]);
     this.ready = new Promise((resolve, reject) => {
       this.ws.onopen = async () => {
         try {
@@ -33,7 +33,7 @@ class Client {
     });
     this.ws.onmessage = (e) => {
       const m = JSON.parse(e.data);
-      if (m.commitdeck === "unavailable") { this.status = m.message; onStatus(m.message); return; }
+      if (m.codeck === "unavailable") { this.status = m.message; onStatus(m.message); return; }
       if (m.id != null && (m.result !== undefined || m.error) && this.pending.has(m.id)) {
         const p = this.pending.get(m.id)!; this.pending.delete(m.id);
         return m.error ? p.reject(m.error) : p.resolve(m.result);

@@ -1,6 +1,6 @@
 {
-  // ▶ "Commitdeck (dev)": sobe o backend em depuração (porta 47822, dados em data-sandbox/) e abre o app nativo
-  // conectado nele — sem tocar no app instalado nem nas suas contas reais. O Commitdeck só roda como app de desktop.
+  // ▶ "Codeck (dev)": sobe o backend em depuração (porta 47822, dados em data-sandbox/) e abre o app nativo
+  // conectado nele — sem tocar no app instalado nem nas suas contas reais. O Codeck só roda como app de desktop.
   "version": "0.2.0",
   "configurations": [
     {
@@ -12,9 +12,9 @@
       "console": "integratedTerminal",
       "justMyCode": true,
       "env": {
-        "COMMITDECK_PORT": "47822",
-        "COMMITDECK_DATA": "${workspaceFolder}/data-sandbox",
-        "COMMITDECK_NATIVE_NOTIFY": "1"
+        "CODECK_PORT": "47822",
+        "CODECK_DATA": "${workspaceFolder}/data-sandbox",
+        "CODECK_NATIVE_NOTIFY": "1"
       }
     },
     {
@@ -22,16 +22,16 @@
       "type": "node-terminal",
       "request": "launch",
       "preLaunchTask": "Compilar app macOS",
-      "command": "COMMITDECK_ATTACH=1 COMMITDECK_PORT=47822 \"${workspaceFolder}/dist/Commitdeck.app/Contents/MacOS/Commitdeck\""
+      "command": "CODECK_ATTACH=1 CODECK_PORT=47822 \"${workspaceFolder}/dist/Codeck.app/Contents/MacOS/Codeck\""
     },
     {
       "name": "App Windows (conecta no backend em depuração)",
       "type": "coreclr",
       "request": "launch",
       "preLaunchTask": "Compilar app Windows",
-      "program": "${workspaceFolder}/windows/Commitdeck/bin/Debug/net8.0-windows/win-x64/Commitdeck.exe",
+      "program": "${workspaceFolder}/windows/Codeck/bin/Debug/net8.0-windows/win-x64/Codeck.exe",
       "cwd": "${workspaceFolder}",
-      "env": { "COMMITDECK_ATTACH": "1", "COMMITDECK_PORT": "47822" }
+      "env": { "CODECK_ATTACH": "1", "CODECK_PORT": "47822" }
     },
     {
       "name": "Instalar o app no meu Mac",
@@ -41,7 +41,7 @@
     }
   ],
   "compounds": [
-    { "name": "Commitdeck (dev, macOS)", "configurations": ["Backend (depurar)", "App macOS (conecta no backend em depuração)"], "stopAll": true },
-    { "name": "Commitdeck (dev, Windows)", "configurations": ["Backend (depurar)", "App Windows (conecta no backend em depuração)"], "stopAll": true }
+    { "name": "Codeck (dev, macOS)", "configurations": ["Backend (depurar)", "App macOS (conecta no backend em depuração)"], "stopAll": true },
+    { "name": "Codeck (dev, Windows)", "configurations": ["Backend (depurar)", "App Windows (conecta no backend em depuração)"], "stopAll": true }
   ]
 }

@@ -1,27 +1,27 @@
-// Commitdeck para macOS: janela nativa (WebKit) para a tela do backend em Python, com contador no Dock e na
+// Codeck para macOS: janela nativa (WebKit) para a tela do backend em Python, com contador no Dock e na
 // barra de menus, notificações clicáveis e atualização automática (latest.json no site da ThomSoft).
 //
 // O app sobe o backend embutido (Resources/backend/server.py) e passa uma chave nova a cada execução: sem ela o
 // backend não responde, então nenhum outro programa da máquina consegue ler a fila ou agir por você.
-// Desenvolvimento: COMMITDECK_ATTACH=1 + COMMITDECK_PORT=<porta> conecta num backend já rodando (debug no VS Code).
+// Desenvolvimento: CODECK_ATTACH=1 + CODECK_PORT=<porta> conecta num backend já rodando (debug no VS Code).
 import Cocoa
 import ServiceManagement
 import UserNotifications
 import WebKit
 
 let env = ProcessInfo.processInfo.environment
-let attachMode = env["COMMITDECK_ATTACH"] == "1"
+let attachMode = env["CODECK_ATTACH"] == "1"
 // Autoteste do app de desktop (scripts/test-desktop.sh): roteiro JS rodando DENTRO desta janela, com teclas reais.
-let selfTestScript = env["COMMITDECK_SELFTEST"]
-let selfTestOut = env["COMMITDECK_SELFTEST_OUT"] ?? NSTemporaryDirectory()
-let port = Int(env["COMMITDECK_PORT"] ?? "") ?? 47821
+let selfTestScript = env["CODECK_SELFTEST"]
+let selfTestOut = env["CODECK_SELFTEST_OUT"] ?? NSTemporaryDirectory()
+let port = Int(env["CODECK_PORT"] ?? "") ?? 47821
 let baseURL = URL(string: "http://127.0.0.1:\(port)/")!
-let token = attachMode ? (env["COMMITDECK_TOKEN"] ?? "") : UUID().uuidString + UUID().uuidString
+let token = attachMode ? (env["CODECK_TOKEN"] ?? "") : UUID().uuidString + UUID().uuidString
 let appVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev"
 let appBuild = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "0"
-let updateURL = Bundle.main.object(forInfoDictionaryKey: "CommitdeckUpdateURL") as? String ?? ""
+let updateURL = Bundle.main.object(forInfoDictionaryKey: "CodeckUpdateURL") as? String ?? ""
 let supportDir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-    .appendingPathComponent("Commitdeck", isDirectory: true)
+    .appendingPathComponent("Codeck", isDirectory: true)
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKUIDelegate, WKNavigationDelegate,
     WKScriptMessageHandler, UNUserNotificationCenterDelegate, NSMenuDelegate {
@@ -38,7 +38,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKUI
     var nativeNotifications = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        if !attachMode && selfTestScript == nil && adoptLegacyInstall() { return }
+        if adoptLegacyInstall() { return }
         buildMainMenu()
         buildWindow()
         buildStatusItem()
@@ -48,20 +48,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKUI
         if !attachMode && selfTestScript == nil { enableLoginItemOnFirstRun() }
     }
 
-    // MARK: nome antigo (PR Pilot)
+    // MARK: nomes antigos (Commitdeck, PR Pilot)
 
-    /// O app se chamava PR Pilot. A pasta de dados antiga vira a nova (contas, regras, histórico) e, se a atualização
-    /// automática deixou este app em "PR Pilot.app", ele se renomeia para "Commitdeck.app" e reabre — devolve true
-    /// quando vai reabrir.
+    /// O app já se chamou Commitdeck e, antes, PR Pilot. A pasta de dados mais recente dos nomes antigos vira a nova
+    /// (contas, regras, histórico) e, se a atualização automática deixou este app com o nome antigo
+    /// ("Commitdeck.app" ou "PR Pilot.app" — o app antigo troca o próprio pacote), ele se renomeia para "Codeck.app"
+    /// e reabre — devolve true quando vai reabrir. O identificador do pacote não mudou: Keychain, permissões de pasta,
+    /// notificações e o armazenamento da tela continuam valendo.
     func adoptLegacyInstall() -> Bool {
         let fm = FileManager.default
-        let legacyData = supportDir.deletingLastPathComponent().appendingPathComponent("PR Pilot", isDirectory: true)
-        if !fm.fileExists(atPath: supportDir.path) && fm.fileExists(atPath: legacyData.path) {
-            try? fm.moveItem(at: legacyData, to: supportDir)
+        if env["CODECK_DATA"] == nil {
+            for name in ["Commitdeck", "PR Pilot"] where !fm.fileExists(atPath: supportDir.path) {
+                let legacy = supportDir.deletingLastPathComponent().appendingPathComponent(name, isDirectory: true)
+                if fm.fileExists(atPath: legacy.path) { try? fm.moveItem(at: legacy, to: supportDir) }
+            }
         }
+        if attachMode || selfTestScript != nil { return false }
         let bundle = URL(fileURLWithPath: Bundle.main.bundlePath)
-        guard bundle.lastPathComponent == "PR Pilot.app" else { return false }
-        let target = bundle.deletingLastPathComponent().appendingPathComponent("Commitdeck.app")
+        guard ["Commitdeck.app", "PR Pilot.app"].contains(bundle.lastPathComponent) else { return false }
+        let target = bundle.deletingLastPathComponent().appendingPathComponent("Codeck.app")
         guard !fm.fileExists(atPath: target.path), (try? fm.moveItem(at: bundle, to: target)) != nil else { return false }
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/usr/bin/open")
@@ -77,8 +82,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKUI
         var req = URLRequest(url: URL(string: path, relativeTo: baseURL)!)
         req.httpMethod = method
         req.timeoutInterval = 3
-        req.setValue(token, forHTTPHeaderField: "X-Commitdeck-Token")
-        if method == "POST" { req.setValue("1", forHTTPHeaderField: "X-Commitdeck") }
+        req.setValue(token, forHTTPHeaderField: "X-Codeck-Token")
+        if method == "POST" { req.setValue("1", forHTTPHeaderField: "X-Codeck") }
         return req
     }
 
@@ -99,7 +104,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKUI
             guard let self else { return }
             if code == 200 { return ready() }
             if code == 401 || code == 403 {
-                return self.showFatal("Outro Commitdeck já está usando a porta \(port). Feche-o (ou o ▶ do editor) e abra de novo.")
+                return self.showFatal("Outro Codeck já está usando a porta \(port). Feche-o (ou o ▶ do editor) e abra de novo.")
             }
             if attachMode { return self.waitForServer(attempts: 240, ready) } // espera o backend do debug subir
             self.startServer()
@@ -111,7 +116,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKUI
         getJSON("api/summary") { [weak self] _, code in
             if code == 200 { return ready() }
             guard attempts > 0 else {
-                self?.showFatal("O backend do Commitdeck não respondeu. Log: ~/Library/Application Support/Commitdeck/commitdeck.log")
+                self?.showFatal("O backend do Codeck não respondeu. Log: ~/Library/Application Support/Codeck/codeck.log")
                 return
             }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { self?.waitForServer(attempts: attempts - 1, ready) }
@@ -126,7 +131,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKUI
             return showFatal("Python 3 não encontrado. Instale as ferramentas da Apple com: xcode-select --install")
         }
         try? FileManager.default.createDirectory(at: supportDir, withIntermediateDirectories: true)
-        let logURL = supportDir.appendingPathComponent("commitdeck.log")
+        let logURL = supportDir.appendingPathComponent("codeck.log")
         if !FileManager.default.fileExists(atPath: logURL.path) { FileManager.default.createFile(atPath: logURL.path, contents: nil) }
         let log = try? FileHandle(forWritingTo: logURL)
         log?.seekToEndOfFile()
@@ -135,14 +140,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKUI
         p.executableURL = URL(fileURLWithPath: python)
         p.arguments = [script]
         var e = env
-        e["COMMITDECK_PORT"] = String(port)
-        e["COMMITDECK_TOKEN"] = token
-        e["COMMITDECK_PARENT_PID"] = String(ProcessInfo.processInfo.processIdentifier)
-        e["COMMITDECK_NATIVE_NOTIFY"] = "1"
-        e["COMMITDECK_VERSION"] = appVersion
-        e["COMMITDECK_BUILD"] = appBuild
-        e["COMMITDECK_PLATFORM"] = "macos"
-        e["COMMITDECK_UPDATE_URL"] = updateURL
+        e["CODECK_PORT"] = String(port)
+        e["CODECK_TOKEN"] = token
+        e["CODECK_PARENT_PID"] = String(ProcessInfo.processInfo.processIdentifier)
+        e["CODECK_NATIVE_NOTIFY"] = "1"
+        e["CODECK_VERSION"] = appVersion
+        e["CODECK_BUILD"] = appBuild
+        e["CODECK_PLATFORM"] = "macos"
+        e["CODECK_UPDATE_URL"] = updateURL
         e["PYTHONDONTWRITEBYTECODE"] = "1"
         e["PYTHONUNBUFFERED"] = "1"
         p.environment = e
@@ -176,9 +181,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKUI
             if #available(macOS 14.0, *) { config.preferences.inactiveSchedulingPolicy = .none }
             selfTestActivity = ProcessInfo.processInfo.beginActivity(options: [.userInitiated, .idleDisplaySleepDisabled], reason: "autoteste")
         }
-        let js = "window.COMMITDECK_TOKEN = \(jsString(token)); window.COMMITDECK_PLATFORM = 'macos';"
+        let js = "window.CODECK_TOKEN = \(jsString(token)); window.CODECK_PLATFORM = 'macos';"
         config.userContentController.addUserScript(WKUserScript(source: js, injectionTime: .atDocumentStart, forMainFrameOnly: true))
-        config.userContentController.add(self, name: "commitdeck")
+        config.userContentController.add(self, name: "codeck")
         web = WKWebView(frame: .zero, configuration: config)
         web.uiDelegate = self
         web.navigationDelegate = self
@@ -187,14 +192,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKUI
 
         window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1440, height: 900),
                           styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
-        window.title = "Commitdeck"
+        window.title = "Codeck"
         window.minSize = NSSize(width: 760, height: 520)
         window.contentView = web
         window.isReleasedWhenClosed = false
         window.delegate = self
         window.tabbingMode = .disallowed
         window.center()
-        window.setFrameAutosaveName("CommitdeckMain")
+        window.setFrameAutosaveName("CodeckMain")
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
     }
@@ -209,9 +214,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKUI
     func openProjectWindow(hash: String, title: String) {
         let config = WKWebViewConfiguration()
         config.websiteDataStore = .default()
-        let js = "window.COMMITDECK_TOKEN = \(jsString(token)); window.COMMITDECK_PLATFORM = 'macos';"
+        let js = "window.CODECK_TOKEN = \(jsString(token)); window.CODECK_PLATFORM = 'macos';"
         config.userContentController.addUserScript(WKUserScript(source: js, injectionTime: .atDocumentStart, forMainFrameOnly: true))
-        config.userContentController.add(self, name: "commitdeck")
+        config.userContentController.add(self, name: "codeck")
         let wv = WKWebView(frame: .zero, configuration: config)
         wv.uiDelegate = self
         wv.navigationDelegate = self
@@ -225,8 +230,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKUI
         w.tabbingMode = .disallowed
         w.appearance = window.appearance
         w.backgroundColor = window.backgroundColor
-        w.setFrameAutosaveName("CommitdeckProject-\(title)")
-        if !w.setFrameUsingName("CommitdeckProject-\(title)") { w.center() }
+        w.setFrameAutosaveName("CodeckProject-\(title)")
+        if !w.setFrameUsingName("CodeckProject-\(title)") { w.center() }
         var comps = URLComponents(url: baseURL, resolvingAgainstBaseURL: false)!
         comps.fragment = hash
         wv.load(URLRequest(url: comps.url!))
@@ -279,17 +284,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKUI
     func buildStatusItem() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let button = statusItem.button {
-            button.image = NSImage(systemSymbolName: "arrow.triangle.pull", accessibilityDescription: "Commitdeck")
+            button.image = NSImage(systemSymbolName: "arrow.triangle.pull", accessibilityDescription: "Codeck")
             button.imagePosition = .imageLeading
         }
         let menu = NSMenu()
-        menu.addItem(withTitle: "Abrir Commitdeck", action: #selector(showWindow), keyEquivalent: "")
+        menu.addItem(withTitle: "Abrir Codeck", action: #selector(showWindow), keyEquivalent: "")
         menu.addItem(withTitle: "Ler o Azure agora", action: #selector(refreshNow), keyEquivalent: "")
         menu.addItem(withTitle: "Procurar atualização", action: #selector(checkUpdate), keyEquivalent: "")
         menu.addItem(.separator())
         loginMenuItem = menu.addItem(withTitle: "Abrir ao iniciar o Mac", action: #selector(toggleLoginItem), keyEquivalent: "")
         menu.addItem(.separator())
-        menu.addItem(withTitle: "Sair do Commitdeck", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        menu.addItem(withTitle: "Sair do Codeck", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         menu.delegate = self
         statusItem.menu = menu
     }
@@ -304,7 +309,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKUI
             let total = json?["total"] as? Int ?? 0
             NSApp.dockTile.badgeLabel = total > 0 ? String(total) : nil
             self.statusItem.button?.title = total > 0 ? " \(total)" : ""
-            self.statusItem.button?.toolTip = json == nil ? "Commitdeck — backend fora do ar" : "Commitdeck — \(total) pendente(s)"
+            self.statusItem.button?.toolTip = json == nil ? "Codeck — backend fora do ar" : "Codeck — \(total) pendente(s)"
             guard let seq = json?["notifySeq"] as? Int else { return }
             if self.lastSeq < 0 { self.lastSeq = seq; return } // ao abrir, não repete o que já passou
             if seq > self.lastSeq { self.fetchNotifications() }
@@ -328,7 +333,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKUI
     }
 
     func deliver(_ n: [String: Any]) {
-        let title = n["title"] as? String ?? "Commitdeck", subtitle = n["subtitle"] as? String ?? "", body = n["message"] as? String ?? ""
+        let title = n["title"] as? String ?? "Codeck", subtitle = n["subtitle"] as? String ?? "", body = n["message"] as? String ?? ""
         let target = n["target"] as? String ?? ""
         if nativeNotifications {
             let content = UNMutableNotificationContent()
@@ -376,7 +381,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKUI
         }
         if let t = body["type"] as? String, t.hasPrefix("selftest-") { return selfTestMessage(t, body) }
         if body["type"] as? String == "openWindow", let hash = body["hash"] as? String {
-            return openProjectWindow(hash: hash, title: body["title"] as? String ?? "Commitdeck")
+            return openProjectWindow(hash: hash, title: body["title"] as? String ?? "Codeck")
         }
         if body["type"] as? String == "theme" {
             // a tela manda o tema RESOLVIDO; a barra de título e o fundo da janela acompanham
@@ -410,16 +415,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKUI
     func installUpdate(dmg: String) throws {
         let updates = supportDir.appendingPathComponent("updates").path
         guard dmg.hasPrefix(updates + "/"), dmg.hasSuffix(".dmg"), FileManager.default.fileExists(atPath: dmg) else {
-            throw NSError(domain: "Commitdeck", code: 1, userInfo: [NSLocalizedDescriptionKey: "Instalador fora da pasta de atualizações."])
+            throw NSError(domain: "Codeck", code: 1, userInfo: [NSLocalizedDescriptionKey: "Instalador fora da pasta de atualizações."])
         }
         let bundle = Bundle.main.bundlePath
         let parent = (bundle as NSString).deletingLastPathComponent
-        let staged = "\(parent)/.commitdeck-update.app"
-        let mount = NSTemporaryDirectory() + "commitdeck-mnt-\(UUID().uuidString)"
+        let staged = "\(parent)/.codeck-update.app"
+        let mount = NSTemporaryDirectory() + "codeck-mnt-\(UUID().uuidString)"
         try run("/usr/bin/hdiutil", ["attach", "-nobrowse", "-readonly", "-noautoopen", "-mountpoint", mount, dmg], "Não consegui abrir o .dmg baixado.")
         defer { _ = try? run("/usr/bin/hdiutil", ["detach", "-quiet", "-force", mount], "") }
         guard let app = try FileManager.default.contentsOfDirectory(atPath: mount).first(where: { $0.hasSuffix(".app") }) else {
-            throw NSError(domain: "Commitdeck", code: 2, userInfo: [NSLocalizedDescriptionKey: "O .dmg não tem o aplicativo."])
+            throw NSError(domain: "Codeck", code: 2, userInfo: [NSLocalizedDescriptionKey: "O .dmg não tem o aplicativo."])
         }
         _ = try? run("/bin/rm", ["-rf", staged], "")
         try run("/usr/bin/ditto", ["\(mount)/\(app)", staged], "Sem permissão para gravar em \(parent). Instale o .dmg à mão desta vez.")
@@ -440,7 +445,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKUI
         open \(q(bundle))
         rm -f "$0"
         """
-        let path = NSTemporaryDirectory() + "commitdeck-swap-\(pid).sh"
+        let path = NSTemporaryDirectory() + "codeck-swap-\(pid).sh"
         try script.write(toFile: path, atomically: true, encoding: .utf8)
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/bin/sh")
@@ -459,7 +464,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKUI
         try p.run()
         p.waitUntilExit()
         if p.terminationStatus != 0 && !message.isEmpty {
-            throw NSError(domain: "Commitdeck", code: Int(p.terminationStatus), userInfo: [NSLocalizedDescriptionKey: message])
+            throw NSError(domain: "Codeck", code: Int(p.terminationStatus), userInfo: [NSLocalizedDescriptionKey: message])
         }
         return p.terminationStatus
     }
@@ -533,7 +538,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKUI
         guard webView === web, let path = selfTestScript, !selfTestStarted, webView.url?.host == "127.0.0.1",
               let code = try? String(contentsOfFile: path, encoding: .utf8) else { return }
         selfTestStarted = true
-        let ctx = env["COMMITDECK_SELFTEST_CTX"] ?? "{}"
+        let ctx = env["CODECK_SELFTEST_CTX"] ?? "{}"
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
             // o roteiro é assíncrono: devolve 0 para o WebKit (uma Promise não é um retorno aceito)
             webView.evaluateJavaScript("window.SELFTEST = \(ctx);\n" + code + "\n;0") { _, err in
@@ -552,12 +557,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKUI
         let main = NSMenu()
         let appItem = NSMenuItem()
         let appMenu = NSMenu()
-        appMenu.addItem(withTitle: "Sobre o Commitdeck", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
+        appMenu.addItem(withTitle: "Sobre o Codeck", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
         appMenu.addItem(withTitle: "Procurar atualização…", action: #selector(checkUpdate), keyEquivalent: "")
         appMenu.addItem(.separator())
-        appMenu.addItem(withTitle: "Ocultar Commitdeck", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
+        appMenu.addItem(withTitle: "Ocultar Codeck", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
         appMenu.addItem(.separator())
-        appMenu.addItem(withTitle: "Sair do Commitdeck", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        appMenu.addItem(withTitle: "Sair do Codeck", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         appItem.submenu = appMenu
         main.addItem(appItem)
 
@@ -585,7 +590,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKUI
         win.addItem(withTitle: "Minimizar", action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m")
         // ⌘W fica para a tela (fecha a aba de terminal/arquivo); a janela fecha com ⇧⌘W
         win.addItem(withTitle: "Fechar janela", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "W")
-        win.addItem(withTitle: "Mostrar Commitdeck", action: #selector(showWindow), keyEquivalent: "0")
+        win.addItem(withTitle: "Mostrar Codeck", action: #selector(showWindow), keyEquivalent: "0")
         winItem.submenu = win
         main.addItem(winItem)
         NSApp.windowsMenu = win

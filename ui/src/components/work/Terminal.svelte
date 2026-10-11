@@ -22,7 +22,7 @@
 
   function connect(id: string, l: Live) {
     const proto = location.protocol === "https:" ? "wss" : "ws";
-    const ws = new WebSocket(`${proto}://${location.host}/ws/term/${id}`, ["commitdeck." + (window.COMMITDECK_TOKEN || "")]);
+    const ws = new WebSocket(`${proto}://${location.host}/ws/term/${id}`, ["codeck." + (window.CODECK_TOKEN || "")]);
     ws.binaryType = "arraybuffer";
     let first = true;
     ws.onmessage = (e) => {

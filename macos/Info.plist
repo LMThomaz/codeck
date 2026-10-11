@@ -2,10 +2,10 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <key>CFBundleName</key><string>Commitdeck</string>
-  <key>CFBundleDisplayName</key><string>Commitdeck</string>
+  <key>CFBundleName</key><string>Codeck</string>
+  <key>CFBundleDisplayName</key><string>Codeck</string>
   <key>CFBundleIdentifier</key><string>dev.commitdeck.app</string>
-  <key>CFBundleExecutable</key><string>Commitdeck</string>
+  <key>CFBundleExecutable</key><string>Codeck</string>
   <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>__VERSION__</string>
@@ -14,7 +14,7 @@
   <key>LSApplicationCategoryType</key><string>public.app-category.developer-tools</string>
   <key>NSHighResolutionCapable</key><true/>
   <key>NSHumanReadableCopyright</key><string>Ferramenta local — dados ficam só nesta máquina.</string>
-  <key>CommitdeckUpdateURL</key><string>https://thomsoft.com.br/downloads/commitdeck/latest.json</string>
+  <key>CodeckUpdateURL</key><string>https://thomsoft.com.br/downloads/codeck/latest.json</string>
   <key>NSAppTransportSecurity</key>
   <dict><key>NSAllowsLocalNetworking</key><true/></dict>
 </dict>

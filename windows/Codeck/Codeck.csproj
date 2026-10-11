@@ -5,11 +5,11 @@
     <UseWindowsForms>true</UseWindowsForms>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <AssemblyName>Commitdeck</AssemblyName>
-    <RootNamespace>Commitdeck</RootNamespace>
+    <AssemblyName>Codeck</AssemblyName>
+    <RootNamespace>Codeck</RootNamespace>
     <ApplicationIcon>app.ico</ApplicationIcon>
     <ApplicationManifest>app.manifest</ApplicationManifest>
-    <Product>Commitdeck</Product>
+    <Product>Codeck</Product>
     <Company>ThomSoft</Company>
     <Version>1.0.0</Version>
     <!-- compila também no Mac/Linux (só roda no Windows) -->

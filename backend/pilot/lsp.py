@@ -45,7 +45,7 @@ def available():
         return _found["map"]
     home = os.path.expanduser("~")
     extra = [os.path.join(home, d) for d in (".dotnet/tools", "go/bin", ".cargo/bin", ".local/bin", ".npm-global/bin")]
-    extra += [p for p in (os.environ.get("COMMITDECK_LSP_PATH") or "").split(os.pathsep) if p]   # testes/dev
+    extra += [p for p in (os.environ.get("CODECK_LSP_PATH") or "").split(os.pathsep) if p]   # testes/dev
     path = os.pathsep.join([_login_path()] + extra)
     import shutil
     out = {}

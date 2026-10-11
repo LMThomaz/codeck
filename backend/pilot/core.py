@@ -1,10 +1,10 @@
 """Núcleo: pastas e arquivos de dados, estado compartilhado, utilidades de tempo/JSON, histórico e notificações.
 
-Quem sobe o backend é o app nativo — macos/Commitdeck.swift ou windows/Commitdeck (C#). Ele passa:
-  COMMITDECK_TOKEN            chave por execução — sem ela nenhuma rota /api responde
-  COMMITDECK_PARENT_PID       o processo encerra junto com o app
-  COMMITDECK_NATIVE_NOTIFY=1  notificações saem pelo app (clicáveis)
-  COMMITDECK_VERSION / _BUILD / _PLATFORM / _UPDATE_URL  versão instalada e canal de atualização
+Quem sobe o backend é o app nativo — macos/Codeck.swift ou windows/Codeck (C#). Ele passa:
+  CODECK_TOKEN            chave por execução — sem ela nenhuma rota /api responde
+  CODECK_PARENT_PID       o processo encerra junto com o app
+  CODECK_NATIVE_NOTIFY=1  notificações saem pelo app (clicáveis)
+  CODECK_VERSION / _BUILD / _PLATFORM / _UPDATE_URL  versão instalada e canal de atualização
 """
 import json
 import os
@@ -16,7 +16,7 @@ from datetime import datetime, timezone
 from types import SimpleNamespace
 
 BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-PRODUCT = "Commitdeck"   # nome de exibição (a marca mora em ui/src/lib/brand.ts); ids internos não mudam com ela
+PRODUCT = "Codeck"   # nome de exibição (a marca mora em ui/src/lib/brand.ts); ids internos não mudam com ela
 
 
 class OfflineError(RuntimeError):
@@ -40,26 +40,34 @@ def is_network_error(e):
 def default_data_dir():
     # Um lugar só por usuário: app instalado, debug do editor e terminal enxergam as mesmas contas e regras.
     if sys.platform == "darwin":
-        return os.path.expanduser("~/Library/Application Support/Commitdeck")
+        return os.path.expanduser("~/Library/Application Support/Codeck")
     if os.name == "nt":
-        return os.path.join(os.environ.get("APPDATA") or os.path.expanduser("~"), "Commitdeck")
-    return os.path.join(os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config"), "commitdeck")
+        return os.path.join(os.environ.get("APPDATA") or os.path.expanduser("~"), "Codeck")
+    return os.path.join(os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config"), "codeck")
+
+
+LEGACY_NAMES = ("Commitdeck", "PR Pilot")   # nomes anteriores, do mais recente ao mais antigo
 
 
 def _adopt_legacy_dir(new):
-    """O app se chamava PR Pilot: na primeira execução como Commitdeck, a pasta de dados antiga vira a nova
-    (contas, regras, histórico). Os apps nativos já fazem isso antes de subir o backend; aqui cobre o dev."""
-    old = os.path.join(os.path.dirname(new), "pr-pilot" if os.path.basename(new) == "commitdeck" else "PR Pilot")
-    if not os.path.exists(new) and os.path.isdir(old):
-        try:
-            os.rename(old, new)
-        except OSError:
-            pass
+    """O app já se chamou Commitdeck e, antes, PR Pilot: na primeira execução como Codeck, a pasta de dados mais
+    recente dos nomes antigos vira a nova (contas, regras, histórico). Os apps nativos já fazem isso antes de subir o
+    backend; aqui cobre o dev."""
+    lower = os.path.basename(new) == "codeck"
+    for name in LEGACY_NAMES:
+        old = os.path.join(os.path.dirname(new), name.lower().replace(" ", "-") if lower else name)
+        if os.path.exists(new):
+            return
+        if os.path.isdir(old):
+            try:
+                os.rename(old, new)
+            except OSError:
+                pass
 
 
-if not os.environ.get("COMMITDECK_DATA"):
+if not os.environ.get("CODECK_DATA"):
     _adopt_legacy_dir(default_data_dir())
-DATA = os.path.abspath(os.environ.get("COMMITDECK_DATA") or default_data_dir())
+DATA = os.path.abspath(os.environ.get("CODECK_DATA") or default_data_dir())
 os.makedirs(DATA, exist_ok=True)
 for _old in (BACKEND_DIR, os.path.join(BACKEND_DIR, "data")):
     # versões antigas guardavam os dados ao lado do código
@@ -79,12 +87,12 @@ UPDATES_DIR = os.path.join(DATA, "updates")
 STATIC_DIR = os.path.join(BACKEND_DIR, "static")
 
 DEFAULT_PORT = 47821  # porta incomum de propósito: não briga com APIs/fronts locais
-APP_VERSION = os.environ.get("COMMITDECK_VERSION") or "dev"
-APP_BUILD = int(os.environ.get("COMMITDECK_BUILD") or 0)
-APP_PLATFORM = os.environ.get("COMMITDECK_PLATFORM") or ("macos" if sys.platform == "darwin" else "windows" if os.name == "nt" else "linux")
-UPDATE_URL = os.environ.get("COMMITDECK_UPDATE_URL") or ""
-TOKEN = os.environ.get("COMMITDECK_TOKEN") or ""
-NATIVE_NOTIFY = os.environ.get("COMMITDECK_NATIVE_NOTIFY") == "1"
+APP_VERSION = os.environ.get("CODECK_VERSION") or "dev"
+APP_BUILD = int(os.environ.get("CODECK_BUILD") or 0)
+APP_PLATFORM = os.environ.get("CODECK_PLATFORM") or ("macos" if sys.platform == "darwin" else "windows" if os.name == "nt" else "linux")
+UPDATE_URL = os.environ.get("CODECK_UPDATE_URL") or ""
+TOKEN = os.environ.get("CODECK_TOKEN") or ""
+NATIVE_NOTIFY = os.environ.get("CODECK_NATIVE_NOTIFY") == "1"
 
 lock = threading.RLock()
 wake = threading.Event()

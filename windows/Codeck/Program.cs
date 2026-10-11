@@ -1,10 +1,10 @@
-// Commitdeck para Windows: janela (WebView2) para a tela do backend em Python, ícone na bandeja com o contador,
+// Codeck para Windows: janela (WebView2) para a tela do backend em Python, ícone na bandeja com o contador,
 // notificações que abrem o item e atualização pelo ThomSoft Setup (`--update --wait-pid`).
 //
-// O mesmo contrato do app do macOS (macos/Commitdeck.swift): sobe backend\server.py com o Python embutido e uma
+// O mesmo contrato do app do macOS (macos/Codeck.swift): sobe backend\server.py com o Python embutido e uma
 // chave nova por execução — sem ela o backend não responde, então nenhum outro programa da máquina age por você.
-// Desenvolvimento: COMMITDECK_ATTACH=1 + COMMITDECK_PORT conecta num backend já rodando; COMMITDECK_BACKEND_DIR e
-// COMMITDECK_PYTHON apontam para o código do repositório e para o python do PATH.
+// Desenvolvimento: CODECK_ATTACH=1 + CODECK_PORT conecta num backend já rodando; CODECK_BACKEND_DIR e
+// CODECK_PYTHON apontam para o código do repositório e para o python do PATH.
 using System.Diagnostics;
 using System.Drawing.Drawing2D;
 using System.Net.Http;
@@ -14,15 +14,15 @@ using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
 using Microsoft.Win32;
 
-namespace Commitdeck;
+namespace Codeck;
 
 static class Program
 {
     [STAThread]
     static void Main()
     {
-        using var single = new Mutex(true, @"Local\Commitdeck.Single", out var first);
-        using var showSignal = new EventWaitHandle(false, EventResetMode.AutoReset, @"Local\Commitdeck.Show");
+        using var single = new Mutex(true, @"Local\Codeck.Single", out var first);
+        using var showSignal = new EventWaitHandle(false, EventResetMode.AutoReset, @"Local\Codeck.Show");
         if (!first)
         {
             showSignal.Set(); // já está aberto: só traz a janela para a frente
@@ -35,23 +35,23 @@ static class Program
 
 sealed class MainForm : Form
 {
-    const string ProductId = "commitdeck";
+    const string ProductId = "codeck";
     const string RunKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
 
     static readonly Dictionary<string, string?> Env = Environment.GetEnvironmentVariables()
         .Cast<System.Collections.DictionaryEntry>().ToDictionary(e => (string)e.Key, e => (string?)e.Value, StringComparer.OrdinalIgnoreCase);
 
-    readonly bool attach = Env.GetValueOrDefault("COMMITDECK_ATTACH") == "1";
-    readonly int port = int.TryParse(Env.GetValueOrDefault("COMMITDECK_PORT"), out var p) ? p : 47821;
+    readonly bool attach = Env.GetValueOrDefault("CODECK_ATTACH") == "1";
+    readonly int port = int.TryParse(Env.GetValueOrDefault("CODECK_PORT"), out var p) ? p : 47821;
     readonly string token;
     readonly string baseUrl;
-    readonly string dataDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Commitdeck");
+    readonly string dataDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Codeck");
     readonly HttpClient http = new() { Timeout = TimeSpan.FromSeconds(4) };
     readonly WebView2 web = new() { Dock = DockStyle.Fill };
     CoreWebView2Environment? envWv;   // o mesmo ambiente serve às janelas de projeto
     // Autoteste do app de desktop (scripts/test-desktop / CI): roteiro JS rodando DENTRO desta janela
-    readonly string? selfTest = Environment.GetEnvironmentVariable("COMMITDECK_SELFTEST");
-    readonly string selfOut = Environment.GetEnvironmentVariable("COMMITDECK_SELFTEST_OUT") ?? Path.GetTempPath();
+    readonly string? selfTest = Environment.GetEnvironmentVariable("CODECK_SELFTEST");
+    readonly string selfOut = Environment.GetEnvironmentVariable("CODECK_SELFTEST_OUT") ?? Path.GetTempPath();
     bool selfStarted;
     bool lastLight;
     readonly NotifyIcon tray = new();
@@ -68,14 +68,14 @@ sealed class MainForm : Form
     public MainForm(EventWaitHandle showSignal)
     {
         AdoptLegacyData();
-        token = attach ? Env.GetValueOrDefault("COMMITDECK_TOKEN") ?? "" : Guid.NewGuid().ToString("N") + Guid.NewGuid().ToString("N");
+        token = attach ? Env.GetValueOrDefault("CODECK_TOKEN") ?? "" : Guid.NewGuid().ToString("N") + Guid.NewGuid().ToString("N");
         baseUrl = $"http://127.0.0.1:{port}/";
-        http.DefaultRequestHeaders.Add("X-Commitdeck-Token", token);
+        http.DefaultRequestHeaders.Add("X-Codeck-Token", token);
         baseIcon = LoadIcon(SystemInformation.SmallIconSize);   // bandeja
         windowIcon = LoadIcon(SystemInformation.IconSize);      // barra de tarefas / Alt+Tab
         RefreshShellIconsOnUpgrade();
 
-        Text = "Commitdeck";
+        Text = "Codeck";
         Icon = windowIcon;
         MinimumSize = new Size(760, 520);
         StartPosition = FormStartPosition.CenterScreen;
@@ -83,17 +83,17 @@ sealed class MainForm : Form
         Controls.Add(web);
 
         var menu = new ContextMenuStrip();
-        menu.Items.Add("Abrir Commitdeck", null, (_, _) => ShowMain());
+        menu.Items.Add("Abrir Codeck", null, (_, _) => ShowMain());
         menu.Items.Add("Ler o Azure agora", null, async (_, _) => await RefreshNow());
         menu.Items.Add("Procurar atualização", null, async (_, _) => { ShowMain(); await Js("window.checkUpdate && window.checkUpdate(true)"); });
         menu.Items.Add(new ToolStripSeparator());
         autostartItem.Click += (_, _) => ToggleAutostart();
         menu.Items.Add(autostartItem);
         menu.Items.Add(new ToolStripSeparator());
-        menu.Items.Add("Sair do Commitdeck", null, (_, _) => Quit());
+        menu.Items.Add("Sair do Codeck", null, (_, _) => Quit());
         menu.Opening += (_, _) => autostartItem.Checked = AutostartEnabled();
         tray.Icon = baseIcon;
-        tray.Text = "Commitdeck";
+        tray.Text = "Codeck";
         tray.ContextMenuStrip = menu;
         tray.Visible = true;
         tray.DoubleClick += (_, _) => ShowMain();
@@ -133,7 +133,7 @@ sealed class MainForm : Form
     {
         await InitWebView();
         var (code, _) = await Get("api/summary");
-        if (code is 401 or 403) { Fatal($"Outro Commitdeck já está usando a porta {port}. Feche-o e abra de novo."); return; }
+        if (code is 401 or 403) { Fatal($"Outro Codeck já está usando a porta {port}. Feche-o e abra de novo."); return; }
         if (code != 200 && !attach) StartBackend();
         for (var i = 0; i < (attach ? 240 : 80); i++)
         {
@@ -145,7 +145,7 @@ sealed class MainForm : Form
                     if (selfStarted || !web.Source.ToString().StartsWith(baseUrl)) return;
                     selfStarted = true;
                     await Task.Delay(1500);
-                    var ctx = Environment.GetEnvironmentVariable("COMMITDECK_SELFTEST_CTX") ?? "{}";
+                    var ctx = Environment.GetEnvironmentVariable("CODECK_SELFTEST_CTX") ?? "{}";
                     await web.CoreWebView2.ExecuteScriptAsync("window.SELFTEST = " + ctx + ";\n" + File.ReadAllText(selfTest) + "\n;0");
                 };
                 web.CoreWebView2.Navigate(baseUrl);
@@ -155,18 +155,18 @@ sealed class MainForm : Form
             }
             await Task.Delay(500);
         }
-        Fatal($"O backend do Commitdeck não respondeu. Log: {Path.Combine(dataDir, "commitdeck.log")}");
+        Fatal($"O backend do Codeck não respondeu. Log: {Path.Combine(dataDir, "codeck.log")}");
     }
 
     void StartBackend()
     {
         var dir = AppContext.BaseDirectory;
-        var backendDir = Env.GetValueOrDefault("COMMITDECK_BACKEND_DIR") ?? Path.Combine(dir, "backend");
-        var python = Env.GetValueOrDefault("COMMITDECK_PYTHON") ?? Path.Combine(dir, "python", "pythonw.exe");
+        var backendDir = Env.GetValueOrDefault("CODECK_BACKEND_DIR") ?? Path.Combine(dir, "backend");
+        var python = Env.GetValueOrDefault("CODECK_PYTHON") ?? Path.Combine(dir, "python", "pythonw.exe");
         var script = Path.Combine(backendDir, "server.py");
-        if (!File.Exists(script) || (!File.Exists(python) && Env.GetValueOrDefault("COMMITDECK_PYTHON") == null))
+        if (!File.Exists(script) || (!File.Exists(python) && Env.GetValueOrDefault("CODECK_PYTHON") == null))
         {
-            Fatal("Instalação incompleta: falta o backend ou o Python embutido. Reinstale o Commitdeck.");
+            Fatal("Instalação incompleta: falta o backend ou o Python embutido. Reinstale o Codeck.");
             return;
         }
         Directory.CreateDirectory(dataDir);
@@ -175,18 +175,18 @@ sealed class MainForm : Form
             UseShellExecute = false, CreateNoWindow = true, WorkingDirectory = dataDir,
             RedirectStandardOutput = true, RedirectStandardError = true,
         };
-        psi.Environment["COMMITDECK_PORT"] = port.ToString();
-        psi.Environment["COMMITDECK_TOKEN"] = token;
-        psi.Environment["COMMITDECK_PARENT_PID"] = Environment.ProcessId.ToString();
-        psi.Environment["COMMITDECK_NATIVE_NOTIFY"] = "1";
-        psi.Environment["COMMITDECK_VERSION"] = office.Version;
-        psi.Environment["COMMITDECK_BUILD"] = office.Build.ToString();
-        psi.Environment["COMMITDECK_PLATFORM"] = "windows";
-        psi.Environment["COMMITDECK_UPDATE_URL"] = office.UpdateUrl;
+        psi.Environment["CODECK_PORT"] = port.ToString();
+        psi.Environment["CODECK_TOKEN"] = token;
+        psi.Environment["CODECK_PARENT_PID"] = Environment.ProcessId.ToString();
+        psi.Environment["CODECK_NATIVE_NOTIFY"] = "1";
+        psi.Environment["CODECK_VERSION"] = office.Version;
+        psi.Environment["CODECK_BUILD"] = office.Build.ToString();
+        psi.Environment["CODECK_PLATFORM"] = "windows";
+        psi.Environment["CODECK_UPDATE_URL"] = office.UpdateUrl;
         psi.Environment["PYTHONDONTWRITEBYTECODE"] = "1";
         psi.Environment["PYTHONUNBUFFERED"] = "1";
         psi.Environment["PYTHONIOENCODING"] = "utf-8";
-        var log = new StreamWriter(Path.Combine(dataDir, "commitdeck.log"), append: true) { AutoFlush = true };
+        var log = new StreamWriter(Path.Combine(dataDir, "codeck.log"), append: true) { AutoFlush = true };
         var proc = new Process { StartInfo = psi, EnableRaisingEvents = true };
         proc.OutputDataReceived += (_, e) => { if (e.Data != null) lock (log) log.WriteLine(e.Data); };
         proc.ErrorDataReceived += (_, e) => { if (e.Data != null) lock (log) log.WriteLine(e.Data); };
@@ -210,12 +210,12 @@ sealed class MainForm : Form
         try
         {
             envWv = await CoreWebView2Environment.CreateAsync(null, Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Commitdeck", "WebView2"));
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Codeck", "WebView2"));
             await web.EnsureCoreWebView2Async(envWv);
         }
         catch (WebView2RuntimeNotFoundException)
         {
-            MessageBox.Show("O Commitdeck precisa do Microsoft Edge WebView2 Runtime. A página de download vai abrir.", "Commitdeck");
+            MessageBox.Show("O Codeck precisa do Microsoft Edge WebView2 Runtime. A página de download vai abrir.", "Codeck");
             Process.Start(new ProcessStartInfo("https://go.microsoft.com/fwlink/p/?LinkId=2124703") { UseShellExecute = true });
             Quit();
             return;
@@ -225,7 +225,7 @@ sealed class MainForm : Form
         core.Settings.IsStatusBarEnabled = false;
         core.Settings.AreDefaultContextMenusEnabled = attach;
         await core.AddScriptToExecuteOnDocumentCreatedAsync(
-            $"window.COMMITDECK_TOKEN = {JsonSerializer.Serialize(token)}; window.COMMITDECK_PLATFORM = 'windows';" +
+            $"window.CODECK_TOKEN = {JsonSerializer.Serialize(token)}; window.CODECK_PLATFORM = 'windows';" +
             (selfTest != null ? " window.__CD_SELFTEST = true;" : ""));
         core.NewWindowRequested += (_, e) => { e.Handled = true; OpenExternal(e.Uri); }; // target=_blank → navegador
         core.NavigationStarting += (_, e) =>
@@ -245,7 +245,7 @@ sealed class MainForm : Form
     void Fatal(string text)
     {
         if (web.CoreWebView2 != null) web.CoreWebView2.NavigateToString(Splash(System.Net.WebUtility.HtmlEncode(text)));
-        else MessageBox.Show(text, "Commitdeck");
+        else MessageBox.Show(text, "Codeck");
     }
 
     void ShowMain()
@@ -264,7 +264,7 @@ sealed class MainForm : Form
             if (!hintShown)
             {
                 hintShown = true;
-                tray.ShowBalloonTip(4000, "Commitdeck continua rodando", "Ele segue aprovando e avisando aqui na bandeja. Para fechar de vez: botão direito → Sair.", ToolTipIcon.Info);
+                tray.ShowBalloonTip(4000, "Codeck continua rodando", "Ele segue aprovando e avisando aqui na bandeja. Para fechar de vez: botão direito → Sair.", ToolTipIcon.Info);
             }
             return;
         }
@@ -292,7 +292,7 @@ sealed class MainForm : Form
         try
         {
             using var req = new HttpRequestMessage(HttpMethod.Post, baseUrl + "api/refresh") { Content = new StringContent("{}") };
-            req.Headers.Add("X-Commitdeck", "1");
+            req.Headers.Add("X-Codeck", "1");
             await http.SendAsync(req);
         }
         catch { }
@@ -307,8 +307,8 @@ sealed class MainForm : Form
     {
         var (code, json) = await Get("api/summary");
         var total = code == 200 && json?.TryGetProperty("total", out var t) == true ? t.GetInt32() : 0;
-        Text = total > 0 ? $"({total}) Commitdeck" : "Commitdeck";
-        tray.Text = code != 200 ? "Commitdeck — backend fora do ar" : total > 0 ? $"Commitdeck — {total} pendente(s)" : "Commitdeck — nada pendente";
+        Text = total > 0 ? $"({total}) Codeck" : "Codeck";
+        tray.Text = code != 200 ? "Codeck — backend fora do ar" : total > 0 ? $"Codeck — {total} pendente(s)" : "Codeck — nada pendente";
         SetBadge(total);
         if (code != 200 || json?.TryGetProperty("notifySeq", out var s) != true) return;
         var seq = s.GetInt32();
@@ -319,7 +319,7 @@ sealed class MainForm : Form
             foreach (var n in items.EnumerateArray())
             {
                 lastTarget = n.TryGetProperty("target", out var tg) ? tg.GetString() : null;
-                var title = n.GetProperty("title").GetString() ?? "Commitdeck";
+                var title = n.GetProperty("title").GetString() ?? "Codeck";
                 var body = $"{n.GetProperty("subtitle").GetString()}\n{n.GetProperty("message").GetString()}".Trim();
                 tray.ShowBalloonTip(8000, title, body.Length > 250 ? body[..250] : body, ToolTipIcon.Info);
             }
@@ -356,7 +356,7 @@ sealed class MainForm : Form
 
     static Icon LoadIcon(Size size)
     {
-        using var s = typeof(MainForm).Assembly.GetManifestResourceStream("Commitdeck.app.ico");
+        using var s = typeof(MainForm).Assembly.GetManifestResourceStream("Codeck.app.ico");
         return s != null ? new Icon(s, size) : SystemIcons.Application;
     }
 
@@ -366,7 +366,7 @@ sealed class MainForm : Form
     {
         try
         {
-            using var k = Registry.CurrentUser.CreateSubKey(@"Software\ThomSoft\Commitdeck");
+            using var k = Registry.CurrentUser.CreateSubKey(@"Software\ThomSoft\Codeck");
             var current = $"{office.Version}+{office.Build}";
             if ((k.GetValue("IconVersion") as string) == current) return;
             Native.SHChangeNotify(0x08000000, 0x1000, IntPtr.Zero, IntPtr.Zero); // SHCNE_ASSOCCHANGED, SHCNF_FLUSH
@@ -404,7 +404,7 @@ sealed class MainForm : Form
             if (type == "openWindow" && envWv != null)
             {
                 var hash = msg.GetProperty("hash").GetString() ?? "";
-                var title = msg.TryGetProperty("title", out var tt) ? tt.GetString() ?? "Commitdeck" : "Commitdeck";
+                var title = msg.TryGetProperty("title", out var tt) ? tt.GetString() ?? "Codeck" : "Codeck";
                 new ProjectWindow(envWv, baseUrl, token, hash, title, Icon, BackColor).Show();
                 return;
             }
@@ -419,7 +419,7 @@ sealed class MainForm : Form
         }
         catch (Exception ex)
         {
-            MessageBox.Show($"Não consegui atualizar: {ex.Message}", "Commitdeck");
+            MessageBox.Show($"Não consegui atualizar: {ex.Message}", "Codeck");
         }
     }
 
@@ -503,14 +503,34 @@ sealed class MainForm : Form
 
     [DllImport("dwmapi.dll")] static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int value, int size);
 
-    // O app se chamava PR Pilot: a pasta de dados antiga vira a nova (contas, regras, histórico). O instalador do
-    // Commitdeck já desinstalou o PR Pilot (replaces), mas os dados do usuário ficam em %APPDATA%.
+    // O app já se chamou Commitdeck e, antes, PR Pilot: a pasta de dados mais recente dos nomes antigos vira a nova
+    // (contas, regras, histórico; e, em %LOCALAPPDATA%, o WebView2 com as preferências da tela). O instalador do Codeck
+    // já desinstalou os antigos (replaces), mas os dados do usuário ficam no perfil. "Iniciar com o Windows" passa junto.
     void AdoptLegacyData()
     {
-        var legacy = Path.Combine(Path.GetDirectoryName(dataDir)!, "PR Pilot");
-        try { if (!Directory.Exists(dataDir) && Directory.Exists(legacy)) Directory.Move(legacy, dataDir); }
-        catch (IOException) { }
-        catch (UnauthorizedAccessException) { }
+        if (Environment.GetEnvironmentVariable("CODECK_DATA") != null) return;   // autoteste: dados próprios
+        foreach (var root in new[] { Path.GetDirectoryName(dataDir)!, Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData) })
+        {
+            var target = Path.Combine(root, "Codeck");
+            foreach (var name in new[] { "Commitdeck", "PR Pilot" })
+            {
+                var legacy = Path.Combine(root, name);
+                try { if (!Directory.Exists(target) && Directory.Exists(legacy)) Directory.Move(legacy, target); }
+                catch (IOException) { }
+                catch (UnauthorizedAccessException) { }
+            }
+        }
+        try
+        {
+            using var k = Registry.CurrentUser.CreateSubKey(RunKey);
+            foreach (var old in new[] { "commitdeck", "pr-pilot" })
+            {
+                if (k.GetValue(old) == null) continue;
+                k.DeleteValue(old);
+                if (!attach) k.SetValue(ProductId, $"\"{Environment.ProcessPath}\"");
+            }
+        }
+        catch { }
     }
 
     // Seletor de pasta: devolve o caminho para a tela por window.__nativeResolve(id, path|null)
@@ -552,7 +572,7 @@ sealed class ProjectWindow : Form
             var core = view.CoreWebView2;
             core.Settings.IsStatusBarEnabled = false;
             await core.AddScriptToExecuteOnDocumentCreatedAsync(
-                $"window.COMMITDECK_TOKEN = {JsonSerializer.Serialize(token)}; window.COMMITDECK_PLATFORM = 'windows';");
+                $"window.CODECK_TOKEN = {JsonSerializer.Serialize(token)}; window.CODECK_PLATFORM = 'windows';");
             core.NewWindowRequested += (_, e) => { e.Handled = true; Process.Start(new ProcessStartInfo(e.Uri) { UseShellExecute = true }); };
             core.Navigate(baseUrl + "#" + hash);
         };
