@@ -394,7 +394,18 @@
     return `janelas: ${n.windows} (${n.titles.join(", ")})`;
   });
 
-  // ============================================================ 8. limpeza e fechamento
+  // ============================================================ 8. fechar e sair sem travar nem deixar processo
+  await step("Fechar em tela cheia esconde sem tela preta e reabre", async () => {
+    await api("ws/shell", { repoId: apiRepo.id, title: "processo longo", command: "sleep 4244" });   // conferido depois de sair
+    if (!MAC) return "só no macOS (tela cheia nativa)";
+    if (await native("selftest-fullscreen") !== true) throw new Error("não entrou em tela cheia");
+    const c = await native("selftest-close");
+    if (c?.fullScreen || c?.visible) throw new Error("depois de fechar: " + JSON.stringify(c));
+    if (await native("selftest-show") !== true) throw new Error("não reabriu");
+    return "saiu da tela cheia, escondeu e reabriu";
+  });
+
+  // ============================================================ 9. limpeza e fechamento
   await step("Remover tarefas pela tela (confirmação)", async () => {
     await go("#/work/" + apiRepo.id, 1200);
     for (const title of [taskTitle]) {

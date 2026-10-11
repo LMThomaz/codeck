@@ -32,6 +32,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKUI
     var loginMenuItem: NSMenuItem!
     var server: Process?
     var quitting = false
+    var hideAfterFullScreen = false
     var loaded = false
     var lastSeq = -1
     var nativeNotifications = false
@@ -240,8 +241,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKUI
     }
 
     func windowShouldClose(_ sender: NSWindow) -> Bool {
+        // Em tela cheia, esconder a janela deixa o espaço da tela cheia PRETO e travado (era preciso forçar o encerramento):
+        // sai da tela cheia primeiro e esconde quando a animação termina (windowDidExitFullScreen).
+        if sender.styleMask.contains(.fullScreen) {
+            hideAfterFullScreen = true
+            sender.toggleFullScreen(nil)
+            return false
+        }
         sender.orderOut(nil) // só esconde: o piloto continua agindo e avisando
         return false
+    }
+
+    func windowDidExitFullScreen(_ notification: Notification) {
+        guard hideAfterFullScreen, let w = notification.object as? NSWindow else { return }
+        hideAfterFullScreen = false
+        w.orderOut(nil)
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
@@ -671,6 +685,20 @@ extension AppDelegate {
             window.makeKeyAndOrderFront(nil)
             window.makeFirstResponder(web)
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { self.selfTestReply(id, self.window.isKeyWindow ? "true" : "false") }
+        case "selftest-fullscreen":
+            if !window.styleMask.contains(.fullScreen) { window.toggleFullScreen(nil) }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2) { self.selfTestReply(id, self.window.styleMask.contains(.fullScreen) ? "true" : "false") }
+        case "selftest-close":
+            window.performClose(nil)   // o botão vermelho
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
+                let info: [String: Any] = ["visible": self.window.isVisible, "fullScreen": self.window.styleMask.contains(.fullScreen)]
+                self.selfTestReply(id, String(data: try! JSONSerialization.data(withJSONObject: info), encoding: .utf8)!)
+            }
+        case "selftest-show":
+            showWindow()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { self.selfTestReply(id, self.window.isVisible ? "true" : "false") }
+        case "selftest-quit":
+            NSApp.terminate(nil)   // o mesmo do ⌘Q / menu "Sair"
         case "selftest-done":
             selfTestFinish((body["result"] as? String) ?? "{}")
         default:

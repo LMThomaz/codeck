@@ -55,9 +55,16 @@ for _ in $(seq 1 600); do
   kill -0 $APP 2>/dev/null || break
   sleep 1
 done
-kill $APP 2>/dev/null || true
+# o roteiro termina pedindo para sair (o mesmo do ⌘Q): o app tem de sair sozinho e não deixar processo nenhum
+QUIT_OK=false
+for _ in $(seq 1 20); do kill -0 $APP 2>/dev/null || { QUIT_OK=true; break; }; sleep 1; done
+kill -9 $APP 2>/dev/null || true
+sleep 1
+LEFT=$(pgrep -f "sleep 4244" || true)
+[ -n "$LEFT" ] && kill $LEFT 2>/dev/null
 [ -f "$OUT/result.json" ] || { echo "✗ o autoteste não terminou (veja $OUT/app.log)"; exit 1; }
 
+set +e
 python3 - "$OUT/result.json" <<'EOF'
 import json, sys
 r = json.load(open(sys.argv[1]))
@@ -70,3 +77,7 @@ if r["jsErrors"]:
     print("erros de JavaScript:", *r["jsErrors"][:10], sep="\n  ")
 sys.exit(0 if r["ok"] == r["total"] else 1)
 EOF
+RC=$?
+$QUIT_OK && echo "✓ o app saiu sozinho ao fechar (⌘Q)" || { echo "✗ o app NÃO saiu sozinho ao fechar (travou)"; RC=1; }
+[ -z "$LEFT" ] && echo "✓ nenhum processo dos terminais ficou rodando" || { echo "✗ sobrou processo dos terminais: $LEFT"; RC=1; }
+exit $RC

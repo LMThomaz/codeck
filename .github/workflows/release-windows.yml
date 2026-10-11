@@ -272,8 +272,14 @@ jobs:
           $env:COMMITDECK_SELFTEST_CTX = $ctx
           $p = Start-Process build/app/Commitdeck.exe -PassThru
           for ($i = 0; $i -lt 600 -and -not (Test-Path "$out/result.json"); $i++) { Start-Sleep 1; if ($p.HasExited) { break } }
+          # o roteiro termina pedindo para sair: o app tem de sair sozinho e levar junto o backend e os terminais
+          $quitOk = $p.WaitForExit(20000)
           Start-Sleep 2
+          $left = @(Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -match 'sleep 4244' -or $_.Name -eq 'python.exe' -and $_.CommandLine -match 'server.py' })
           Get-Process Commitdeck, python -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+          $left | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+          if (-not $quitOk) { throw 'o app não saiu sozinho ao fechar' }
+          if ($left.Count) { throw "sobraram processos depois de sair: $($left | ForEach-Object { $_.Name + ' ' + $_.CommandLine })" }
           if (-not (Test-Path "$out/result.json")) { throw 'o autoteste não terminou' }
           @'
           import json, sys

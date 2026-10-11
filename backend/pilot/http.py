@@ -878,7 +878,17 @@ def main():
     server.daemon_threads = True
     ctx.port = port   # os hooks dos agentes chamam de volta nesta porta
     import atexit
+    import signal
     atexit.register(terminals.close_all)
+
+    def _stop(*_):
+        # o app pede para sair com SIGTERM: sem isto o Python morria na hora e os terminais (dotnet run, agentes…)
+        # ficavam rodando em segundo plano, órfãos
+        terminals.close_all()
+        os._exit(0)
+    signal.signal(signal.SIGTERM, _stop)
+    if hasattr(signal, "SIGHUP"):
+        signal.signal(signal.SIGHUP, _stop)
     if os.environ.get("COMMITDECK_PARENT_PID"):
         threading.Thread(target=_watch_parent, args=(os.environ["COMMITDECK_PARENT_PID"],), daemon=True).start()
     engine.start()
