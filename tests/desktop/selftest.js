@@ -400,7 +400,12 @@
   await step("Fechar em tela cheia esconde sem tela preta e reabre", async () => {
     await api("ws/shell", { repoId: apiRepo.id, title: "processo longo", command: "sleep 4244" });   // conferido depois de sair
     if (!MAC) return "só no macOS (tela cheia nativa)";
-    if (await native("selftest-fullscreen") !== true) throw new Error("não entrou em tela cheia");
+    if (await native("selftest-fullscreen") !== true) {
+      // o macOS só põe em tela cheia o app que está em primeiro plano (com você usando outra janela, ele recusa)
+      const n = await native("selftest-native");
+      if (!n?.visible || !n?.keyWindow) return "pulado — a janela não estava em primeiro plano (o macOS não permite tela cheia assim)";
+      throw new Error("não entrou em tela cheia");
+    }
     const c = await native("selftest-close");
     if (c?.fullScreen || c?.visible) throw new Error("depois de fechar: " + JSON.stringify(c));
     if (await native("selftest-show") !== true) throw new Error("não reabriu");
