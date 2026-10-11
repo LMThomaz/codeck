@@ -2,7 +2,7 @@
 // O estado vem de /api/ws (relido a cada 2,5 s enquanto a tela está aberta — o status dos agentes muda rápido).
 import { get, post } from "./api";
 import { repos } from "./repos.svelte";
-import { go } from "./router.svelte";
+import { go, router } from "./router.svelte";
 import { ui } from "./ui.svelte";
 
 export type Provider = "claude" | "codex" | "cursor" | "gemini" | "opencode";
@@ -43,6 +43,8 @@ class Work {
   /** abrir um projeto já numa aba (ex.: a Git), vindo de um link de repositório */
   focusRequest = $state<{ projectId: string; scope: string | null; tab: "git" | "review" } | null>(null);
   private timer: ReturnType<typeof setInterval> | null = null;
+  /** projetos sendo fechados: nem a rota (que muda um quadro depois, na transição) nem o polling os trazem de volta */
+  closing = new Set<string>();
 
   get project() { return this.projects.find(p => p.id === this.active) || null; }
   account(id?: string | null) { return this.ai.find(a => a.id === id) || null; }
@@ -62,7 +64,7 @@ class Work {
   async load() {
     try {
       const s = await get<{ projects: Project[]; active: string | null; sessions: Record<string, Session> }>("ws");
-      this.projects = s.projects;
+      this.projects = s.projects.filter(p => !this.closing.has(p.id));
       this.active = this.projects.some(p => p.id === this.active) ? this.active : s.active;
       this.sessions = s.sessions;
       this.loaded = true;
@@ -85,6 +87,7 @@ class Work {
 
   async open(repoId?: string, path?: string) {
     const r = await post<{ id: string }>("ws/open", { repoId, path });
+    this.closing.delete(r.id);   // reabrir de propósito vence o "fechando"
     this.active = r.id;
     await this.load();
     return r.id;
@@ -93,7 +96,16 @@ class Work {
     const p = this.projects.find(x => x.id === repoId);
     const running = p ? [...p.terms, ...p.tasks.flatMap(t => t.terms)].filter(t => t.alive).length : 0;
     if (running && !(await ui.ask({ title: `Fechar ${p!.name}?`, message: `${running} terminal(is)/agente(s) deste projeto serão encerrados. As tarefas e os worktrees continuam.`, confirm: "Fechar", danger: true }))) return;
-    await post("ws/close", { repoId });
+    // sai da rota do projeto ANTES de fechar: a tela reabre o projeto que está na rota (por isso ele "voltava").
+    // A rota só muda no quadro seguinte (transição de tela) — até lá o "closing" impede a reabertura.
+    this.closing.add(repoId);
+    const rest = this.projects.filter(x => x.id !== repoId);
+    if (router.view === "work" && (router.parts[1] === repoId || (!router.parts[1] && this.active === repoId)))
+      go(rest.length ? "/work/" + rest[rest.length - 1].id : "/work/", "soft");
+    this.projects = rest;
+    if (this.active === repoId) this.active = rest.length ? rest[rest.length - 1].id : null;
+    try { await post("ws/close", { repoId }); }
+    finally { setTimeout(() => this.closing.delete(repoId), 1500); }
     await this.load();
   }
   async activate(repoId: string) {

@@ -2,10 +2,10 @@
   // Área de trabalho (v3): projetos abertos em abas; em cada um, o checkout principal e as tarefas (worktrees) à
   // esquerda com os arquivos; no centro, abas de agentes, terminais e arquivos; à direita, o agente e os limites.
   // ⌘P abre arquivo · ⌘⇧F busca no projeto · ⌘T novo terminal · ⌘W fecha a aba · ⌘1…9 troca de projeto.
-  import { Bot, GitPullRequest, Layers, Play, RefreshCw, ChevronDown, Code2, FolderGit2, FolderOpen, GitBranch, AppWindow, Columns2, GitCompareArrows, LayoutGrid, PanelRight, Settings2, Plus, Search, SquareTerminal, X } from "@lucide/svelte";
+  import { Bot, GitPullRequest, PanelLeft, Layers, Play, RefreshCw, ChevronDown, Code2, FolderGit2, GitBranch, AppWindow, Columns2, GitCompareArrows, LayoutGrid, PanelRight, Settings2, Plus, Search, SquareTerminal, X } from "@lucide/svelte";
   import { untrack } from "svelte";
   import { get, post } from "../lib/api";
-  import { pickFolder, send } from "../lib/native";
+  import { send } from "../lib/native";
   import { setOpener } from "../lib/lsp";
   import { repos } from "../lib/repos.svelte";
   import { go, router } from "../lib/router.svelte";
@@ -25,12 +25,14 @@
   import Board from "../components/work/Board.svelte";
   import Compare from "../components/work/Compare.svelte";
   import ProjectSettings from "../components/work/ProjectSettings.svelte";
+  import ProjectPicker from "../components/work/ProjectPicker.svelte";
   import Review from "../components/work/Review.svelte";
   import RepoDetail from "./RepoDetail.svelte";
   import RepoActivity from "../components/work/RepoActivity.svelte";
 
   type FileTab = { k: "file"; key: string; path: string; scope: string | null; line?: number };
-  type View = { scope: string | null; files: FileTab[]; order: string[]; active: string | null; left: "files" | "search"; right: boolean; split?: string | null; lastRun?: string | null };
+  type View = { scope: string | null; files: FileTab[]; order: string[]; active: string | null; left: "files" | "search"; right: boolean; split?: string | null; lastRun?: string | null;
+    mode?: "code" | "git" | "prs"; leftOpen?: boolean };
   const LS = "commitdeck.work.views";
   let views = $state<Record<string, View>>(readViews());
   // larguras/alturas ajustáveis arrastando as bordas (valem para todos os projetos)
@@ -64,7 +66,7 @@
   $effect(() => {
     if (!work.loaded) return;
     if (board || solo || router.view === "repo") return;   // #/repo/<id>: quem decide o projeto é o work.openRepo
-    if (router.parts[1] && !work.projects.some(x => x.id === router.parts[1])) untrack(() => work.open(router.parts[1]).catch(e => ui.error(e)));
+    if (router.parts[1] && !work.closing.has(router.parts[1]) && !work.projects.some(x => x.id === router.parts[1])) untrack(() => work.open(router.parts[1]).catch(e => ui.error(e)));
     else if (p && work.active !== p.id) untrack(() => work.activate(p.id));
   });
   const v = $derived.by(() => {
@@ -79,10 +81,6 @@
   const tabs = $derived.by<Tab[]>(() => {
     if (!p || !v) return [];
     const list: Tab[] = [
-      // repositório = projeto: a aba Git (grafo, branches, alterações, commit, sync) fica sempre no começo — numa tarefa,
-      // é o Git do worktree dela
-      { key: "g:" + (v.scope || "main"), kind: "git" as const },
-      { key: "p:" + p.id, kind: "prs" as const },   // PRs e builds deste repositório
       // tarefa: a aba "Revisão" fica sempre no começo (o que mudou desde a base, para revisar e comentar)
       ...(task ? [{ key: "r:" + task.id, kind: "review" as const }] : []),
       ...scopeTerms.map(t => ({ key: "t:" + t.id, kind: "term" as const, term: t })),
@@ -100,13 +98,15 @@
     return [...(store.s?.myPrs || []), ...store.open].filter(x => x.provider === p!.provider && (p!.provider === "github" ? (x.project || "").toLowerCase() === p!.slug!.toLowerCase()
       : x.org.toLowerCase() === sl[0] && x.repo.toLowerCase() === sl[sl.length - 1])).length;
   });
-  // Git e PRs são telas completas (colunas próprias): ocupam a largura toda enquanto ativas
-  const full = $derived(activeTab?.kind === "git" || activeTab?.kind === "prs");
+  // modo do projeto: Código (arquivos, terminais, agentes em abas), Git (grafo, branches, commit) ou PRs (e builds)
+  const mode = $derived(v?.mode || "code");
+  const leftOpen = $derived(v?.leftOpen !== false);
   const splitTab = $derived(v?.split && v.split !== activeTab?.key ? tabs.find(t => t.key === v!.split) || null : null);
   const activeTerm = $derived(activeTab?.kind === "term" ? activeTab.term! : (scopeTerms.find(t => t.kind === "agent") || null));
 
   function focusTab(key: string) {
     if (!v) return;
+    v.mode = "code";   // abriu arquivo/terminal/agente estando em Git ou PRs: volta para Código
     v.active = key;
     if (!v.order.includes(key)) v.order = [...v.order, key];
   }
@@ -152,7 +152,11 @@
   });
   $effect(() => {
     const fr = work.focusRequest;
-    if (fr && p && v && fr.projectId === p.id) untrack(() => { v!.scope = fr.scope; v!.active = (fr.tab === "git" ? "g:" : "r:") + (fr.scope || "main"); work.focusRequest = null; });
+    if (fr && p && v && fr.projectId === p.id) untrack(() => {
+      v!.scope = fr.scope;
+      if (fr.tab === "git") v!.mode = "git"; else { v!.mode = "code"; v!.active = "r:" + (fr.scope || "main"); }
+      work.focusRequest = null;
+    });
   });
   let comparing = $state<string | null>(null);
   let settingsOpen = $state(false);
@@ -203,15 +207,6 @@
   function popOut(x: Project) {
     send({ type: "openWindow", hash: "/solo/" + x.id, title: `${x.name} — Commitdeck` });
   }
-  async function openProjectMenu() { /* menu montado em projectItems */ }
-  const projectItems = $derived([
-    { heading: "Abrir projeto" },
-    ...repos.local.filter(r => r.exists && !work.projects.some(x => x.id === r.id)).slice(0, 40)
-      .map(r => ({ label: r.name, icon: FolderGit2, onclick: async () => { const id = await work.open(r.id); go("/work/" + id, "soft"); } })),
-    { separator: true },
-    { label: "Abrir pasta…", icon: FolderOpen, onclick: async () => { const f = await pickFolder("Pasta do projeto (repositório Git)"); if (f) { try { const id = await work.open(undefined, f); go("/work/" + id, "soft"); } catch (e) { ui.error(e); } } } },
-  ]);
-  void openProjectMenu;
   const agentItems = $derived([
     { heading: "Abrir agente" + (task ? " na tarefa" : "") },
     ...work.ai.filter(a => a.installed).map(a => ({ label: `${a.label} · ${a.name}`, icon: Bot, onclick: () => newAgent(a.id) })),
@@ -294,7 +289,7 @@
         <button class="x" title="Fechar projeto" onclick={(e) => { e.stopPropagation(); work.close(x.id); }}><X size={12} /></button>
       </div>
     {/each}
-    <Menu items={projectItems} label="Abrir projeto" align="left">{#snippet trigger()}<span class="btn sm ghost addp"><Plus size={14} /> Projeto</span>{/snippet}</Menu>
+    <ProjectPicker />
     <span class="grow"></span>
     {#if work.projects.some(x => x.tasks.length)}<button class="btn sm" class:primary={board} onclick={() => go(board ? "/work" : "/work/board", "soft")}><LayoutGrid size={14} /> Quadro</button>{/if}
   </div>
@@ -304,13 +299,13 @@
   {:else if !p || !v}
     <div class="empty">
       <Empty title={work.loaded ? "Abra um projeto" : "Carregando…"} text="Cada projeto abre numa aba: agentes de IA, terminais, arquivos e tarefas em worktree, lado a lado.">
-        {#if work.loaded}<Menu items={projectItems} align="left">{#snippet trigger()}<span class="btn primary"><FolderGit2 size={14} /> Abrir projeto</span>{/snippet}</Menu>{/if}
+        {#if work.loaded}<ProjectPicker label="Abrir projeto" big />{/if}
       </Empty>
     </div>
   {:else}
-    <div class="grid" class:noright={!v.right || full} class:full style="--lw:{sizes.left}px;--rw:{sizes.right}px">
+    <div class="grid" class:noright={!v.right} class:noleft={!leftOpen} style="--lw:{sizes.left}px;--rw:{sizes.right}px">
       <!-- esquerda: escopo (principal / tarefas) + arquivos -->
-      <aside class="card left" class:hidden={full}>
+      <aside class="card left" class:hidden={!leftOpen}>
         <div class="hsplit r" role="separator" aria-orientation="vertical" title="Arraste para redimensionar" onpointerdown={(e) => drag(e, "left")}></div>
         <div class="lm">
           <button class:on={v.left === "files"} onclick={() => (v.left = "files")}><Code2 size={13} /> Arquivos</button>
@@ -345,7 +340,13 @@
       <!-- centro: abas -->
       <section class="card center">
         <div class="tabs">
-          <div class="tl">
+          <button class="btn sm ghost icon lt" class:on={leftOpen} title={leftOpen ? "Recolher arquivos e tarefas" : "Mostrar arquivos e tarefas"} onclick={() => v && (v.leftOpen = !leftOpen)}><PanelLeft size={15} /></button>
+          <div class="modes" role="tablist" aria-label="Modo do projeto">
+            <button role="tab" class:on={mode === "code"} aria-selected={mode === "code"} onclick={() => v && (v.mode = "code")}><Code2 size={13} /> Código</button>
+            <button role="tab" class:on={mode === "git"} aria-selected={mode === "git"} onclick={() => v && (v.mode = "git")}><GitBranch size={13} /> Git</button>
+            <button role="tab" class:on={mode === "prs"} aria-selected={mode === "prs"} onclick={() => v && (v.mode = "prs")}><GitPullRequest size={13} /> PRs{#if prCount}<span class="n">{prCount}</span>{/if}</button>
+          </div>
+          <div class="tl" class:hidden={mode !== "code"}>
             {#each tabs as t (t.key)}
               {@const s = t.kind === "term" ? work.session(t.term) : null}
               <div class="tab" class:on={activeTab?.key === t.key} class:dead={t.kind === "term" && !t.term?.alive} role="tab" tabindex="0" aria-selected={activeTab?.key === t.key}
@@ -381,15 +382,21 @@
             <button class="btn sm ghost icon" title="Painel do agente" onclick={() => (v.right = !v.right)}><PanelRight size={15} /></button>
           </div>
         </div>
-        <div class="body" class:split={!!splitTab}>
+        <div class="body" class:split={!!splitTab && mode === "code"}>
+          {#if mode === "git"}
+            <div class="pane">{#key (task?.repoId || p.id)}<RepoDetail repoId={task?.repoId || p.id} embedded />{/key}</div>
+          {:else if mode === "prs"}
+            <div class="pane">{#key p.id}<RepoActivity project={p} />{/key}</div>
+          {:else}
           <div class="pane">{@render paneOf(activeTab)}</div>
           {#if splitTab}<div class="pane second">
             <button class="unsplit" title="Fechar a divisão" onclick={() => v && (v.split = null)}><X size={12} /></button>
             {@render paneOf(splitTab)}</div>{/if}
+          {/if}
         </div>
       </section>
 
-      {#if v.right && activeTab?.kind !== "git" && activeTab?.kind !== "prs"}
+      {#if v.right}
         <aside class="card right">
           <div class="hsplit l" role="separator" aria-orientation="vertical" title="Arraste para redimensionar" onpointerdown={(e) => drag(e, "right")}></div>
           <AgentPanel project={p} {task} term={activeTerm} onremoved={() => setScope(null)} onreview={() => task && focusTab("r:" + task.id)} />
@@ -431,7 +438,17 @@
   .empty { flex: 1; display: grid; place-items: center; }
   .grid { flex: 1; min-height: 0; display: grid; grid-template-columns: var(--lw) minmax(0, 1fr) var(--rw); gap: 10px; }
   .grid.noright { grid-template-columns: var(--lw) minmax(0, 1fr); }
-  .grid.full { grid-template-columns: minmax(0, 1fr); }
+  .grid.noleft { grid-template-columns: minmax(0, 1fr) var(--rw); }
+  .grid.noleft.noright { grid-template-columns: minmax(0, 1fr); }
+  .modes { display: flex; gap: 2px; padding: 2px; margin: 0 6px 4px 0; border-radius: 9px; background: var(--bg-2); border: 1px solid var(--line); flex: none; }
+  .modes button { display: inline-flex; align-items: center; gap: 5px; height: 26px; padding: 0 10px; border: 0; border-radius: 7px; background: none;
+    color: var(--muted); font: 600 12.5px var(--font); cursor: pointer; transition: background var(--t), color var(--t); }
+  .modes button:hover { color: var(--text); }
+  .modes button.on { background: var(--surface-3); color: var(--text); box-shadow: var(--shadow-1); }
+  .modes .n { font: 650 10.5px/1 var(--font); padding: 2px 6px; border-radius: 99px; background: var(--accent); color: #fff; }
+  .lt { margin-bottom: 4px; flex: none; }
+  .lt:not(.on) { color: var(--accent); }
+  .tl.hidden { visibility: hidden; }
   .left.hidden { display: none; }
   .left, .right { position: relative; }
   .hsplit { position: absolute; top: 0; bottom: 0; width: 10px; z-index: 6; cursor: col-resize; }

@@ -186,22 +186,24 @@
     await go("#/repos", 1200);
     click(await waitFor(() => byText(".list-row.repo", "demo-api")));
     await waitFor(() => location.hash.startsWith("#/work/"), 6000);
-    await waitFor(() => byText(".tab.on", "Git"), 6000);
+    await waitFor(() => byText(".modes button.on", "Git"), 6000);
     await waitFor(() => $(".repo.embedded") && byText(".repo.embedded *", "inicial"), 10000);
     await shot("04a-git-no-projeto");
     return "aba Git com o grafo (commit inicial)";
   });
 
   // ============================================================ 4. projetos: abrir, terminal, editor
-  await step("Projetos: abrir projeto pelo menu", async () => {
-    // o clique na lista já abriu demo-api: fecha para reabrir pelo menu de projetos
-    await api("ws/close", { repoId: apiRepo.id });
-    await go("#/work", 600);
-    await waitFor(() => !byText(".ptab", "demo-api"), 8000);   // a tela relê os projetos a cada 2,5 s
-    const trig = await waitFor(() => $(".ptabs .addp") || byText("button, span.btn", "Abrir projeto"));
-    click(trig.closest("button") || trig);
-    const it = await waitFor(() => byText(".items .it", "demo-api"));
-    click(it);
+  await step("Projetos: fechar pela aba (sai de verdade) e reabrir pelo seletor com filtro", async () => {
+    // fecha pelo X da aba: ele SAI (antes reabria sozinho), e reabre pelo seletor com filtro
+    click($(".x", await waitFor(() => byText(".ptab", "demo-api"))));
+    await sleep(3500);
+    if (byText(".ptab", "demo-api")) throw new Error("o projeto voltou depois de fechado");
+    click(await waitFor(() => $(".pp > button")));
+    const f = await waitFor(".pop input"); f.focus();
+    await type("api");
+    await waitFor(() => $$(".pop .it").some(e => txt(e).includes("demo-api")));
+    if ($$(".pop .list .it").some(e => txt(e).includes("demo-web"))) throw new Error("o filtro não filtrou");
+    await press("Enter");
     await waitFor(() => byText(".ptab.on", "demo-api"), 8000);
     await shot("04-projeto");
   });
@@ -251,10 +253,18 @@
     const lh = $(".right .lh"); if (lh) { click(lh); await sleep(200); if ($(".right .lim")) throw new Error("limites não recolheram"); click($(".right .lh")); }
     return `painel ${Math.round(w0)} → ${Math.round(w1)} px`;
   });
-  await step("Aba PRs do projeto", async () => {
-    click(byText(".tab", "PRs")); await sleep(800);
+  await step("Modos Git/PRs mantêm os arquivos; painel de arquivos recolhe e abre", async () => {
+    click(byText(".modes button", "PRs")); await sleep(800);
     await waitFor(() => $(".act") || byText(".body *", "sem remoto"), 5000);
-    click(byText(".tab", "terminal") || byText(".tab", "Rodar demo"));
+    if (!$(".work .left:not(.hidden)")) throw new Error("os arquivos sumiram no modo PRs");
+    click(byText(".modes button", "Git")); await sleep(800);
+    if (!$(".work .left:not(.hidden)")) throw new Error("os arquivos sumiram no modo Git");
+    click($(".lt")); await sleep(300);
+    if (!$(".work .left.hidden")) throw new Error("não recolheu");
+    click($(".lt")); await sleep(300);
+    if ($(".work .left.hidden")) throw new Error("não reabriu");
+    click(byText(".modes button", "Código")); await sleep(300);
+    return "PRs e Git com arquivos à mostra; recolher/abrir ok";
   });
   await step("Editor: abrir, digitar e salvar com ⌘S", async () => {
     click(byText(".tab", "a.txt")); await sleep(800);
@@ -297,8 +307,8 @@
     const st = await api("ws");
     const t = st.projects.find(p => p.name === "demo-api").tasks.find(x => x.title === taskTitle);
     if (!t?.exists) throw new Error("worktree não existe");
-    // a aba Git da tarefa é o Git do worktree (branch da tarefa)
-    click(byText(".tab", "Git"));
+    // o modo Git da tarefa é o Git do worktree (branch da tarefa)
+    click(byText(".modes button", "Git"));
     await waitFor(() => byText(".repo.embedded .branch-btn", "feature/tarefa-do-desktop"), 10000);
     return t.path.split(/[\\/]/).slice(-3).join("/") + " · Git na branch da tarefa";
   });
