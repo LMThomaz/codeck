@@ -121,7 +121,10 @@ LEGACY_CHANNELS="commitdeck:Commitdeck pr-pilot:PR-Pilot"
 channel_file() {   # channel_file <canal> → nome do .dmg deste build naquele canal
   local ch="$1" pair
   [ "$ch" = "$CHANNEL" ] && { echo "Codeck-$VERSION-$BUILD.dmg"; return; }
-  for pair in $LEGACY_CHANNELS; do [ "${pair%%:*}" = "$ch" ] && echo "${pair#*:}-$VERSION-$BUILD.dmg"; done
+  for pair in $LEGACY_CHANNELS; do
+    if [ "${pair%%:*}" = "$ch" ]; then echo "${pair#*:}-$VERSION-$BUILD.dmg"; return 0; fi
+  done
+  return 1   # canal desconhecido: com set -e, para aqui
 }
 all_channels() { echo "$CHANNEL"; for pair in $LEGACY_CHANNELS; do echo "${pair%%:*}"; done; }
 channel_notes() { [ "$1" = "$CHANNEL" ] || printf 'Agora se chama Codeck. '; git log -1 --format=%s; }
