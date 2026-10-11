@@ -121,7 +121,7 @@
     return `plataforma ${window.COMMITDECK_PLATFORM}`;
   });
   const VIEWS = [["#/inbox", "Fila"], ["#/prs/review", "Pull requests"], ["#/builds", "Builds"], ["#/deploys", "Deploys"], ["#/issues", "Issues"],
-    ["#/repos", "Repositórios"], ["#/automation", "Automação"], ["#/analytics", "Análise"], ["#/history", "Histórico"]];
+    ["#/repos", "Repositórios"], ["#/automation", "Automação"], ["#/analytics", "Análise"], ["#/history", "Histórico"], ["#/ai", "Uso de IA"]];
   for (const [hash, label] of VIEWS) {
     await step(`Tela ${label} abre`, async () => {
       await go(hash, 900);
@@ -200,6 +200,10 @@
     if (byText(".ptab", "demo-api")) throw new Error("o projeto voltou depois de fechado");
     click(await waitFor(() => $(".pp > button")));
     const f = await waitFor(".pop input"); f.focus();
+    // a lista fica inteira dentro da janela (antes subia/cortava dentro da faixa de abas)
+    const r = $(".pop").getBoundingClientRect();
+    if (r.top < 0 || r.left < 0 || r.bottom > innerHeight + 1 || r.right > innerWidth + 1 || r.height < 120)
+      throw new Error(`seletor fora da janela: ${Math.round(r.left)},${Math.round(r.top)} ${Math.round(r.width)}×${Math.round(r.height)} (janela ${innerWidth}×${innerHeight})`);
     await type("api");
     await waitFor(() => $$(".pop .it").some(e => txt(e).includes("demo-api")));
     if ($$(".pop .list .it").some(e => txt(e).includes("demo-web"))) throw new Error("o filtro não filtrou");
@@ -395,6 +399,20 @@
   });
 
   // ============================================================ 7. janela própria de projeto
+  await step("Uso de IA: tempo no projeto e uso do agente por projeto", async () => {
+    await api("ws/focus", { repoId: apiRepo.id, seconds: 60 });
+    await go("#/ai", 900);
+    const row = await waitFor(() => $$("main tbody tr").find(e => txt(e).includes("demo-api")), 6000);
+    if (!/1 min/.test(txt(row))) throw new Error(`tempo no projeto não apareceu: ${txt(row)}`);
+    let more = "";
+    if (CTX.trusted && CTX.account) {   // o agente de verdade rodou antes: sessão e limites da conta aparecem
+      await waitFor(() => $$("main .lim .lw").length > 0, 8000).catch(() => { throw new Error("limites da conta não apareceram"); });
+      more = ` · ${$$("main .lim .lw").length} janela(s) de limite`;
+    }
+    await shot("09-uso-ia");
+    await go("#/work", 600);
+    return txt(row).replace(/\s+/g, " ").slice(0, 90) + more;
+  });
   await step("Projeto em janela própria (nativa)", async () => {
     await go("#/work", 1000);
     rightClick(byText(".ptab", "demo-api"));

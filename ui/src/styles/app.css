@@ -58,6 +58,8 @@
   --t-slow: 0.38s;
 
   --sidebar-w: 240px;
+  /* paleta categórica dos gráficos (por projeto) — validada: CVD ΔE ≥ 8,4 e contraste ≥ 3:1 sobre --surface */
+  --cat1: #3987e5; --cat2: #d95926; --cat3: #199e70; --cat4: #c98500; --cat5: #d55181; --cat6: #9085e9; --cat-other: #5b6375;
 }
 
 /* Claro: aplicado quando o tema resolvido é "light" (escolha do usuário ou "Sistema" com o SO no claro — ver lib/theme.ts). */
@@ -91,6 +93,8 @@
   --shadow-1: 0 1px 2px rgba(16, 24, 40, 0.06);
   --shadow-2: 0 10px 30px rgba(16, 24, 40, 0.12), 0 2px 8px rgba(16, 24, 40, 0.06);
   --shadow-3: 0 24px 64px rgba(16, 24, 40, 0.18), 0 4px 16px rgba(16, 24, 40, 0.08);
+  /* 3 cores abaixo de 3:1 no branco: os gráficos sempre têm legenda com o nome e o valor */
+  --cat1: #2a78d6; --cat2: #eb6834; --cat3: #1baf7a; --cat4: #eda100; --cat5: #e87ba4; --cat6: #6250d6; --cat-other: #a3aab9;
 }
 
 * { box-sizing: border-box; }

@@ -23,10 +23,27 @@
       .sort((a, b) => (t ? Number(!a.name.toLowerCase().startsWith(t)) - Number(!b.name.toLowerCase().startsWith(t)) : 0) || a.name.localeCompare(b.name)).slice(0, 60);
   });
   $effect(() => { void q; hi = 0; });
+  // fixo na janela: a faixa de abas de projeto rola na horizontal e cortava a lista; abre para baixo e, sem espaço, para cima
+  let pos = $state("");
+  function place() {
+    const b = root?.getBoundingClientRect();
+    if (!b) return;
+    const W = 380, M = 8, vw = window.innerWidth, vh = window.innerHeight;
+    const left = Math.max(M, Math.min(b.left, vw - W - M));
+    const below = vh - b.bottom - M * 2, above = b.top - M * 2;
+    const down = below >= 260 || below >= above;
+    const max = Math.max(160, Math.min(480, down ? below : above));
+    pos = `left:${left}px;width:${Math.min(W, vw - M * 2)}px;max-height:${max}px;` + (down ? `top:${b.bottom + 6}px` : `bottom:${vh - b.top + 6}px`);
+  }
   async function toggle() {
     open = !open;
-    if (open) { q = ""; if (!repos.loaded) repos.load(false); await tick(); input?.focus(); }
+    if (open) { q = ""; place(); if (!repos.loaded) repos.load(false); await tick(); input?.focus(); }
   }
+  $effect(() => {
+    if (!open) return;
+    window.addEventListener("resize", place);
+    return () => window.removeEventListener("resize", place);
+  });
   async function choose(id: string) {
     open = false;
     try { const pid = await work.open(id); go("/work/" + pid, "soft"); } catch (e) { ui.error(e); }
@@ -53,7 +70,7 @@
 <div class="pp" bind:this={root}>
   <button class="btn sm {big ? 'primary' : 'ghost addp'}" onclick={toggle} aria-expanded={open}>{#if big}<FolderGit2 size={14} />{:else}<Plus size={14} />{/if} {label}</button>
   {#if open}
-    <div class="pop card" role="dialog" aria-label="Abrir projeto">
+    <div class="pop card" role="dialog" aria-label="Abrir projeto" style={pos}>
       <label class="f"><Search size={14} /><input bind:this={input} bind:value={q} placeholder="Filtrar repositórios pelo nome…" onkeydown={key} /></label>
       <div class="list">
         {#each list as r, i (r.id)}
@@ -69,11 +86,13 @@
 
 <style>
   .pp { position: relative; display: inline-flex; }
-  .pop { position: absolute; z-index: 80; top: calc(100% + 6px); left: 0; width: 360px; padding: 8px; display: grid; gap: 6px; box-shadow: var(--shadow-3);
-    animation: rise 0.18s var(--ease-out); }
+  .pop { position: fixed; z-index: 80; padding: 8px; display: flex; flex-direction: column; gap: 6px; box-shadow: var(--shadow-3);
+    animation: pop-in 0.16s var(--ease-out); }
+  @keyframes pop-in { from { opacity: 0; transform: scale(0.98); } }
   .f { display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 10px; border-radius: 8px; border: 1px solid var(--accent-line); background: var(--bg-2); color: var(--muted); }
   .f input { flex: 1; min-width: 0; border: 0; outline: none; background: none; color: var(--text); font: 13px var(--font); }
-  .list { display: grid; gap: 1px; max-height: 340px; overflow: auto; }
+  .f, .more { flex: none; }
+  .list { display: grid; align-content: start; gap: 1px; flex: 1; min-height: 0; overflow: auto; }
   .it { display: flex; align-items: center; gap: 9px; width: 100%; padding: 6px 8px; border: 0; border-radius: 7px; background: none; color: var(--text-2);
     font: 13px var(--font); text-align: left; cursor: pointer; }
   .it.hi, .it:hover { background: var(--accent-soft); color: var(--text); }

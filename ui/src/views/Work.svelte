@@ -69,6 +69,15 @@
     if (router.parts[1] && !work.closing.has(router.parts[1]) && !work.projects.some(x => x.id === router.parts[1])) untrack(() => work.open(router.parts[1]).catch(e => ui.error(e)));
     else if (p && work.active !== p.id) untrack(() => work.activate(p.id));
   });
+  // seu tempo com o projeto: um pulso a cada 30 s enquanto ele está na tela e a janela em uso (página Uso de IA)
+  $effect(() => {
+    const id = p?.id;
+    if (!id) return;
+    const t = setInterval(() => {
+      if (document.visibilityState === "visible" && document.hasFocus()) post("ws/focus", { repoId: id, seconds: 30 }).catch(() => {});
+    }, 30000);
+    return () => clearInterval(t);
+  });
   const v = $derived.by(() => {
     if (!p) return null;
     if (!views[p.id]) untrack(() => (views[p.id] = { scope: null, files: [], order: [], active: null, left: "files", right: true }));

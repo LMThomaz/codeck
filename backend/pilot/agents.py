@@ -29,6 +29,7 @@ from .core import DATA, DEFAULT_PORT, ctx, load_json, notify, now_iso, save_json
 ACCOUNTS_FILE = os.path.join(DATA, "ai-accounts.json")
 USAGE_FILE = os.path.join(DATA, "ai-usage.json")   # última leitura de limites por conta (sobrevive ao reinício)
 HISTORY_FILE = os.path.join(DATA, "ai-sessions.json")   # uma linha por sessão: dia, projeto, conta, custo, tokens
+FOCUS_FILE = os.path.join(DATA, "project-time.json")   # seu tempo com cada projeto na tela: {dia: {repoId: {name, s}}}
 HOME = os.path.expanduser("~")
 
 PROVIDERS = {
@@ -210,22 +211,32 @@ def hook(sid, secret, payload):
         if ev:
             s["events"] = (s["events"] + [{"at": now_iso(), "event": ev, "message": payload.get("message")}])[-30:]
             s["claudeSession"] = payload.get("session_id") or s.get("claudeSession")
+            was = s["status"]
             s["status"] = {"UserPromptSubmit": "working", "SessionStart": "idle", "Stop": "done", "SubagentStop": s["status"],
                            "Notification": "needs-you", "PreCompact": "compacting"}.get(ev, s["status"])
+            # tempo trabalhando = da pergunta (UserPromptSubmit) até parar ou pedir você — medido aqui, pelos hooks
+            if was == "working" and s["status"] != "working" and s.get("workSince"):
+                s["workMs"] = (s.get("workMs") or 0) + int((time.time() - s.pop("workSince")) * 1000)
+            elif s["status"] == "working" and not s.get("workSince"):
+                s["workSince"] = time.time()
             s["statusAt"] = time.time()
+            _record(sid, s)
         else:   # linha de status
             cw = payload.get("context_window") or {}
             s["model"] = (payload.get("model") or {}).get("display_name") or s["model"]
             cu = cw.get("current_usage") or {}
             s["context"] = {"used": cw.get("used_percentage"), "size": cw.get("context_window_size"),
                             "tokens": sum(v for k, v in cu.items() if isinstance(v, (int, float)) and "input" in k) if cu else None}
-            s["cost"] = (payload.get("cost") or {}).get("total_cost_usd")
+            cost = payload.get("cost") or {}
+            s["cost"] = cost.get("total_cost_usd")
+            s["lines"] = [cost.get("total_lines_added"), cost.get("total_lines_removed")] if "total_lines_added" in cost else s.get("lines")
             s["claudeSession"] = payload.get("session_id") or s.get("claudeSession")
             s["transcript"] = payload.get("transcript_path") or s.get("transcript")
             rl = payload.get("rate_limits")
             if rl:
                 lim = _norm_claude_limits(rl)
                 if lim:
+                    _attribute(s, lim)
                     _usage[s["account"]] = {"rateLimits": lim, "updated": now_iso(), "source": "claude"}
                     save_json(USAGE_FILE, _usage)
                     _check_alerts(s["account"], lim)
@@ -238,6 +249,33 @@ def hook(sid, secret, payload):
     elif ev == "Stop":
         notify("Agente terminou", s.get("title") or "", "Pronto para revisar", target=f"term/{sid}")
     return {"ok": True}
+
+
+def _attribute(s, limits):
+    """Quanto do limite a sessão gastou: a diferença entre esta leitura e a anterior da conta vai para a sessão que a
+    trouxe (na mesma janela; janela nova = conta do zero). Com duas sessões da mesma conta ao mesmo tempo é uma estimativa:
+    a leitura é da conta inteira, e quem reporta primeiro leva a diferença."""
+    prev = {w["window"]: w for w in (_usage.get(s["account"]) or {}).get("rateLimits") or []}
+    got = s.setdefault("limitUsed", {})
+    for w in limits:
+        used, p = w.get("used") or 0, prev.get(w["window"])
+        if p and p.get("resetsAt") == w.get("resetsAt"):
+            d = used - (p.get("used") or 0)
+        elif p and w.get("resetsAt") and p.get("resetsAt") and _ts(w["resetsAt"]) - _ts(p["resetsAt"]) < 60:
+            d = used - (p.get("used") or 0)   # o mesmo reset arredondado diferente
+        else:
+            d = used if p else 0   # janela nova: tudo dela é desta; sem leitura anterior não dá para saber
+        if d > 0:
+            k = f"{w['window']}|{w.get('resetsAt') or ''}"
+            got[k] = round(got.get(k, 0) + d, 2)
+
+
+def _ts(iso):
+    import calendar
+    try:
+        return calendar.timegm(time.strptime(iso, "%Y-%m-%dT%H:%M:%SZ"))
+    except (TypeError, ValueError):
+        return 0
 
 
 def _norm_claude_limits(rl):
@@ -307,6 +345,9 @@ def refresh_codex():
             continue
         limits = _norm_codex_limits(tc.get("rate_limits"))
         if limits and (_usage.get(a["id"]) or {}).get("rateLimits") != limits:
+            mine = [v for v in _sessions.values() if v["account"] == a["id"] and v["started"] - 5 <= mtime]
+            if mine:
+                _attribute(max(mine, key=lambda v: v["started"]), limits)
             _usage[a["id"]] = {"rateLimits": limits, "updated": now_iso(), "source": "codex",
                                "plan": (tc.get("rate_limits") or {}).get("plan_type")}
             save_json(USAGE_FILE, _usage)
@@ -394,13 +435,15 @@ def set_meta(sid, **meta):
 def _record(sid, s):
     """Guarda (com folga) o consumo da sessão: dia, projeto, conta, custo e tokens — a base da página de uso."""
     rec = {"day": time.strftime("%Y-%m-%d", time.localtime(s["started"])), "account": s["account"], "provider": s["provider"],
-           "project": s.get("projectName"), "model": s.get("model"), "cost": s.get("cost"),
+           "project": s.get("projectName"), "projectId": s.get("project"), "model": s.get("model"), "cost": s.get("cost"),
+           "workMs": (s.get("workMs") or 0) + (int((time.time() - s["workSince"]) * 1000) if s.get("workSince") else 0),
+           "lines": s.get("lines"), "limitUsed": dict(s.get("limitUsed") or {}),
            "tokens": (s.get("context") or {}).get("tokens"), "tokensTotal": s.get("tokensTotal"), "updated": now_iso()}
     with _hist_lock:
         h = _history()
         prev = h.get(sid)
         h[sid] = rec
-        if not prev or prev.get("cost") != rec["cost"] or s.get("status") == "done":
+        if not prev or any(prev.get(k) != rec[k] for k in ("cost", "limitUsed", "lines")) or s.get("status") != "working":
             if len(h) > 5000:
                 for k in sorted(h, key=lambda k: h[k]["updated"])[: len(h) - 5000]:
                     h.pop(k, None)
@@ -413,22 +456,93 @@ def _record_sid_of(s):
         _record(sid, s)
 
 
+_focus = None
+_focus_lock = threading.Lock()
+
+
+def focus(repo_id, name, seconds):
+    """Seu tempo com o projeto na tela: a tela manda um pulso a cada 30 s enquanto o projeto está à vista."""
+    global _focus
+    seconds = max(0, min(int(seconds or 0), 60))
+    if not repo_id or not seconds:
+        return
+    with _focus_lock:
+        if _focus is None:
+            _focus = load_json(FOCUS_FILE, {})
+        day = _focus.setdefault(time.strftime("%Y-%m-%d"), {})
+        e = day.setdefault(repo_id, {"name": name, "s": 0})
+        e["s"] += seconds
+        e["name"] = name or e["name"]
+        for k in sorted(_focus)[:-400]:
+            _focus.pop(k, None)
+        save_json(FOCUS_FILE, _focus)
+
+
 def usage_report(days=30):
-    """Consumo por dia, por conta e por projeto (custo informado pela CLI; tokens quando ela não informa custo)."""
-    since = time.strftime("%Y-%m-%d", time.localtime(time.time() - days * 86400))
+    """Uso de IA no período: por dia, conta e projeto — custo informado pela CLI, tokens, tempo do agente trabalhando,
+    linhas alteradas, quanto de cada limite cada projeto gastou e seu tempo com cada projeto na tela."""
+    global _focus
+    days = max(1, int(days))
+    since = time.strftime("%Y-%m-%d", time.localtime(time.time() - (days - 1) * 86400))
     rows = [r for r in _history().values() if r["day"] >= since]
-    acc = {a["id"]: a["name"] for a in _load()["accounts"]}
-    def group(key):
-        out = {}
-        for r in rows:
-            k = key(r) or "—"
-            g = out.setdefault(k, {"cost": 0.0, "sessions": 0, "tokens": 0})
-            g["cost"] += r.get("cost") or 0
-            g["sessions"] += 1
-            g["tokens"] += r.get("tokensTotal") or r.get("tokens") or 0
-        return out
-    return {"days": group(lambda r: r["day"]), "accounts": {acc.get(k, k): v for k, v in group(lambda r: r["account"]).items()},
-            "projects": group(lambda r: r.get("project")), "total": sum((r.get("cost") or 0) for r in rows), "sessions": len(rows)}
+    accs = {a["id"]: a for a in _load()["accounts"]}
+    with _focus_lock:
+        if _focus is None:
+            _focus = load_json(FOCUS_FILE, {})
+        focus_rows = [(d, rid, e) for d, v in _focus.items() if d >= since for rid, e in v.items()]
+    blank = lambda: {"cost": 0.0, "sessions": 0, "tokens": 0, "workMs": 0, "added": 0, "removed": 0, "focusS": 0, "limits": {}}
+
+    def add(g, r):
+        g["cost"] += r.get("cost") or 0
+        g["sessions"] += 1
+        g["tokens"] += r.get("tokensTotal") or r.get("tokens") or 0
+        g["workMs"] += r.get("workMs") or 0
+        ln = r.get("lines") or [0, 0]
+        g["added"] += ln[0] or 0
+        g["removed"] += ln[1] or 0
+        for k, v in (r.get("limitUsed") or {}).items():   # "5 h|reset" → soma por conta e janela
+            kk = f"{r['account']}|{k.split('|')[0]}"
+            g["limits"][kk] = round(g["limits"].get(kk, 0) + v, 2)
+
+    projects, by_day, by_acc = {}, {}, {}
+    for r in rows:
+        key = r.get("projectId") or r.get("project") or "—"
+        g = projects.setdefault(key, {**blank(), "name": r.get("project") or "sem projeto"})
+        add(g, r)
+        add(by_day.setdefault(r["day"], blank()), r)
+        add(by_acc.setdefault(r["account"], blank()), r)
+    for d, rid, e in focus_rows:
+        projects.setdefault(rid, {**blank(), "name": e["name"]})["focusS"] += e["s"]
+        by_day.setdefault(d, blank())["focusS"] += e["s"]
+    # janela de limite em andamento: quanto dela cada projeto gastou (mesmo reset da leitura atual)
+    current = []
+    for aid, u in _usage.items():
+        a = accs.get(aid)
+        if not a:
+            continue
+        for w in u.get("rateLimits") or []:
+            if w.get("resetsAt") and _ts(w["resetsAt"]) < time.time():
+                continue   # já resetou e ainda não houve leitura nova
+            k = f"{w['window']}|{w.get('resetsAt') or ''}"
+            share = {}
+            for r in _history().values():
+                v = (r.get("limitUsed") or {}).get(k) if r["account"] == aid else None
+                if v:
+                    pk = r.get("projectId") or r.get("project") or "—"
+                    share[pk] = {"name": r.get("project") or "sem projeto", "used": round((share.get(pk) or {}).get("used", 0) + v, 2)}
+            current.append({"account": aid, "accountName": a["name"], "provider": a["provider"], "window": w["window"],
+                            "used": w.get("used"), "resetsAt": w.get("resetsAt"), "projects": share})
+    out_days = []
+    for i in range(days):
+        d = time.strftime("%Y-%m-%d", time.localtime(time.time() - (days - 1 - i) * 86400))
+        out_days.append({"day": d, **by_day.get(d, blank())})
+    tot = blank()
+    for r in rows:
+        add(tot, r)
+    tot["focusS"] = sum(e["s"] for _, _, e in focus_rows)
+    return {"days": out_days, "projects": projects, "total": tot["cost"], "sessions": len(rows), "totals": tot,
+            "accounts": {(accs[k]["name"] if k in accs else k): v for k, v in by_acc.items()},
+            "accountInfo": {k: {"name": a["name"], "provider": a["provider"]} for k, a in accs.items()}, "current": current}
 
 
 # ---------------------------------------------------------------- sessões retomáveis (sobrevivem ao fechar o app)

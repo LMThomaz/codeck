@@ -517,6 +517,16 @@ def post_ws_close(qs, body):
     return {"ok": True}
 
 
+@route("POST", "/api/ws/focus")
+def post_ws_focus(qs, body):
+    try:
+        r = git.get_repo(body.get("repoId"))
+    except (ValueError, LookupError, KeyError, TypeError):
+        return {"ok": False}
+    agents.focus(r["id"], r["name"], body.get("seconds"))
+    return {"ok": True}
+
+
 @route("POST", "/api/ws/activate")
 def post_ws_activate(qs, body):
     workspace.activate(body.get("repoId"))

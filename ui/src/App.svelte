@@ -15,6 +15,7 @@
   import { repos } from "./lib/repos.svelte";
   import { go, router } from "./lib/router.svelte";
   import { store } from "./lib/store.svelte";
+  import AiUsage from "./views/AiUsage.svelte";
   import Analytics from "./views/Analytics.svelte";
   import Automation from "./views/Automation.svelte";
   import Builds from "./views/Builds.svelte";
@@ -29,7 +30,7 @@
 
   const views: Record<string, any> = {
     inbox: Inbox, prs: PullRequests, builds: Builds, deploys: Deploys, issues: Issues, repos: Repositories,
-    automation: Automation, analytics: Analytics, history: History, settings: Settings, work: Work, solo: Work, repo: Work,
+    automation: Automation, analytics: Analytics, ai: AiUsage, history: History, settings: Settings, work: Work, solo: Work, repo: Work,
   };
   const View = $derived(views[router.view] || Inbox);
 

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { BarChart3, Code2, RefreshCw, CircleDot, FolderGit2, GitPullRequest, Hammer, History, Inbox, Pin, Rocket, Search, Settings, Zap } from "@lucide/svelte";
+  import { BarChart3, Gauge, Code2, RefreshCw, CircleDot, FolderGit2, GitPullRequest, Hammer, History, Inbox, Pin, Rocket, Search, Settings, Zap } from "@lucide/svelte";
   import { BRAND } from "../lib/brand";
   import { post } from "../lib/api";
   import { repos } from "../lib/repos.svelte";
@@ -19,6 +19,7 @@
   const nav = $derived([
     { group: "Trabalho" },
     { id: "work", label: "Projetos", icon: Code2, count: work.needsYou || undefined, hot: true, live: work.agents.some(a => a.session?.status === "working") },
+    { id: "ai", label: "Uso de IA", icon: Gauge },
     { group: "Visão geral" },
     { id: "inbox", label: "Fila", icon: Inbox, count: store.inbox.length + (s?.deploys.length || 0), hot: true },
     { id: "prs", label: "Pull requests", icon: GitPullRequest, count: s ? s.myPrs.length + store.open.length : undefined },
