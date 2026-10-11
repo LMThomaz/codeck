@@ -240,12 +240,14 @@
     const left = $(".work .left");
     if (!(left.querySelector(".tree").compareDocumentPosition(left.querySelector(".scopes")) & Node.DOCUMENT_POSITION_FOLLOWING)) throw new Error("tarefas não estão abaixo dos arquivos");
     const w0 = left.getBoundingClientRect().width, h = $(".hsplit.r"), r = h.getBoundingClientRect();
+    const dx = w0 < 400 ? 80 : -80;   // a largura é lembrada entre execuções: arrasta para onde há espaço
     h.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, clientX: r.x + 4, clientY: r.y + 50 }));
-    window.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, clientX: r.x + 84, clientY: r.y + 50 }));
+    window.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, clientX: r.x + 4 + dx, clientY: r.y + 50 }));
     window.dispatchEvent(new PointerEvent("pointerup", { bubbles: true }));
     await sleep(300);
     const w1 = $(".work .left").getBoundingClientRect().width;
-    if (Math.abs(w1 - w0 - 80) > 4) throw new Error(`largura ${w0} → ${w1}`);
+    const expected = w0 + dx;
+    if (Math.abs(w1 - expected) > 4) throw new Error(`largura ${w0} → ${w1} (esperado ${expected})`);
     const lh = $(".right .lh"); if (lh) { click(lh); await sleep(200); if ($(".right .lim")) throw new Error("limites não recolheram"); click($(".right .lh")); }
     return `painel ${Math.round(w0)} → ${Math.round(w1)} px`;
   });

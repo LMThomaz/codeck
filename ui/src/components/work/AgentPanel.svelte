@@ -60,7 +60,10 @@
   }
   async function removeTask() {
     if (!task) return;
-    const dirtyN = diff ? diff.status.staged.length + diff.status.unstaged.length + diff.status.untracked.length : 0;
+    // estado ATUAL do worktree (o resumo da tela pode ainda não ter chegado — antes, o aviso dizia "sem alterações"
+    // e a remoção normal era recusada pelo Git)
+    const fresh = await get<any>("ws/task/diff", { repoId: project.id, taskId: task.id }).catch(() => diff);
+    const dirtyN = fresh ? fresh.status.staged.length + fresh.status.unstaged.length + fresh.status.untracked.length : 0;
     const ok = await ui.ask({ title: `Remover a tarefa "${task.title}"?`, danger: true, confirm: "Remover worktree",
       message: dirtyN ? `⚠ O worktree tem ${dirtyN} alteração(ões) não commitada(s) — serão PERDIDAS.` : "O worktree sai do disco. A branch fica (já está no servidor se você fez push).",
       detail: [`branch ${task.branch}`, task.path] });

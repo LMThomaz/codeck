@@ -686,6 +686,7 @@ extension AppDelegate {
             window.makeFirstResponder(web)
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { self.selfTestReply(id, self.window.isKeyWindow ? "true" : "false") }
         case "selftest-fullscreen":
+            window.level = .normal   // janela "flutuante" (modo de teste) não entra em tela cheia
             if !window.styleMask.contains(.fullScreen) { window.toggleFullScreen(nil) }
             DispatchQueue.main.asyncAfter(deadline: .now() + 2) { self.selfTestReply(id, self.window.styleMask.contains(.fullScreen) ? "true" : "false") }
         case "selftest-close":
