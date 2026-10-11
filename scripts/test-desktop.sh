@@ -59,8 +59,8 @@ done
 QUIT_OK=false
 for _ in $(seq 1 20); do kill -0 $APP 2>/dev/null || { QUIT_OK=true; break; }; sleep 1; done
 kill -9 $APP 2>/dev/null || true
-sleep 1
-LEFT=$(pgrep -f "sleep 4244" || true)
+LEFT=""
+for _ in $(seq 1 10); do LEFT=$(pgrep -f "sleep 4244" || true); [ -z "$LEFT" ] && break; sleep 0.5; done   # até 5 s
 [ -n "$LEFT" ] && kill $LEFT 2>/dev/null
 [ -f "$OUT/result.json" ] || { echo "✗ o autoteste não terminou (veja $OUT/app.log)"; exit 1; }
 

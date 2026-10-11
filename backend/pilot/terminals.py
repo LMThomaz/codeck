@@ -361,8 +361,23 @@ def close(tid):
 
 
 def close_all():
-    for tid in list(_terms):
-        close(tid)
+    """Ao sair do app: sinal para TODOS os terminais de uma vez, uma espera só, e força quem não saiu — rápido mesmo com
+    muitos terminais/agentes (antes era um por vez, ~0,2 s cada)."""
+    with _lock:
+        items = list(_terms.values())
+        _terms.clear()
+    if not IS_WIN:
+        import signal
+        for t in items:
+            try:
+                os.killpg(t.pty.proc.pid, signal.SIGHUP)
+            except (OSError, ProcessLookupError, AttributeError):
+                pass
+        end = time.time() + 1.0
+        while time.time() < end and any(t.pty.alive() for t in items):
+            time.sleep(0.05)
+    for t in items:
+        t.kill()   # quem sobrou: SIGKILL (POSIX) / TerminateProcess (Windows)
 
 
 def rename(tid, title):
